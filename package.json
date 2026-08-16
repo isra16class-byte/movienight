@@ -1,0 +1,12 @@
+{
+  "name": "movienight",
+  "version": "1.0.0",
+  "description": "Watch party privado para ver pelis con amigos",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": {
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "socket.io": "^4.7.5"
+  }
+}
