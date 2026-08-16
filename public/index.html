@@ -2,50 +2,73 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>MovieNight 🎬</title>
-<style>
-  body { background:#0d0d14; color:#eee; font-family: 'Segoe UI', sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; }
-  .card { background:#16161f; padding:40px; border-radius:16px; width:360px; box-shadow:0 0 40px rgba(255,0,120,0.15); text-align:center; }
-  h1 { margin-top:0; font-size:28px; }
-  input[type=file] { width:100%; margin:20px 0; color:#ccc; }
-  button { background:#ff2e88; color:white; border:none; padding:12px 20px; border-radius:8px; font-size:16px; cursor:pointer; width:100%; }
-  button:disabled { background:#555; }
-  #status { margin-top:15px; font-size:14px; color:#aaa; }
-  #result { margin-top:20px; word-break:break-all; }
-  a { color:#ff2e88; }
-</style>
+<title>MovieNight — Función privada</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;500;600&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<div class="card">
-  <h1>🎬 MovieNight</h1>
-  <p>Sube tu película y comparte el link con tus amigos.</p>
-  <input type="file" id="videoFile" accept="video/*">
-  <button id="createBtn">Crear sala</button>
-  <div id="status"></div>
-  <div id="result"></div>
+<div class="reel-scene">
+  <div class="sprocket-strip"></div>
+
+  <main class="ticket-booth">
+    <p class="eyebrow">Función privada · solo con invitación</p>
+    <h1 class="marquee-title">MOVIE<br>NIGHT</h1>
+    <p class="tagline">Sube tu película, abre la sala y comparte el boleto de entrada con tus amigos.</p>
+
+    <label class="film-drop" id="dropLabel" for="videoFile">
+      <span class="film-drop-icon">🎞️</span>
+      <span id="fileNameText">Elegir película</span>
+      <input type="file" id="videoFile" accept="video/*" hidden>
+    </label>
+
+    <button id="createBtn" class="ticket-btn">
+      <span class="ticket-btn-main">Empezar función</span>
+      <span class="ticket-btn-notch"></span>
+    </button>
+
+    <div id="status" class="status-line"></div>
+  </main>
+
+  <div class="sprocket-strip"></div>
 </div>
+
 <script>
 const btn = document.getElementById('createBtn');
 const status = document.getElementById('status');
-const result = document.getElementById('result');
+const fileInput = document.getElementById('videoFile');
+const dropLabel = document.getElementById('dropLabel');
+const fileNameText = document.getElementById('fileNameText');
+
+fileInput.addEventListener('change', () => {
+  const file = fileInput.files[0];
+  if (file) {
+    dropLabel.classList.add('has-file');
+    fileNameText.textContent = file.name;
+  }
+});
 
 btn.onclick = async () => {
-  const file = document.getElementById('videoFile').files[0];
-  if (!file) return alert('Elige un video primero');
+  const file = fileInput.files[0];
+  if (!file) { status.textContent = 'Elige una película primero'; return; }
   btn.disabled = true;
-  status.textContent = 'Subiendo... esto puede tardar según el tamaño del archivo';
+  status.innerHTML = '<span class="reel-spinner"></span> Subiendo tu película...';
 
   const form = new FormData();
   form.append('video', file);
 
-  const res = await fetch('/create-room', { method: 'POST', body: form });
-  const data = await res.json();
-  btn.disabled = false;
-
-  if (data.error) { status.textContent = 'Error: ' + data.error; return; }
-
-  localStorage.setItem('mn_host_' + data.roomId, data.hostToken);
-  window.location = `/room/${data.roomId}`;
+  try {
+    const res = await fetch('/create-room', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.error) { status.textContent = 'Error: ' + data.error; btn.disabled = false; return; }
+    localStorage.setItem('mn_host_' + data.roomId, data.hostToken);
+    status.innerHTML = '<span class="reel-spinner"></span> Preparando la sala...';
+    window.location = `/room/${data.roomId}`;
+  } catch (err) {
+    status.textContent = 'No se pudo subir el archivo. Intenta de nuevo.';
+    btn.disabled = false;
+  }
 };
 </script>
 </body>

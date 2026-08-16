@@ -2,7 +2,7 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 15 de agosto de 2026.
+Última actualización: 16 de agosto de 2026.
 
 ---
 
@@ -86,14 +86,25 @@ En el cliente, hay una variable `ignoreSync` que evita loops infinitos: cuando e
 - **Video servido desde el propio servidor** (no WebRTC / P2P): se consideró pero se descartó por complejidad — sincronizar streams P2P de video pesado entre navegadores es mucho más difícil que simplemente servir el archivo por HTTP y sincronizar solo los eventos de control (play/pause/seek) por WebSocket. La contra es que el ancho de banda de subida del host limita cuántos amigos pueden ver fluido a la vez.
 - **Cloudflare Tunnel en vez de deploy real (Railway/Render/VPS)**: los videos pueden pesar varios GB; subirlos a un servicio de hosting pago sale caro y lento cada vez que cambias de película. Tunear el localhost es gratis y usa el disco/ancho de banda del propio usuario.
 
-## 8. Riesgos / cosas pendientes de endurecer (seguridad)
+## 8. Sistema de diseño (desde V4)
+
+Dirección visual: "función privada de cine análogo" — boletos de entrada, rollos de película, marquesina. Se eligió deliberadamente para alejarse del look genérico (fondo negro + acento neón único) y anclarse en objetos reales del mundo del cine.
+
+- **Archivo**: `public/style.css` — todos los estilos viven ahí como CSS variables (`:root`), compartido entre `index.html` y `room.html`. Antes estaba todo inline en cada HTML; se extrajo para no duplicar tokens de color/tipografía.
+- **Paleta** (variables en `:root` de `style.css`): `--bg` (negro azulado de sala), `--red` (rojo marquesina, acento principal — botones, badge de host), `--amber` (ámbar de bombilla — código de sala, hover states), `--violet` (violeta nocturno, usado con moderación solo en el botón "Cambiar rollo" para no perder el acento).
+- **Tipografía**: `--font-display` (Bebas Neue, vía Google Fonts CDN — solo para títulos grandes tipo marquesina), `--font-body` (Work Sans, texto normal), `--font-mono` (JetBrains Mono, para el código de sala, timestamps, labels — evoca el número impreso de un boleto).
+- **Elemento firma**: `.sprocket-strip` — la tira de perforaciones de película (círculos repetidos vía `radial-gradient`), usada arriba y abajo de la pantalla de video y en el layout general. `.ticket-stub` — el código de sala presentado como boleto con borde perforado y botón de copiar.
+- **Vocabulario específico de la interfaz** (solo texto visible, no afecta nombres de eventos/variables en el código): "Empezar función" (crear sala), "🎬 Operador" (host/anfitrión), "Cambiar rollo" (cambiar video). Elegido para reforzar la temática sin romper la lógica del backend, que sigue usando `host`, `create-room`, `change-video` internamente.
+- **Fuentes cargadas por CDN** (Google Fonts) — requiere conexión a internet la primera vez que alguien entra a la página; si se quiere que funcione 100% offline/LAN sin internet, habría que autohospedar los `.woff2`.
+
+## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 
 - El `hostToken` viaja en texto plano por HTTP (a menos que Cloudflare Tunnel lo cifre en tránsito, que sí lo hace vía HTTPS). Si alguien lo obtiene (inspeccionando `localStorage` de la persona equivocada, por ejemplo), puede hacerse pasar por host.
 - No hay rate-limiting en el chat ni en la subida de archivos — un usuario malicioso podría floodear el chat o intentar subir archivos gigantes repetidamente.
 - No hay validación de tipo de archivo más allá de lo que el navegador manda como `video/*` en el `<input accept>` — no es una validación real de seguridad, solo de UX.
 - Las salas nunca se borran ni expiran — si el server corre mucho tiempo, `rooms` y los archivos en `uploads/` se van acumulando.
 
-## 9. Ideas pendientes / roadmap
+## 10. Ideas pendientes / roadmap
 
 - [ ] Traspasar el rol de host a otro espectador (si el host se desconecta, nadie puede controlar el video).
 - [ ] Subtítulos (.srt) sincronizados.
@@ -102,7 +113,7 @@ En el cliente, hay una variable `ignoreSync` que evita loops infinitos: cuando e
 - [ ] Posible: contraseña de sala además del link, para evitar que alguien con el link viejo entre sin querer.
 - [ ] Posible: mostrar advertencia/loading mientras el video sube (actualmente el usuario no tiene feedback de progreso de subida, solo un texto genérico "Subiendo...").
 
-## 10. Historial de cambios
+## 11. Historial de cambios
 
 Ver `CHANGELOG.md` — ahí se registra cronológicamente cada cambio importante, versión por versión. Este archivo (`MEMORIA.md`) solo describe el estado **actual** del proyecto; se sobreescribe cada vez que la arquitectura cambia. El changelog, en cambio, se va acumulando (nunca se borra lo viejo).
 

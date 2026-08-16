@@ -2,80 +2,71 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>MovieNight - Sala</title>
+<title>MovieNight — Sala</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;500;600&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
 <script src="/socket.io/socket.io.js"></script>
-<style>
-  * { box-sizing: border-box; }
-  body { margin:0; background:#0d0d14; color:#eee; font-family:'Segoe UI', sans-serif; display:flex; height:100vh; }
-  .main { flex:1; display:flex; flex-direction:column; position:relative; }
-  video { width:100%; height:100%; background:black; }
-  .side { width:300px; background:#16161f; display:flex; flex-direction:column; border-left:1px solid #2a2a35; }
-  .tabs { display:flex; border-bottom:1px solid #2a2a35; }
-  .tabs button { flex:1; background:none; border:none; color:#888; padding:10px; cursor:pointer; }
-  .tabs button.active { color:#ff2e88; border-bottom:2px solid #ff2e88; }
-  .panel { flex:1; overflow-y:auto; display:none; }
-  .panel.active { display:flex; flex-direction:column; }
-  #messages { flex:1; overflow-y:auto; padding:10px; font-size:14px; }
-  #messages .system { color:#888; font-style:italic; margin:4px 0; }
-  #messages .msg b { color:#ff2e88; }
-  .chat-input { display:flex; padding:8px; border-top:1px solid #2a2a35; }
-  .chat-input input { flex:1; background:#0d0d14; border:1px solid #333; color:white; padding:8px; border-radius:6px; }
-  .reactions { display:flex; gap:6px; padding:8px; border-top:1px solid #2a2a35; flex-wrap:wrap; }
-  .reactions button { background:#22222e; border:none; font-size:20px; padding:6px 10px; border-radius:8px; cursor:pointer; }
-  .float-emoji { position:absolute; bottom:60px; font-size:32px; animation: floatUp 2.5s ease-out forwards; pointer-events:none; }
-  @keyframes floatUp { 0%{ opacity:1; transform:translateY(0);} 100%{ opacity:0; transform:translateY(-300px);} }
-  .viewers-badge { position:absolute; top:10px; right:10px; background:rgba(0,0,0,0.6); padding:6px 12px; border-radius:20px; font-size:13px; z-index:5; }
-  .host-badge { position:absolute; top:10px; left:10px; background:rgba(255,46,136,0.85); padding:6px 12px; border-radius:20px; font-size:13px; z-index:5; }
-  .viewer-item { display:flex; justify-content:space-between; align-items:center; padding:8px 12px; border-bottom:1px solid #22222e; font-size:13px; }
-  .viewer-item .actions button { background:#22222e; border:none; color:#eee; padding:4px 8px; border-radius:6px; margin-left:4px; cursor:pointer; font-size:12px; }
-  .viewer-item .actions button.kick { color:#ff5b5b; }
-  .viewer-item .actions button.muted { color:#ffcc00; }
-  .change-video { padding:10px; border-top:1px solid #2a2a35; }
-  .change-video label { display:block; background:#ff2e88; text-align:center; padding:8px; border-radius:8px; cursor:pointer; font-size:13px; }
-  .change-video input { display:none; }
-  .local-controls { position:absolute; bottom:10px; right:10px; background:rgba(0,0,0,0.6); padding:8px 12px; border-radius:10px; display:flex; gap:10px; align-items:center; z-index:5; }
-  .muted-banner { position:absolute; bottom:10px; left:10px; background:rgba(255,80,80,0.85); padding:6px 12px; border-radius:8px; font-size:12px; z-index:5; }
-</style>
 </head>
 <body>
-<div class="main">
-  <div class="viewers-badge" id="viewers">👥 0</div>
-  <div class="host-badge" id="hostBadge" style="display:none;">👑 Eres el host</div>
-  <video id="player" playsinline webkit-playsinline disablepictureinpicture></video>
-  <div class="local-controls" id="localControls" style="display:none;">
-    <span>🔊</span><input type="range" id="volSlider" min="0" max="1" step="0.05" value="1">
-    <button id="fsBtn" style="background:#22222e;color:#eee;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;">⛶</button>
-  </div>
-  <div class="muted-banner" id="mutedBanner" style="display:none;">🔇 El host te silenció el chat</div>
-</div>
+<div class="room-scene">
+  <div class="sprocket-strip"></div>
 
-<div class="side">
-  <div class="tabs">
-    <button class="active" data-tab="chat">Chat</button>
-    <button data-tab="people">Espectadores</button>
+  <div class="screen-row">
+    <div class="main">
+      <div class="screen-wrap">
+        <div class="viewers-badge" id="viewers">👥 0</div>
+        <div class="host-badge" id="hostBadge" style="display:none;">🎬 OPERADOR</div>
+        <video id="player" playsinline webkit-playsinline disablepictureinpicture></video>
+        <div class="local-controls" id="localControls" style="display:none;">
+          <span>🔊</span>
+          <input type="range" id="volSlider" min="0" max="1" step="0.05" value="1">
+          <button id="fsBtn" title="Pantalla completa">⛶</button>
+        </div>
+        <div class="muted-banner" id="mutedBanner" style="display:none;">🔇 El operador silenció tu chat</div>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="side-header">
+        <p class="now-showing">Ahora en sala</p>
+        <div class="ticket-stub">
+          <span class="ticket-stub-code" id="roomCodeText"></span>
+          <button class="ticket-stub-copy" id="copyBtn" title="Copiar link">Copiar</button>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <button class="active" data-tab="chat">Chat</button>
+        <button data-tab="people">Sala</button>
+      </div>
+
+      <div class="panel active" id="panel-chat">
+        <div id="messages"></div>
+        <div class="reactions">
+          <button data-e="😂">😂</button>
+          <button data-e="🔥">🔥</button>
+          <button data-e="😱">😱</button>
+          <button data-e="❤️">❤️</button>
+          <button data-e="👏">👏</button>
+        </div>
+        <div class="chat-input">
+          <input id="chatInput" placeholder="Escribe algo...">
+        </div>
+      </div>
+
+      <div class="panel" id="panel-people">
+        <div id="viewerList"></div>
+        <div class="change-video" id="changeVideoWrap" style="display:none;">
+          <label for="newVideo">🎞️ Cambiar rollo</label>
+          <input type="file" id="newVideo" accept="video/*">
+        </div>
+      </div>
+    </div>
   </div>
 
-  <div class="panel active" id="panel-chat">
-    <div id="messages"></div>
-    <div class="reactions">
-      <button data-e="😂">😂</button>
-      <button data-e="🔥">🔥</button>
-      <button data-e="😱">😱</button>
-      <button data-e="❤️">❤️</button>
-      <button data-e="👏">👏</button>
-    </div>
-    <div class="chat-input">
-      <input id="chatInput" placeholder="Escribe algo...">
-    </div>
-  </div>
-
-  <div class="panel" id="panel-people">
-    <div id="viewerList"></div>
-    <div class="change-video" id="changeVideoWrap" style="display:none;">
-      <label for="newVideo">🎞️ Cambiar película</label>
-      <input type="file" id="newVideo" accept="video/*">
-    </div>
-  </div>
+  <div class="sprocket-strip"></div>
 </div>
 
 <script>
@@ -88,6 +79,15 @@ let isHost = false;
 let ignoreSync = false;
 let myId = null;
 let lastKnownTime = 0;
+
+document.getElementById('roomCodeText').textContent = roomId;
+document.getElementById('copyBtn').onclick = () => {
+  navigator.clipboard.writeText(location.href);
+  const btn = document.getElementById('copyBtn');
+  const original = btn.textContent;
+  btn.textContent = '¡Listo!';
+  setTimeout(() => btn.textContent = original, 1500);
+};
 
 fetch(`/api/room/${roomId}`).then(r => r.json()).then(data => {
   if (data.error) { alert('Sala no encontrada'); return; }
@@ -108,7 +108,7 @@ socket.on('host-status', (host) => {
 
 socket.on('viewer-count', n => document.getElementById('viewers').textContent = `👥 ${n}`);
 
-socket.on('kicked', () => { alert('El host te expulsó de la sala 🚪'); location.href = '/'; });
+socket.on('kicked', () => { alert('El operador te expulsó de la sala 🚪'); location.href = '/'; });
 socket.on('mute-status', ({ muted }) => {
   document.getElementById('mutedBanner').style.display = muted ? 'block' : 'none';
   document.getElementById('chatInput').disabled = muted;
@@ -128,7 +128,7 @@ socket.on('viewer-list', (list) => {
         <button class="kick" data-id="${v.id}">Expulsar</button>
       </span>`;
     }
-    row.innerHTML = `<span>${v.isHost ? '👑 ' : ''}${v.username}${v.muted ? ' 🔇' : ''}</span>${actions}`;
+    row.innerHTML = `<span>${v.isHost ? '🎬 ' : ''}${v.username}${v.muted ? ' 🔇' : ''}</span>${actions}`;
     el.appendChild(row);
   });
   el.querySelectorAll('.mute').forEach(b => b.onclick = () => socket.emit('toggle-mute', b.dataset.id));
@@ -239,7 +239,7 @@ socket.on('reaction', (emoji) => {
   el.className = 'float-emoji';
   el.textContent = emoji;
   el.style.left = Math.random() * 80 + '%';
-  document.querySelector('.main').appendChild(el);
+  document.querySelector('.screen-wrap').appendChild(el);
   setTimeout(() => el.remove(), 2500);
 });
 </script>

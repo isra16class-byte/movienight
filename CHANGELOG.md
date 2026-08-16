@@ -6,6 +6,21 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-16] V4 — Rediseño visual: "Función privada"
+
+**Motivo:** la interfaz original (fondo negro + acento rosa/magenta) era genérica, no tenía relación con el mundo del cine. Se pidió un estilo único.
+
+**Cambios:**
+- Nuevo sistema de diseño inspirado en cine análogo: boletos de entrada, rollos de película, tira de perforaciones (sprockets), letrero de marquesina.
+- Paleta nueva: negro azulado de sala (`#0B0E14`), rojo marquesina (`#FF3B3F`), ámbar de bombilla (`#FFC857`), violeta nocturno como acento en detalles puntuales (`#8B5CF6`).
+- Tipografía: Bebas Neue (títulos tipo marquesina), Work Sans (texto), JetBrains Mono (código de sala, etiquetas, timestamps).
+- Nuevo archivo `public/style.css` — se extrajeron los estilos que antes vivían inline en cada HTML a una hoja compartida.
+- El código de sala ahora se muestra como un "boleto" (`ticket-stub`) con botón de copiar link.
+- El botón de crear sala ahora es un boleto con borde perforado ("Empezar función").
+- Renombrado en la interfaz (solo texto visible, no en el código): "host" → "🎬 Operador", "Cambiar película" → "Cambiar rollo", "Crear sala" → "Empezar función".
+- Loader de subida cambiado de texto plano a un pequeño spinner circular tipo rollo girando.
+- Archivos afectados: `public/style.css` (nuevo), `public/index.html`, `public/room.html`. `server.js` no cambió — sigue sirviendo `public/` como estático, así que `style.css` se sirve solo.
+
 ## [2026-08-15] V3 — Bloqueo de controles para invitados + resincronización
 
 **Motivo:** se detectó que un invitado podía adelantar el video sin querer desde el celular (el reproductor nativo de pantalla completa en móviles mostraba su propia barra de progreso).
