@@ -211,7 +211,19 @@ body::after {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  filter: drop-shadow(0 0 18px rgba(255, 46, 154, 0.45));
+  position: relative;
+  filter: drop-shadow(0 0 20px rgba(255, 46, 154, 0.65)) drop-shadow(0 0 42px rgba(0, 229, 255, 0.4));
+  text-shadow:
+    -1px -1px 0 rgba(255, 255, 255, 0.3),
+    1.5px 1.5px 0 rgba(123, 47, 247, 0.95),
+    3px 3px 0 rgba(74, 21, 51, 0.9),
+    4.5px 4.5px 6px rgba(0, 0, 0, 0.5);
+  animation: neonFlicker 5s ease-in-out infinite;
+}
+@keyframes neonFlicker {
+  0%, 92%, 100% { filter: drop-shadow(0 0 20px rgba(255, 46, 154, 0.65)) drop-shadow(0 0 42px rgba(0, 229, 255, 0.4)); }
+  94% { filter: drop-shadow(0 0 6px rgba(255, 46, 154, 0.2)) drop-shadow(0 0 14px rgba(0, 229, 255, 0.12)); }
+  96% { filter: drop-shadow(0 0 26px rgba(255, 46, 154, 0.8)) drop-shadow(0 0 50px rgba(0, 229, 255, 0.5)); }
 }
 
 .tagline {
