@@ -5,35 +5,41 @@
 <title>MovieNight — Sala</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;500;600&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Monoton&family=Space+Grotesk:wght@400;500;600;700&family=VT323&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
 <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
 <div class="room-scene">
-  <div class="sprocket-strip"></div>
-
   <div class="screen-row">
     <div class="main">
       <div class="screen-wrap">
         <div class="viewers-badge" id="viewers">👥 0</div>
-        <div class="host-badge" id="hostBadge" style="display:none;">🎬 OPERADOR</div>
+        <div class="host-badge" id="hostBadge" style="display:none;">🎛 CONTROL REMOTO</div>
         <video id="player" playsinline webkit-playsinline disablepictureinpicture></video>
         <div class="local-controls" id="localControls" style="display:none;">
           <span>🔊</span>
           <input type="range" id="volSlider" min="0" max="1" step="0.05" value="1">
           <button id="fsBtn" title="Pantalla completa">⛶</button>
         </div>
-        <div class="muted-banner" id="mutedBanner" style="display:none;">🔇 El operador silenció tu chat</div>
+        <div class="muted-banner" id="mutedBanner" style="display:none;">🔇 Te silenciaron el chat</div>
       </div>
     </div>
 
     <div class="side">
+      <div class="floaters">
+        <span class="floater" style="left:6%;  font-size:18px; animation-duration:9s;  animation-delay:-2s;">📼</span>
+        <span class="floater" style="left:22%; font-size:14px; animation-duration:11s; animation-delay:-5s;">🎞️</span>
+        <span class="floater" style="left:40%; font-size:20px; animation-duration:8s;  animation-delay:-7s;">💿</span>
+        <span class="floater" style="left:58%; font-size:15px; animation-duration:10s; animation-delay:-3s;">📀</span>
+        <span class="floater" style="left:75%; font-size:18px; animation-duration:12s; animation-delay:-6s;">📼</span>
+        <span class="floater" style="left:90%; font-size:16px; animation-duration:9.5s; animation-delay:-1s;">🎞️</span>
+      </div>
       <div class="side-header">
-        <p class="now-showing">Ahora en sala</p>
-        <div class="ticket-stub">
-          <span class="ticket-stub-code" id="roomCodeText"></span>
-          <button class="ticket-stub-copy" id="copyBtn" title="Copiar link">Copiar</button>
+        <div class="osd-counter">
+          <span class="rec-dot"></span>
+          <span class="osd-counter-code" id="roomCodeText"></span>
+          <button class="osd-counter-copy" id="copyBtn" title="Copiar link">COPIAR</button>
         </div>
       </div>
 
@@ -59,14 +65,12 @@
       <div class="panel" id="panel-people">
         <div id="viewerList"></div>
         <div class="change-video" id="changeVideoWrap" style="display:none;">
-          <label for="newVideo">🎞️ Cambiar rollo</label>
+          <label for="newVideo">📼 Cambiar cinta</label>
           <input type="file" id="newVideo" accept="video/*">
         </div>
       </div>
     </div>
   </div>
-
-  <div class="sprocket-strip"></div>
 </div>
 
 <script>
@@ -85,7 +89,7 @@ document.getElementById('copyBtn').onclick = () => {
   navigator.clipboard.writeText(location.href);
   const btn = document.getElementById('copyBtn');
   const original = btn.textContent;
-  btn.textContent = '¡Listo!';
+  btn.textContent = 'LISTO';
   setTimeout(() => btn.textContent = original, 1500);
 };
 
@@ -108,7 +112,7 @@ socket.on('host-status', (host) => {
 
 socket.on('viewer-count', n => document.getElementById('viewers').textContent = `👥 ${n}`);
 
-socket.on('kicked', () => { alert('El operador te expulsó de la sala 🚪'); location.href = '/'; });
+socket.on('kicked', () => { alert('Te expulsaron de la sala 🚪'); location.href = '/'; });
 socket.on('mute-status', ({ muted }) => {
   document.getElementById('mutedBanner').style.display = muted ? 'block' : 'none';
   document.getElementById('chatInput').disabled = muted;
@@ -128,7 +132,7 @@ socket.on('viewer-list', (list) => {
         <button class="kick" data-id="${v.id}">Expulsar</button>
       </span>`;
     }
-    row.innerHTML = `<span>${v.isHost ? '🎬 ' : ''}${v.username}${v.muted ? ' 🔇' : ''}</span>${actions}`;
+    row.innerHTML = `<span>${v.isHost ? '🎛 ' : ''}${v.username}${v.muted ? ' 🔇' : ''}</span>${actions}`;
     el.appendChild(row);
   });
   el.querySelectorAll('.mute').forEach(b => b.onclick = () => socket.emit('toggle-mute', b.dataset.id));
@@ -196,7 +200,7 @@ socket.on('video-changed', ({ videoFile }) => {
 document.getElementById('volSlider').addEventListener('input', (e) => player.volume = e.target.value);
 document.getElementById('fsBtn').onclick = () => player.requestFullscreen();
 
-// --- Cambiar película (host) ---
+// --- Cambiar cinta (host) ---
 document.getElementById('newVideo')?.addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;

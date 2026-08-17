@@ -2,36 +2,64 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>MovieNight — Función privada</title>
+<title>MovieNight — 📼</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;500;600&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Monoton&family=Space+Grotesk:wght@400;500;600;700&family=VT323&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<div class="reel-scene">
-  <div class="sprocket-strip"></div>
+<div class="vhs-scene">
+  <div class="horizon"><div class="sun"></div><div class="grid"></div></div>
+  <div class="floaters">
+    <span class="floater" style="left:2%;  font-size:30px; animation-duration:8s;  animation-delay:-1s;">📼</span>
+    <span class="floater" style="left:9%;  font-size:20px; animation-duration:11s; animation-delay:-6s;">💿</span>
+    <span class="floater" style="left:16%; font-size:26px; animation-duration:9.5s; animation-delay:-3s;">🎞️</span>
+    <span class="floater" style="left:23%; font-size:18px; animation-duration:13s; animation-delay:-8s;">📀</span>
+    <span class="floater" style="left:31%; font-size:34px; animation-duration:7s;  animation-delay:-2s;">📼</span>
+    <span class="floater" style="left:38%; font-size:22px; animation-duration:10s; animation-delay:-5s;">💿</span>
+    <span class="floater" style="left:45%; font-size:16px; animation-duration:12s; animation-delay:-9s;">🎞️</span>
+    <span class="floater" style="left:52%; font-size:28px; animation-duration:8.5s; animation-delay:-4s;">📀</span>
+    <span class="floater" style="left:59%; font-size:20px; animation-duration:9s;  animation-delay:-7s;">📼</span>
+    <span class="floater" style="left:66%; font-size:32px; animation-duration:11.5s; animation-delay:-1.5s;">💿</span>
+    <span class="floater" style="left:73%; font-size:18px; animation-duration:7.5s; animation-delay:-6.5s;">🎞️</span>
+    <span class="floater" style="left:80%; font-size:24px; animation-duration:10.5s; animation-delay:-3.5s;">📀</span>
+    <span class="floater" style="left:87%; font-size:30px; animation-duration:9s;  animation-delay:-8.5s;">📼</span>
+    <span class="floater" style="left:94%; font-size:19px; animation-duration:12.5s; animation-delay:-2.5s;">💿</span>
+    <span class="floater" style="left:5%;  font-size:22px; animation-duration:10s; animation-delay:-10s;">📀</span>
+    <span class="floater" style="left:62%; font-size:16px; animation-duration:8s;  animation-delay:-11s;">🎞️</span>
+    <span class="floater" style="left:40%; font-size:26px; animation-duration:13.5s; animation-delay:-4.5s;">📼</span>
+    <span class="floater" style="left:97%; font-size:22px; animation-duration:9.5s; animation-delay:-6s;">💿</span>
+  </div>
 
-  <main class="ticket-booth">
-    <p class="eyebrow">Función privada · solo con invitación</p>
-    <h1 class="marquee-title">MOVIE<br>NIGHT</h1>
-    <p class="tagline">Sube tu película, abre la sala y comparte el boleto de entrada con tus amigos.</p>
+  <main class="deck">
+    <p class="eyebrow-osd">▸ REWIND · PLAY · REC ◂</p>
+    <h1 class="marquee-title">MOVIE NIGHT</h1>
+    <p class="tagline">Inserta tu cinta, graba la sala y comparte el código con tus amigos.</p>
 
-    <label class="film-drop" id="dropLabel" for="videoFile">
-      <span class="film-drop-icon">🎞️</span>
-      <span id="fileNameText">Elegir película</span>
+    <label class="tape-slot" id="dropLabel" for="videoFile">
+      <span class="tape-slot-icon">📼</span>
+      <span id="fileNameText">Insertar cinta</span>
       <input type="file" id="videoFile" accept="video/*" hidden>
     </label>
 
-    <button id="createBtn" class="ticket-btn">
-      <span class="ticket-btn-main">Empezar función</span>
-      <span class="ticket-btn-notch"></span>
+    <button id="createBtn" class="rec-btn">
+      <span class="rec-dot"></span>
+      <span>GRABAR SALA</span>
     </button>
 
     <div id="status" class="status-line"></div>
-  </main>
+    <div class="tape-progress" id="progressWrap"><div class="tape-progress-bar" id="progressBar"></div></div>
 
-  <div class="sprocket-strip"></div>
+    <div class="divider-row"><span>O</span></div>
+
+    <p class="eyebrow-osd" style="color:var(--pink); margin-bottom:10px;">¿Ya tienes un código?</p>
+    <div class="join-row">
+      <input type="text" id="joinCode" placeholder="a1b2c3" maxlength="6">
+      <button class="join-btn" id="joinBtn">▶ ENTRAR</button>
+    </div>
+    <div id="joinStatus" class="status-line"></div>
+  </main>
 </div>
 
 <script>
@@ -40,6 +68,13 @@ const status = document.getElementById('status');
 const fileInput = document.getElementById('videoFile');
 const dropLabel = document.getElementById('dropLabel');
 const fileNameText = document.getElementById('fileNameText');
+const progressWrap = document.getElementById('progressWrap');
+const progressBar = document.getElementById('progressBar');
+
+const cassetteIcon = `<svg class="cassette-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="color:var(--cyan)">
+  <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3"/>
+  <circle cx="12" cy="12" r="2.5" fill="currentColor"/>
+</svg>`;
 
 fileInput.addEventListener('change', () => {
   const file = fileInput.files[0];
@@ -49,27 +84,81 @@ fileInput.addEventListener('change', () => {
   }
 });
 
-btn.onclick = async () => {
+btn.onclick = () => {
   const file = fileInput.files[0];
-  if (!file) { status.textContent = 'Elige una película primero'; return; }
+  if (!file) { status.textContent = 'Inserta una cinta primero'; return; }
   btn.disabled = true;
-  status.innerHTML = '<span class="reel-spinner"></span> Subiendo tu película...';
+  btn.querySelector('span:last-child').textContent = 'GRABANDO...';
+  progressWrap.classList.add('active');
+  status.innerHTML = `${cassetteIcon} Subiendo cinta... 0%`;
 
   const form = new FormData();
   form.append('video', file);
 
-  try {
-    const res = await fetch('/create-room', { method: 'POST', body: form });
-    const data = await res.json();
-    if (data.error) { status.textContent = 'Error: ' + data.error; btn.disabled = false; return; }
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/create-room');
+
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) {
+      const pct = Math.round((e.loaded / e.total) * 100);
+      progressBar.style.width = pct + '%';
+      status.innerHTML = `${cassetteIcon} Subiendo cinta... ${pct}%`;
+    }
+  };
+
+  xhr.onload = () => {
+    let data;
+    try { data = JSON.parse(xhr.responseText); } catch { data = { error: 'Respuesta inválida del servidor' }; }
+    if (xhr.status < 200 || xhr.status >= 300 || data.error) {
+      status.textContent = 'Error: ' + (data.error || 'no se pudo crear la sala');
+      btn.disabled = false;
+      btn.querySelector('span:last-child').textContent = 'GRABAR SALA';
+      progressWrap.classList.remove('active');
+      return;
+    }
     localStorage.setItem('mn_host_' + data.roomId, data.hostToken);
-    status.innerHTML = '<span class="reel-spinner"></span> Preparando la sala...';
+    progressBar.style.width = '100%';
+    status.innerHTML = `${cassetteIcon} Preparando la sala...`;
     window.location = `/room/${data.roomId}`;
-  } catch (err) {
+  };
+
+  xhr.onerror = () => {
     status.textContent = 'No se pudo subir el archivo. Intenta de nuevo.';
     btn.disabled = false;
-  }
+    btn.querySelector('span:last-child').textContent = 'GRABAR SALA';
+    progressWrap.classList.remove('active');
+  };
+
+  xhr.send(form);
 };
+
+// --- Unirse a sala con código ---
+const joinBtn = document.getElementById('joinBtn');
+const joinCode = document.getElementById('joinCode');
+const joinStatus = document.getElementById('joinStatus');
+
+async function tryJoin() {
+  const code = joinCode.value.trim().toLowerCase();
+  if (!code) { joinStatus.textContent = 'Escribe un código de sala'; return; }
+  joinBtn.disabled = true;
+  joinStatus.innerHTML = `${cassetteIcon} Buscando sala...`;
+  try {
+    const res = await fetch(`/api/room/${code}`);
+    const data = await res.json();
+    if (data.error) {
+      joinStatus.textContent = 'Esa sala no existe. Revisa el código.';
+      joinBtn.disabled = false;
+      return;
+    }
+    window.location = `/room/${code}`;
+  } catch (err) {
+    joinStatus.textContent = 'Error al buscar la sala. Intenta de nuevo.';
+    joinBtn.disabled = false;
+  }
+}
+
+joinBtn.onclick = tryJoin;
+joinCode.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryJoin(); });
 </script>
 </body>
 </html>
