@@ -33,17 +33,23 @@
   </div>
 
   <main class="deck">
+    <span class="deck-corner tl"></span>
+    <span class="deck-corner tr"></span>
+    <span class="deck-corner bl"></span>
+    <span class="deck-corner br"></span>
+    <div class="rec-timer"><span class="rec-dot"></span> REC <span id="recTime">00:00</span></div>
+
     <p class="eyebrow-osd">▸ REWIND · PLAY · REC ◂</p>
     <h1 class="marquee-title">MOVIE NIGHT</h1>
     <p class="tagline">Inserta tu cinta, graba la sala y comparte el código con tus amigos.</p>
 
-    <label class="tape-slot" id="dropLabel" for="videoFile">
+    <label class="tape-slot tracking-glitch" id="dropLabel" for="videoFile">
       <span class="tape-slot-icon">📼</span>
       <span id="fileNameText">Insertar cinta</span>
       <input type="file" id="videoFile" accept="video/*" hidden>
     </label>
 
-    <button id="createBtn" class="rec-btn">
+    <button id="createBtn" class="rec-btn tracking-glitch">
       <span class="rec-dot"></span>
       <span>GRABAR SALA</span>
     </button>
@@ -51,10 +57,10 @@
     <div id="status" class="status-line"></div>
     <div class="tape-progress" id="progressWrap"><div class="tape-progress-bar" id="progressBar"></div></div>
 
-    <div class="divider-row"><span>O</span></div>
+    <div class="divider-row"><span>o también</span></div>
 
     <p class="eyebrow-osd" style="color:var(--pink); margin-bottom:10px;">¿Ya tienes un código?</p>
-    <div class="join-row">
+    <div class="join-row tracking-glitch">
       <input type="text" id="joinCode" placeholder="a1b2c3" maxlength="6">
       <button class="join-btn" id="joinBtn">▶ ENTRAR</button>
     </div>
@@ -159,6 +165,16 @@ async function tryJoin() {
 
 joinBtn.onclick = tryJoin;
 joinCode.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryJoin(); });
+
+// --- Contador REC decorativo (ambiente, no tiene efecto funcional) ---
+let recSeconds = 0;
+const recTimeEl = document.getElementById('recTime');
+setInterval(() => {
+  recSeconds++;
+  const m = String(Math.floor(recSeconds / 60)).padStart(2, '0');
+  const s = String(recSeconds % 60).padStart(2, '0');
+  recTimeEl.textContent = `${m}:${s}`;
+}, 1000);
 </script>
 </body>
 </html>

@@ -61,6 +61,7 @@ body::after {
   text-transform: uppercase;
   color: var(--cyan);
   margin: 0 0 10px;
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.55);
 }
 
 /* ---------- Elementos flotantes decorativos (lluvia de cintas y CDs) ---------- */
@@ -75,16 +76,16 @@ body::after {
   position: absolute;
   top: -12%;
   opacity: 0;
-  filter: drop-shadow(0 0 10px rgba(255, 46, 154, 0.35));
+  filter: drop-shadow(0 0 12px rgba(255, 46, 154, 0.7)) drop-shadow(0 0 22px rgba(0, 229, 255, 0.25));
   animation-name: rainFall;
   animation-timing-function: linear;
   animation-iteration-count: infinite;
 }
 @keyframes rainFall {
   0%   { transform: translateY(0) translateX(0) rotate(0deg); opacity: 0; }
-  8%   { opacity: 0.24; }
+  8%   { opacity: 0.65; }
   50%  { transform: translateY(56vh) translateX(14px) rotate(180deg); }
-  92%  { opacity: 0.24; }
+  92%  { opacity: 0.65; }
   100% { transform: translateY(118vh) translateX(-10px) rotate(360deg); opacity: 0; }
 }
 
@@ -111,28 +112,33 @@ body::after {
 }
 .horizon .sun {
   position: absolute;
-  top: 8%;
+  top: 5%;
   left: 50%;
   transform: translateX(-50%);
-  width: 340px;
-  height: 340px;
+  width: 400px;
+  height: 400px;
   border-radius: 50%;
-  background: radial-gradient(circle at 50% 40%, var(--sun), var(--pink) 65%, transparent 75%);
-  filter: blur(2px);
-  opacity: 0.55;
+  background:
+    repeating-linear-gradient(to bottom, transparent 0 5px, var(--bg) 5px 9px),
+    radial-gradient(circle at 50% 36%, #fff2df 0%, var(--sun) 42%, var(--pink) 76%, transparent 86%);
+  filter: drop-shadow(0 0 70px rgba(255, 122, 69, 0.55));
+  opacity: 0.9;
 }
 .horizon .grid {
   position: absolute;
-  bottom: -10%;
+  bottom: 0;
   left: -25%;
   width: 150%;
-  height: 55%;
+  height: 42%;
   background-image:
     repeating-linear-gradient(to right, var(--cyan) 0 2px, transparent 2px 60px),
     repeating-linear-gradient(to bottom, var(--cyan) 0 2px, transparent 2px 40px);
-  opacity: 0.28;
-  transform: perspective(300px) rotateX(60deg);
+  opacity: 0.6;
+  filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.4));
+  transform: perspective(650px) rotateX(72deg);
   transform-origin: bottom;
+  -webkit-mask-image: linear-gradient(to top, black 40%, transparent 98%);
+  mask-image: linear-gradient(to top, black 40%, transparent 98%);
 }
 
 .deck {
@@ -143,10 +149,55 @@ body::after {
   background: rgba(23, 11, 39, 0.72);
   border: 1px solid var(--line);
   border-radius: 14px;
-  padding: 36px 30px;
+  padding: 46px 30px 36px;
   text-align: center;
   backdrop-filter: blur(6px);
   box-shadow: 0 0 60px rgba(255, 46, 154, 0.12);
+  overflow: hidden;
+}
+
+/* Textura de estática/ruido sutil, tipo cinta vieja */
+.deck::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.deck > * { position: relative; z-index: 1; }
+
+/* Esquinas tipo visor de cámara/viewfinder */
+.deck-corner {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--cyan);
+  opacity: 0.75;
+  z-index: 2;
+  filter: drop-shadow(0 0 4px rgba(0, 229, 255, 0.6));
+}
+.deck-corner.tl { top: 10px; left: 10px; border-right: none; border-bottom: none; }
+.deck-corner.tr { top: 10px; right: 10px; border-left: none; border-bottom: none; }
+.deck-corner.bl { bottom: 10px; left: 10px; border-right: none; border-top: none; }
+.deck-corner.br { bottom: 10px; right: 10px; border-left: none; border-top: none; }
+
+/* Contador REC estilo videocasetera, esquina superior */
+.rec-timer {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-osd);
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  color: var(--pink);
+  text-shadow: 0 0 8px rgba(255, 46, 154, 0.6);
 }
 
 .marquee-title {
@@ -171,6 +222,7 @@ body::after {
 }
 
 .tape-slot {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -184,12 +236,42 @@ body::after {
   font-family: var(--font-osd);
   font-size: 16px;
   color: var(--text-muted);
+  overflow: hidden;
 }
 .tape-slot:hover { border-color: var(--cyan); background: #2a1548; }
 .tape-slot.has-file { border-color: var(--pink); color: var(--text); border-style: solid; }
 .tape-slot-icon { font-size: 20px; }
 
+/* ---------- Glitch de "mal tracking" al pasar el mouse ---------- */
+.tracking-glitch { position: relative; overflow: hidden; }
+.tracking-glitch::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    repeating-linear-gradient(to bottom, transparent 0 3px, rgba(0,229,255,0.5) 3px 4px, transparent 4px 7px),
+    linear-gradient(180deg, transparent 0%, rgba(255,255,255,0.35) 48%, transparent 100%);
+  mix-blend-mode: overlay;
+}
+.tracking-glitch:hover::after,
+.tracking-glitch:focus-within::after {
+  opacity: 1;
+  animation: trackingGlitch 0.5s steps(8) 1;
+}
+@keyframes trackingGlitch {
+  0%   { transform: translate(-4px, 0); clip-path: inset(0 0 88% 0); }
+  15%  { transform: translate(3px, 0);  clip-path: inset(15% 0 65% 0); }
+  30%  { transform: translate(-3px, 0); clip-path: inset(45% 0 35% 0); }
+  45%  { transform: translate(4px, 0);  clip-path: inset(65% 0 10% 0); }
+  60%  { transform: translate(-2px, 0); clip-path: inset(20% 0 55% 0); }
+  80%  { transform: translate(2px, 0);  clip-path: inset(0 0 90% 0); }
+  100% { transform: translate(0, 0);    clip-path: inset(0 0 100% 0); }
+}
+
 .rec-btn {
+  position: relative;
   margin-top: 20px;
   width: 100%;
   border: none;
@@ -207,6 +289,7 @@ body::after {
   gap: 10px;
   transition: filter 0.15s ease, transform 0.1s ease;
   box-shadow: 0 4px 24px rgba(255, 46, 154, 0.3);
+  overflow: hidden;
 }
 .rec-btn:hover { filter: brightness(1.12); }
 .rec-btn:active { transform: translateY(1px); }
@@ -277,15 +360,18 @@ body::after {
   background: var(--line);
 }
 .divider-row span {
-  font-family: var(--font-osd);
-  font-size: 14px;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 12px;
   color: var(--text-muted);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
 .join-row {
   display: flex;
   gap: 8px;
+  position: relative;
 }
 .join-row input {
   flex: 1;
@@ -299,11 +385,13 @@ body::after {
   font-size: 18px;
   letter-spacing: 0.1em;
   text-transform: lowercase;
+  transition: border-color 0.2s ease;
 }
 .join-row input:focus { outline: none; border-color: var(--cyan); }
 .join-row input::placeholder { color: var(--text-muted); opacity: 0.6; }
 
 .join-btn {
+  position: relative;
   flex-shrink: 0;
   border: 1.5px solid var(--cyan);
   background: transparent;
@@ -315,6 +403,7 @@ body::after {
   font-size: 16px;
   letter-spacing: 0.06em;
   transition: background 0.15s ease, color 0.15s ease;
+  overflow: hidden;
 }
 .join-btn:hover { background: var(--cyan); color: #0c1620; }
 .join-btn:disabled { border-color: var(--line); color: var(--text-muted); cursor: default; background: transparent; }
@@ -360,6 +449,7 @@ video { width: 100%; height: 100%; display: block; background: black; }
   font-size: 20px;
   letter-spacing: 0.1em;
   color: var(--cyan);
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.55);
 }
 .osd-counter-copy {
   border: none;

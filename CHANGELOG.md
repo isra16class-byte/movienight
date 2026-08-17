@@ -6,6 +6,23 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-16] V5.1 — Pulido visual del rediseño VHS/vaporwave
+
+**Motivo:** feedback directo sobre una captura de la V5: la interfaz se veía "correcta pero básica/genérica" — los elementos temáticos (lluvia de cintas, horizonte synthwave) casi no se notaban, y había un bug de legibilidad (el separador "O" se confundía con "0" en la fuente VT323).
+
+**Cambios (todos en `public/style.css`, más ajustes chicos en `public/index.html`):**
+- Arreglado el bug "O"/"0": el separador ahora dice "o también" en la fuente de texto normal, no en la monoespaciada ambigua.
+- Lluvia de fondo (`.floaters`) mucho más visible: opacidad máxima `0.24` → `0.65`, doble glow rosa+cian.
+- Sol del horizonte con franjas horizontales (efecto "sol rayado" vaporwave clásico) y más grande/brillante.
+- Corregido el grid del piso synthwave, que por un problema de `perspective`/`rotateX` quedaba comprimido y prácticamente invisible fuera del viewport — ahora se ve como un piso de grilla real en la parte baja de la pantalla.
+- Agregadas 4 esquinas tipo visor de cámara (`.deck-corner`) alrededor de la tarjeta principal.
+- Agregado un contador `REC 00:00` decorativo que corre en vivo en la esquina de la tarjeta (puramente ambiental, sin efecto funcional).
+- Agregada textura de estática/grano muy sutil (`feTurbulence` vía SVG inline) en el fondo de la tarjeta.
+- Nuevo efecto de hover "mal tracking de VHS" (clase `.tracking-glitch`, solo CSS) en el selector de archivo, el botón de crear sala y el input+botón de unirse por código.
+- Mejorado el contraste de los textos cian (`text-shadow` sutil) contra el fondo oscuro.
+- Verificado con Playwright (screenshots reales, no solo lectura de código) en desktop y mobile antes de entregar, incluyendo un fix de un bug de posicionamiento del grid que solo se detectó al renderizar.
+- `server.js` no cambió. `public/room.html` no se tocó directamente pero hereda las mejoras de `.floaters` y `.osd-counter` por compartir `style.css`.
+
 ## [2026-08-16] V5 — Rediseño VHS/vaporwave, unirse por código y progreso real de carga
 
 **Motivo:** exploración estética (reemplazo del look "cine análogo" de la V4) + dos mejoras de usabilidad pendientes en el roadmap: poder entrar a una sala sin el link completo, y ver el progreso real de la subida del video.
