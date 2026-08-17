@@ -6,6 +6,20 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-16] V5 — Rediseño VHS/vaporwave, unirse por código y progreso real de carga
+
+**Motivo:** exploración estética (reemplazo del look "cine análogo" de la V4) + dos mejoras de usabilidad pendientes en el roadmap: poder entrar a una sala sin el link completo, y ver el progreso real de la subida del video.
+
+**Cambios:**
+- Nuevo sistema de diseño "Videoclub": estética VHS/vaporwave — lluvia de fondo con emojis de cintas/CDs (`.floaters` + animación `rainFall`), horizonte con sol y grilla estilo synthwave (`.horizon`) en la pantalla de inicio, overlay de líneas de escaneo tipo CRT sobre toda la página.
+- Paleta nueva: fondo morado casi negro (`#170b27`), rosa neón (`#ff2e9a`) como acento principal, cian (`#00e5ff`) para labels tipo "on-screen display", violeta (`#7b2ff7`) de apoyo, naranja (`#ff7a45`) solo en el sol decorativo.
+- Tipografía nueva: Monoton (títulos), Space Grotesk (texto), VT323 (labels/código de sala, simula texto de videocasetera).
+- Renombrados visuales: selector de archivo ahora es "Insertar cinta" (`.tape-slot`), botón de crear sala es "GRABAR SALA" (`.rec-btn`, con punto rojo de grabación), el host se muestra como "🎛 Control remoto" (antes "🎬 Operador"), cambiar película es "Cambiar cinta" (antes "Cambiar rollo"), código de sala se muestra en un contador tipo OSD (`.osd-counter`, antes `.ticket-stub`).
+- **Nuevo: unirse a una sala por código.** `index.html` ahora tiene un input + botón "▶ ENTRAR" debajo del flujo de crear sala; verifica el código contra `GET /api/room/:id` (endpoint que ya existía en `server.js` desde la V1 pero no se usaba desde el frontend) y redirige a `/room/<código>` si existe. Sin cambios en `server.js` ni en la lógica de roles.
+- **Nuevo: progreso real de subida.** Se cambió `fetch` por `XMLHttpRequest` en la subida del video (único cambio necesario para acceder a `xhr.upload.onprogress`), mostrando porcentaje en vivo y una barra de progreso (`.tape-progress`) en vez del texto genérico "Subiendo...". Resuelve un pendiente del roadmap.
+- Archivos afectados: `public/index.html`, `public/room.html`, `public/style.css`. `server.js` no cambió.
+- **Pendiente de esta sesión** (quedó sin hacer por falta de créditos, se completó después): actualizar `MEMORIA.md` y `CHANGELOG.md` para reflejar este rediseño — el código ya estaba commiteado y pusheado (`952125e`) pero la documentación seguía describiendo la V4.
+
 ## [2026-08-16] V4 — Rediseño visual: "Función privada"
 
 **Motivo:** la interfaz original (fondo negro + acento rosa/magenta) era genérica, no tenía relación con el mundo del cine. Se pidió un estilo único.

@@ -8,7 +8,7 @@ Este archivo es un resumen de contexto para retomar el desarrollo en cualquier m
 
 ## 1. Qué es
 
-Watch party privado para ver películas con amigos. Es una app web (no nativa) hecha con **Node.js + Express + Socket.io**. El dueño de la sala ("host") sube un archivo de video desde su compu, se genera un link de sala, y sus amigos entran desde el navegador (compu o celular) a ver el video sincronizado, con chat y reacciones.
+Watch party privado para ver películas con amigos. Es una app web (no nativa) hecha con **Node.js + Express + Socket.io**. El dueño de la sala ("host") sube un archivo de video desde su compu, se genera un link/código de sala, y sus amigos entran desde el navegador (compu o celular) — con el link completo o pegando el código de 6 caracteres — a ver el video sincronizado, con chat y reacciones.
 
 Repo: `https://github.com/isra16class-byte/movienight`
 
@@ -86,16 +86,37 @@ En el cliente, hay una variable `ignoreSync` que evita loops infinitos: cuando e
 - **Video servido desde el propio servidor** (no WebRTC / P2P): se consideró pero se descartó por complejidad — sincronizar streams P2P de video pesado entre navegadores es mucho más difícil que simplemente servir el archivo por HTTP y sincronizar solo los eventos de control (play/pause/seek) por WebSocket. La contra es que el ancho de banda de subida del host limita cuántos amigos pueden ver fluido a la vez.
 - **Cloudflare Tunnel en vez de deploy real (Railway/Render/VPS)**: los videos pueden pesar varios GB; subirlos a un servicio de hosting pago sale caro y lento cada vez que cambias de película. Tunear el localhost es gratis y usa el disco/ancho de banda del propio usuario.
 
-## 8. Sistema de diseño (desde V4)
+## 8. Sistema de diseño (V5 — "Videoclub" VHS/vaporwave)
 
-Dirección visual: "función privada de cine análogo" — boletos de entrada, rollos de película, marquesina. Se eligió deliberadamente para alejarse del look genérico (fondo negro + acento neón único) y anclarse en objetos reales del mundo del cine.
+Dirección visual actual: estética VHS/videoclub y vaporwave de los 80/90 (cintas, casetes, CDs, horizonte con sol y grilla estilo synthwave, líneas de escaneo tipo CRT). Reemplazó al diseño anterior V4 ("función privada de cine análogo": boletos, rollos, marquesina), que a su vez había reemplazado el diseño original sin tema. Cada rediseño se hizo por gusto/exploración estética, no por un problema funcional.
 
-- **Archivo**: `public/style.css` — todos los estilos viven ahí como CSS variables (`:root`), compartido entre `index.html` y `room.html`. Antes estaba todo inline en cada HTML; se extrajo para no duplicar tokens de color/tipografía.
-- **Paleta** (variables en `:root` de `style.css`): `--bg` (negro azulado de sala), `--red` (rojo marquesina, acento principal — botones, badge de host), `--amber` (ámbar de bombilla — código de sala, hover states), `--violet` (violeta nocturno, usado con moderación solo en el botón "Cambiar rollo" para no perder el acento).
-- **Tipografía**: `--font-display` (Bebas Neue, vía Google Fonts CDN — solo para títulos grandes tipo marquesina), `--font-body` (Work Sans, texto normal), `--font-mono` (JetBrains Mono, para el código de sala, timestamps, labels — evoca el número impreso de un boleto).
-- **Elemento firma**: `.sprocket-strip` — la tira de perforaciones de película (círculos repetidos vía `radial-gradient`), usada arriba y abajo de la pantalla de video y en el layout general. `.ticket-stub` — el código de sala presentado como boleto con borde perforado y botón de copiar.
-- **Vocabulario específico de la interfaz** (solo texto visible, no afecta nombres de eventos/variables en el código): "Empezar función" (crear sala), "🎬 Operador" (host/anfitrión), "Cambiar rollo" (cambiar video). Elegido para reforzar la temática sin romper la lógica del backend, que sigue usando `host`, `create-room`, `change-video` internamente.
-- **Fuentes cargadas por CDN** (Google Fonts) — requiere conexión a internet la primera vez que alguien entra a la página; si se quiere que funcione 100% offline/LAN sin internet, habría que autohospedar los `.woff2`.
+- **Archivo**: `public/style.css` — sigue siendo el único archivo de estilos, compartido entre `index.html` y `room.html`, con tokens en `:root`.
+- **Paleta** (variables en `:root` de `style.css`): `--bg` (`#170b27`, morado casi negro), `--pink` (`#ff2e9a`, acento principal — botones, badge de host, elementos "grabando"), `--cyan` (`#00e5ff`, labels tipo OSD/pantalla de videocasetera, hovers), `--violet` (`#7b2ff7`, apoyo), `--sun` (`#ff7a45`, usado solo en el degradado del sol del horizonte decorativo).
+- **Tipografía**: `--font-display` (Monoton — títulos grandes, look de letrero de neón), `--font-body` (Space Grotesk — texto normal), `--font-osd` (VT323 — simula la tipografía de "on-screen display" de una videocasetera/TV vieja; se usa en labels, código de sala, contador).
+- **Elementos firma**:
+  - `.floaters` + `@keyframes rainFall`: una "lluvia" de emojis (📼💿🎞️📀) cayendo de fondo, distintos en `index.html` (pantalla completa) y en el panel lateral de `room.html` (más sutil).
+  - `.horizon` / `.sun` / `.grid`: horizonte decorativo con sol y grilla en perspectiva (estética synthwave/outrun), solo en la pantalla de inicio.
+  - `body::after` con `repeating-linear-gradient`: overlay de líneas de escaneo (CRT) sobre toda la página.
+  - `.tape-slot` (antes `.film-drop`): selector de archivo con forma de ranura de videocasetera. `.rec-btn` (antes `.ticket-btn`): botón de crear sala con punto rojo de "grabando". `.osd-counter` (antes `.ticket-stub`): código de sala mostrado como contador de videocasetera, con botón de copiar.
+- **Vocabulario de interfaz** (solo texto visible): "Insertar cinta" (elegir archivo), "GRABAR SALA" (crear sala), "🎛 Control remoto" (host, antes "🎬 Operador"), "Cambiar cinta" (cambiar video, antes "Cambiar rollo"). El backend sigue usando `host`, `create-room`, `change-video` sin cambios.
+- **Fuentes por CDN** (Google Fonts) — mismo trade-off que antes: requiere internet la primera carga; para 100% offline/LAN habría que autohospedar los `.woff2`.
+
+## 8bis. Unirse por código (sin link completo)
+
+Antes la única forma de entrar a una sala era con el link completo (`/room/<código>`). Ahora `index.html` tiene un segundo flujo, debajo del de crear sala:
+
+- Un input de texto (`#joinCode`, máx. 6 caracteres) + botón "▶ ENTRAR".
+- Al enviar, el cliente pega contra `GET /api/room/:id` (endpoint que ya existía en `server.js` desde la V1, pero no se usaba desde el frontend) para verificar que la sala exista antes de redirigir.
+- Si la sala existe, redirige a `/room/<código>`; si no, muestra "Esa sala no existe. Revisa el código." sin redirigir.
+- No cambia nada del backend ni de la lógica de roles — es puramente una forma alternativa de llegar al mismo link, útil cuando alguien te pasa el código de viva voz o por chat en vez de un link clicable.
+
+## 8ter. Progreso real de subida
+
+Antes, mientras se subía el video, solo se mostraba un texto genérico ("Subiendo tu película...") sin indicar cuánto faltaba. Ahora:
+
+- Se cambió `fetch` por `XMLHttpRequest` en el botón de crear sala (`public/index.html`), porque `fetch` no expone progreso de subida de forma nativa y `xhr.upload.onprogress` sí.
+- Se muestra un porcentaje en vivo (`Subiendo cinta... NN%`) y una barra de progreso visual (`.tape-progress` / `.tape-progress-bar`) que se llena en tiempo real según `event.loaded / event.total`.
+- Esto resuelve el pendiente que estaba anotado en la sección de roadmap ("mostrar advertencia/loading mientras el video sube").
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 
@@ -111,7 +132,7 @@ Dirección visual: "función privada de cine análogo" — boletos de entrada, r
 - [ ] Borrado automático de salas/archivos viejos (ej. después de X horas sin actividad).
 - [ ] Dominio fijo con Cloudflare Tunnel nombrado (requiere cuenta de Cloudflare + dominio propio) para no tener que compartir un link nuevo cada sesión.
 - [ ] Posible: contraseña de sala además del link, para evitar que alguien con el link viejo entre sin querer.
-- [ ] Posible: mostrar advertencia/loading mientras el video sube (actualmente el usuario no tiene feedback de progreso de subida, solo un texto genérico "Subiendo...").
+- [x] ~~Mostrar advertencia/loading mientras el video sube~~ — resuelto en V5 con barra de progreso real (ver sección 8ter).
 
 ## 11. Historial de cambios
 
