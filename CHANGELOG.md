@@ -6,6 +6,23 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-18] Fix — Faltaba `<meta name="viewport">` en las 3 páginas (causa real de "se ve raro en el celular")
+
+**Motivo:** el usuario mandó una captura de su celular real mostrando la sala rota en vertical — a pesar de que la sesión anterior ("revisión completa de diseño adaptivo") había dado por buena la sala en celular. Al reproducir el caso exacto con emulación de un dispositivo móvil real (Pixel 7, vía Playwright), en vez de solo achicar la ventana de un Chrome de escritorio, se encontró la causa real.
+
+**Causa encontrada:** ninguna de las 3 páginas (`index.html`, `library.html`, `room.html`) tenía la etiqueta `<meta name="viewport" content="width=device-width, initial-scale=1">`. Sin esa etiqueta, los navegadores móviles (Chrome/Safari) ignoran el ancho real de la pantalla y renderizan la página como si fuera de escritorio, a un ancho virtual de **980px** (el valor clásico de compatibilidad), y recién después la achican para que entre en la pantalla. Se confirmó midiendo `window.innerWidth` dentro de la página: en un Pixel 7 (ancho real 412px) daba **981px** — el navegador nunca se enteraba de que la pantalla era angosta, así que ninguna media query de `max-width` se disparaba nunca, ni las de este fix ni las de sesiones anteriores.
+
+**Por qué no se detectó en la revisión anterior:** esa sesión probó los tamaños con Playwright fijando manualmente el ancho de un contexto de Chrome de escritorio (`newContext({ viewport: { width, height } })`), lo cual sí respeta ese ancho tal cual — sin darse cuenta de que eso **no reproduce** el comportamiento real de un navegador móvil sin meta viewport (que es un mecanismo aparte, específico de `isMobile: true`). Fue un punto ciego real del testing anterior, no algo que se pudiera ver leyendo el CSS.
+
+**Fix:** una sola línea agregada al `<head>` de `index.html`, `library.html` y `room.html`:
+```html
+<meta name="viewport" content="width=device-width, initial-scale=1">
+```
+
+**Efecto colateral positivo:** además de arreglar el layout de la sala, esto corrige `index.html` y `library.html` — antes el texto se veía más chico de lo esperado en celular (todo el contenido estaba renderizado a "tamaño de escritorio" y después escalado hacia abajo); ahora usan el tamaño de fuente real definido en el CSS.
+
+**Verificado con Playwright usando emulación real de dispositivo** (no solo resize de ventana): `devices['Pixel 7']`, `devices['iPhone 13']`, `devices['iPhone SE']`, `devices['Pixel 7 landscape']` y `devices['iPhone SE landscape']` — confirmando en cada caso que `window.innerWidth` dentro de la página coincide con el ancho real reportado por el propio dispositivo emulado (ej. 412px, 390px, 320px), y con capturas de pantalla de las 3 páginas mostrando el layout correcto en cada uno.
+
 ## [2026-08-18] Fix — Revisión completa de diseño adaptivo (todas las pantallas)
 
 **Motivo:** pregunta directa del usuario ("¿mi app tiene diseño adaptivo para teléfono y todo tipo de pantalla?") tras el fix del layout de la sala en vertical — en vez de asumir que ya estaba todo resuelto, se armó una matriz de pruebas real con Playwright: 3 pantallas (`index.html`, `library.html`, `room.html`) × 7 tamaños (celular chico 360×640, celular normal 390×844, celular landscape 844×390, tablet portrait 768×1024, tablet landscape 1024×768, laptop 1366×800, desktop 1920×1080), más dos casos límite adicionales (landscape angosto tipo iPhone SE, 667×375, en las 3 pantallas).
