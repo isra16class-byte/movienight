@@ -2,7 +2,7 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 16 de agosto de 2026 (V6 — biblioteca de cintas).
+Última actualización: 18 de agosto de 2026 (V7 — traspaso de host, contraseña de sala, subtítulos, biblioteca desde la sala).
 
 ---
 
@@ -42,16 +42,22 @@ movienight/
 rooms = {
   [roomId]: {
     videoFile: '/uploads/xxxx.mp4',
+    subtitleFile: '/uploads/xxxx.vtt' | null,
     viewers: number,
     hostToken: 'string secreta',
-    mutedUsers: Set<socketId>,
-    userNames: Map<socketId, username>
+    passwordHash: 'sha256 hex' | null,           // null = sala sin contraseña
+    mutedUserIds: Set<userId>,                     // por userId persistente, no por socket.id (V7)
+    userNames: Map<socketId, username>,
+    bufferingSockets: Set<socketId>,               // quién está buffereando ahora mismo (V7)
+    recentDisconnects: Map<userId, { timer, username }>  // margen de 15s para reconexiones (V7)
   }
 }
 ```
 
 - `roomId`: 6 caracteres hex, generado con `crypto.randomBytes(3)`.
-- `hostToken`: 32 caracteres hex, generado al crear la sala. Se manda al cliente creador y se guarda en `localStorage` (`mn_host_<roomId>`). Es la única forma de identificar quién es host — no hay login ni cuentas de usuario.
+- `hostToken`: 32 caracteres hex, generado al crear la sala. Se manda al cliente creador y se guarda en `localStorage` (`mn_host_<roomId>`). Es la única forma de identificar quién es host — no hay login ni cuentas de usuario. Desde V7 también se puede recibir en caliente vía socket (`host-status`) si alguien recibe el control remoto sin haber creado la sala (traspaso automático o manual, ver sección 5bis).
+- `passwordHash` (V7): opcional. Si está seteado, `join-room` exige que el cliente mande la contraseña en texto plano por socket; el servidor la hashea (`sha256`) y compara. No hay salt por usuario — es una protección básica pensada para un grupo de amigos, no para resistir ataques serios (ver sección 9).
+- `userId` (V7): identificador persistente generado en el cliente (`crypto.randomUUID()`, guardado en `localStorage` como `mn_uid`, uno solo por navegador — no por sala). Se manda en cada `join-room` y es lo que permite que el estado de "silenciado" y la supresión de mensajes de reconexión sobrevivan a un refresh o a una caída de wifi. Es distinto de `socket.id`, que cambia en cada conexión.
 
 ## 5. Sistema de roles (host vs invitado) — IMPORTANTE
 
@@ -63,7 +69,16 @@ Esto se agregó después de la primera versión, a pedido explícito: solo el ho
 - En el frontend (`room.html`), a los no-host se les quita el atributo `controls` del `<video>`, y se bloquea cualquier intento de mover el `currentTime` manualmente (evento `seeking` lo revierte a `lastKnownTime`). Esto se agregó porque un invitado logró adelantar el video sin querer desde el celular.
 - Se agregó un **heartbeat**: el host manda su posición cada 4 segundos (`type: 'heartbeat'`) para resincronizar a todos aunque no haya pausado/adelantado nada — corrige drift por buffering o lag.
 - El host puede **expulsar** (`kick-user`) y **silenciar el chat** (`toggle-mute`) a otros usuarios desde la pestaña "Espectadores" en `room.html`. El silencio es solo de chat, no de audio/video (cada quien controla su propio volumen localmente, no hay forma de silenciar el audio de otro ya que no comparten audio entre sí).
-- El host puede **cambiar la película** en cualquier momento sin cerrar la sala (`POST /room/:id/change-video`, protegido por `hostToken` en el body).
+- El host puede **cambiar la película** en cualquier momento sin cerrar la sala (`POST /room/:id/change-video`, protegido por `hostToken` en el body), o reutilizar un video ya subido desde la biblioteca (`POST /room/:id/change-video-from-upload`, ver sección 8quater).
+
+## 5bis. Traspaso de host (V7)
+
+Antes, si el host cerraba la pestaña o se le caía la conexión, nadie más podía controlar el video — la sala quedaba "congelada" salvo que el host volviera a entrar desde el mismo navegador (el único que tiene el `hostToken` en `localStorage`).
+
+- **Automático**: en el handler de `disconnect` del servidor, si el socket que se fue era host y no queda ningún otro socket host conectado en esa sala, se asciende automáticamente al espectador que lleva más tiempo conectado (primero en el `Set` de sockets de la sala, que en Socket.io conserva el orden de inserción). Al nuevo host se le manda el `hostToken` real por el evento `host-status`, así queda guardado en su `localStorage` y sigue siendo host aunque recargue la página.
+- **Manual**: el host puede darle el control a cualquier espectador desde el panel "Sala" → botón "Hacer host" (evento `make-host`). Esto **no le quita** el rol de host a quien lo dio — sigue existiendo la misma regla de V2: cualquier socket con el `hostToken` correcto es host, así que ahora simplemente hay dos.
+- En ambos casos se manda un mensaje de sistema al chat avisando quién es el nuevo host.
+- Esto resuelve el primer ítem del roadmap ("traspasar el rol de host a otro espectador si el host se desconecta").
 
 ## 6. Sincronización de video — cómo funciona
 
@@ -76,10 +91,17 @@ Eventos de socket relevantes (todos dentro del namespace default, agrupados por 
 | `chat-message` | cualquier cliente no silenciado | Se retransmite a toda la sala |
 | `reaction` | cualquier cliente | Se retransmite a toda la sala (emoji flotante) |
 | `kick-user` | solo host | Servidor fuerza `disconnect()` del socket objetivo |
-| `toggle-mute` | solo host | Agrega/quita del `Set` de silenciados, notifica al afectado |
-| `viewer-list` | servidor (broadcast) | Se manda cada vez que cambia la sala (join/leave/mute) |
+| `toggle-mute` | solo host | Agrega/quita del `Set` de silenciados (por `userId`), notifica al afectado |
+| `make-host` | solo host (V7) | Asciende a otro socket a host y le manda el `hostToken` |
+| `buffering-status` | cualquier cliente (V7) | Marca/desmarca a ese socket como "buffereando" para la sala |
+| `typing` | cualquier cliente (V7) | Se retransmite a los demás para el indicador "X está escribiendo..." |
+| `room-data` | servidor, tras un `join-room` válido (V7) | Manda `videoFile` y `subtitleFile` — reemplaza al fetch a `/api/room/:id` que existía antes de V7 |
+| `subtitle-changed` | servidor (V7) | Avisa a todos que hay un `.vtt` nuevo para el `<track>` del video |
+| `viewer-list` | servidor (broadcast) | Se manda cada vez que cambia la sala (join/leave/mute/buffering) |
 
 En el cliente, hay una variable `ignoreSync` que evita loops infinitos: cuando el reproductor recibe un evento de sync remoto y cambia `currentTime`/play/pause, se pone `ignoreSync = true` por 200-300ms para no re-emitir ese mismo cambio como si fuera una acción del usuario.
+
+**Botones de salto ±10s (V7)**: visibles solo para el host, en `room.html`. Simplemente mueven `player.currentTime`, lo que dispara el evento nativo `seeked` — no necesitan lógica de sync propia, reutilizan el mismo camino que mover la barra de progreso nativa.
 
 ## 7. Decisiones de diseño relevantes (por qué se hizo así)
 
@@ -161,24 +183,48 @@ Antes, cada video subido quedaba "atrapado" dentro de la sala que lo creó: no h
 - **Riesgo conocido, ya anotado en la sección 9**: borrar un video que está siendo usado por una sala activa rompe el reproductor de esa sala (el archivo deja de existir en `/uploads/`). No hay ninguna advertencia de "este video está en uso" — queda pendiente si se vuelve un problema real.
 - Verificado end-to-end con Playwright: subida con nombre real → aparece en la biblioteca con ese nombre → botón "USAR" crea la sala y redirige → botón "🗑" borra el archivo del disco (confirmado con `ls`) → intento de path traversal rechazado con 400.
 
+## 8quinquies. Contraseña de sala (V7)
+
+Al crear una sala (desde `index.html`) hay un campo opcional "Contraseña de la sala". Si se llena:
+
+- El servidor guarda `sha256(password)` en `room.passwordHash` — nunca la contraseña en texto plano, y sin salt por sala (protección básica, ver riesgos).
+- `GET /api/room/:id` ahora solo devuelve `{ passwordProtected: true|false }`. Antes de V7 devolvía también `videoFile`, lo cual exponía la ruta real del video sin verificar nada — se movió esa información a después de un `join-room` válido (evento `room-data`).
+- En `room.html`, si `passwordProtected` es `true`, se pide la contraseña con un `prompt()` antes de conectar el socket. Si es incorrecta, el servidor manda `room-error: 'Contraseña incorrecta.'` y el cliente vuelve a preguntar (no expulsa a la primera).
+- La biblioteca (`create-room-from-upload`) no tiene campo de contraseña en esta versión — quedó fuera de alcance por simplicidad; si se necesita, es un cambio chico (agregar el mismo input en `library.html`).
+
+## 8sexies. Subtítulos .srt/.vtt (V7)
+
+- El host sube un archivo `.srt` o `.vtt` desde el panel "Sala" en `room.html` → `POST /room/:id/upload-subtitle` (protegido por `hostToken`, multer en memoria, máx. 5MB).
+- Si es `.srt`, el servidor lo convierte a WebVTT con una transformación mínima: agrega la cabecera `WEBVTT` y cambia el separador decimal de los timestamps de coma a punto (`00:00:01,000` → `00:00:01.000`). No es un parser completo de SRT, pero cubre el formato estándar.
+- Se guarda como `<hash>.vtt` en `public/uploads/` (no aparece en la biblioteca porque el filtro de `GET /api/uploads` solo lista extensiones de video).
+- El servidor guarda la ruta en `room.subtitleFile` y avisa a todos los clientes conectados (`subtitle-changed`) para que agreguen/reemplacen el `<track>` del `<video>` en vivo, sin recargar.
+- Si se sube un subtítulo nuevo, el anterior de esa sala se borra del disco (best-effort, no rompe nada si falla).
+
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 
 - El `hostToken` viaja en texto plano por HTTP (a menos que Cloudflare Tunnel lo cifre en tránsito, que sí lo hace vía HTTPS). Si alguien lo obtiene (inspeccionando `localStorage` de la persona equivocada, por ejemplo), puede hacerse pasar por host.
-- No hay rate-limiting en el chat ni en la subida de archivos — un usuario malicioso podría floodear el chat o intentar subir archivos gigantes repetidamente.
-- No hay validación de tipo de archivo más allá de lo que el navegador manda como `video/*` en el `<input accept>` — no es una validación real de seguridad, solo de UX.
+- La contraseña de sala (V7) usa `sha256` sin salt — suficiente para que alguien con el link no entre "sin querer", pero no es resistente a un atacante que se lo proponga en serio (sin rate-limiting en `join-room`, se podría probar contraseñas por fuerza bruta contra el socket). Dado el caso de uso (grupo de amigos), se consideró un trade-off aceptable.
+- No hay rate-limiting en el chat, en `join-room`, ni en la subida de archivos — un usuario malicioso podría floodear el chat, probar contraseñas repetidamente, o intentar subir archivos gigantes repetidamente.
+- No hay validación de tipo de archivo más allá de lo que el navegador manda como `video/*` en el `<input accept>` (o la extensión `.srt`/`.vtt` para subtítulos) — no es una validación real de seguridad, solo de UX.
 - Las salas nunca se borran ni expiran — si el server corre mucho tiempo, `rooms` y los archivos en `uploads/` se van acumulando. (Ahora al menos se pueden borrar a mano fácil desde `library.html`, ver sección 8quater.)
-- Borrar un video desde `library.html` mientras una sala activa lo está usando rompe esa sala sin avisar (ver 8quater).
+- Borrar un video desde `library.html` mientras una sala activa lo está usando rompe esa sala sin avisar (ver 8quater) — sigue sin resolverse en V7.
+- El traspaso automático de host (sección 5bis) elige al espectador que lleva más tiempo conectado sin ningún otro criterio (no hay forma de "vetar" a alguien de ser host automático). Improbable que sea un problema real dado que es para grupos de amigos, pero queda anotado.
 
 ## 10. Ideas pendientes / roadmap
 
-- [ ] Traspasar el rol de host a otro espectador (si el host se desconecta, nadie puede controlar el video).
-- [ ] Subtítulos (.srt) sincronizados.
 - [ ] Borrado automático de salas/archivos viejos (ej. después de X horas sin actividad).
 - [ ] Dominio fijo con Cloudflare Tunnel nombrado (requiere cuenta de Cloudflare + dominio propio) para no tener que compartir un link nuevo cada sesión.
-- [ ] Posible: contraseña de sala además del link, para evitar que alguien con el link viejo entre sin querer.
+- [ ] Posible: avisar si se intenta borrar un video que está en uso por una sala activa.
+- [ ] Posible: contraseña también al reutilizar un video desde la biblioteca (`create-room-from-upload`), hoy solo existe al crear desde `index.html`.
+- [ ] Posible: rate-limiting real en `join-room` (intentos de contraseña) y en la subida de archivos.
+- [ ] Evaluado y descartado por ahora (no encaja con el caso de uso de grupo privado chico): video/voz en vivo integrado tipo Scener/Kast, soporte para reproducir desde plataformas externas (Netflix/YouTube/etc.).
 - [x] ~~Mostrar advertencia/loading mientras el video sube~~ — resuelto en V5 con barra de progreso real (ver sección 8ter).
 - [x] ~~Reutilizar videos ya subidos sin tener que resubirlos~~ — resuelto en V6 con la biblioteca de cintas (ver sección 8quater).
-- [ ] Posible: avisar si se intenta borrar un video que está en uso por una sala activa.
+- [x] ~~Traspasar el rol de host a otro espectador~~ — resuelto en V7, automático y manual (ver sección 5bis).
+- [x] ~~Subtítulos (.srt) sincronizados~~ — resuelto en V7 (ver sección 8sexies).
+- [x] ~~Contraseña de sala además del link~~ — resuelto en V7 (ver sección 8quinquies).
+- [x] ~~El botón de "Cambiar cinta" debería llevar a la biblioteca~~ — resuelto en V7: ahora enlaza a `/library.html?fromRoom=<roomId>`, que además permite subir una cinta completamente nueva sin perder esa opción.
+- [x] ~~Botón de "Salir" para volver al inicio y unirse a otra sala~~ — resuelto en V7.
 
 ## 11. Historial de cambios
 

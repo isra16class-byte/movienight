@@ -27,10 +27,20 @@
     <span class="deck-corner br"></span>
     <div class="rec-timer"><span class="rec-dot"></span> REC <span id="recTime">00:00</span></div>
 
-    <a href="/" class="back-link">◂ Volver</a>
+    <a href="/" class="back-link" id="backLink">◂ Volver</a>
     <p class="eyebrow-osd">▸ REWIND · PLAY · REC ◂</p>
-    <h1 class="marquee-title" style="font-size:clamp(24px, 5vw, 34px);">BIBLIOTECA DE CINTAS</h1>
-    <p class="tagline">Videos ya subidos en este servidor. Usa uno para crear una sala sin volver a subirlo.</p>
+    <h1 class="marquee-title" style="font-size:clamp(24px, 5vw, 34px);" id="libTitle">BIBLIOTECA DE CINTAS</h1>
+    <p class="tagline" id="libTagline">Videos ya subidos en este servidor. Usa uno para crear una sala sin volver a subirlo.</p>
+
+    <div class="new-upload" id="newUploadWrap" style="display:none;">
+      <label class="tape-slot tracking-glitch" for="newTapeFile">
+        <span class="tape-slot-icon">📼</span>
+        <span id="newTapeFileName">O inserta una cinta nueva para esta sala</span>
+        <input type="file" id="newTapeFile" accept="video/*" hidden>
+      </label>
+      <div class="tape-progress" id="newTapeProgressWrap"><div class="tape-progress-bar" id="newTapeProgressBar"></div></div>
+      <div id="newTapeStatus" class="status-line"></div>
+    </div>
 
     <ul class="tape-list" id="tapeList">
       <li class="library-loading">Cargando cintas...</li>
@@ -44,6 +54,23 @@ const cassetteIcon = `<svg class="cassette-spin" width="16" height="16" viewBox=
   <circle cx="12" cy="12" r="2.5" fill="currentColor"/>
 </svg>`;
 
+const params = new URLSearchParams(location.search);
+const fromRoom = params.get('fromRoom');
+const roomHostToken = fromRoom ? localStorage.getItem('mn_host_' + fromRoom) : null;
+const useLabel = fromRoom ? '🔁 USAR' : '▶ USAR';
+
+if (fromRoom) {
+  document.getElementById('libTitle').textContent = 'ELEGIR CINTA PARA LA SALA';
+  document.getElementById('libTagline').textContent = 'Elige un video ya subido para cambiar la cinta de tu sala activa, o sube uno nuevo.';
+  const backLink = document.getElementById('backLink');
+  backLink.href = `/room/${fromRoom}`;
+  backLink.textContent = '◂ Volver a la sala';
+  document.getElementById('newUploadWrap').style.display = 'block';
+  if (!roomHostToken) {
+    document.getElementById('libTagline').textContent = 'No tienes permisos de host en esa sala desde este navegador — solo puedes ver la biblioteca.';
+  }
+}
+
 const tapeList = document.getElementById('tapeList');
 
 function formatSize(bytes) {
@@ -56,6 +83,12 @@ function formatDate(ms) {
   const d = new Date(ms);
   return d.toLocaleDateString('es', { day: '2-digit', month: 'short' }) + ' · ' +
          d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
 }
 
 async function loadTapes() {
@@ -84,7 +117,7 @@ function renderTapes(tapes) {
         <div class="tape-item-meta">${formatSize(tape.size)} · ${formatDate(tape.mtime)}</div>
       </div>
       <div class="tape-item-actions">
-        <button class="use-btn">▶ USAR</button>
+        <button class="use-btn">${useLabel}</button>
         <button class="delete-btn">🗑</button>
       </div>
     `;
@@ -94,30 +127,36 @@ function renderTapes(tapes) {
   });
 }
 
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
 async function useTape(filename, li) {
   const btn = li.querySelector('.use-btn');
   btn.disabled = true;
   btn.innerHTML = cassetteIcon;
   try {
+    if (fromRoom) {
+      if (!roomHostToken) { alert('No tienes permisos de host en esa sala desde este navegador.'); btn.disabled = false; btn.textContent = useLabel; return; }
+      const res = await fetch(`/room/${fromRoom}/change-video-from-upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename, hostToken: roomHostToken })
+      });
+      const data = await res.json();
+      if (data.error) { alert('Error: ' + data.error); btn.disabled = false; btn.textContent = useLabel; return; }
+      window.location = `/room/${fromRoom}`;
+      return;
+    }
     const res = await fetch('/create-room-from-upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filename })
     });
     const data = await res.json();
-    if (data.error) { alert('Error: ' + data.error); btn.disabled = false; btn.textContent = '▶ USAR'; return; }
+    if (data.error) { alert('Error: ' + data.error); btn.disabled = false; btn.textContent = useLabel; return; }
     localStorage.setItem('mn_host_' + data.roomId, data.hostToken);
     window.location = `/room/${data.roomId}`;
   } catch (err) {
-    alert('No se pudo crear la sala. Intenta de nuevo.');
+    alert('No se pudo completar la acción. Intenta de nuevo.');
     btn.disabled = false;
-    btn.textContent = '▶ USAR';
+    btn.textContent = useLabel;
   }
 }
 
@@ -135,6 +174,57 @@ async function deleteTape(filename, li) {
 }
 
 loadTapes();
+
+// --- Subir una cinta nueva directo a la sala activa (solo cuando venimos de una sala) ---
+if (fromRoom) {
+  const newTapeFile = document.getElementById('newTapeFile');
+  const newTapeFileName = document.getElementById('newTapeFileName');
+  const newTapeProgressWrap = document.getElementById('newTapeProgressWrap');
+  const newTapeProgressBar = document.getElementById('newTapeProgressBar');
+  const newTapeStatus = document.getElementById('newTapeStatus');
+
+  newTapeFile.addEventListener('change', () => {
+    const file = newTapeFile.files[0];
+    if (!file) return;
+    if (!roomHostToken) { newTapeStatus.textContent = 'No tienes permisos de host en esta sala desde este navegador.'; return; }
+
+    newTapeFileName.textContent = file.name;
+    newTapeProgressWrap.classList.add('active');
+    newTapeStatus.innerHTML = `${cassetteIcon} Subiendo cinta... 0%`;
+
+    const form = new FormData();
+    form.append('video', file);
+    form.append('hostToken', roomHostToken);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/room/${fromRoom}/change-video`);
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        const pct = Math.round((e.loaded / e.total) * 100);
+        newTapeProgressBar.style.width = pct + '%';
+        newTapeStatus.innerHTML = `${cassetteIcon} Subiendo cinta... ${pct}%`;
+      }
+    };
+    xhr.onload = () => {
+      let data;
+      try { data = JSON.parse(xhr.responseText); } catch { data = { error: 'Respuesta inválida del servidor' }; }
+      if (xhr.status < 200 || xhr.status >= 300 || data.error) {
+        newTapeStatus.textContent = 'Error: ' + (data.error || 'no se pudo cambiar la cinta');
+        newTapeProgressWrap.classList.remove('active');
+        return;
+      }
+      newTapeProgressBar.style.width = '100%';
+      newTapeStatus.textContent = 'Listo, volviendo a la sala...';
+      window.location = `/room/${fromRoom}`;
+    };
+    xhr.onerror = () => {
+      newTapeStatus.textContent = 'No se pudo subir el archivo. Intenta de nuevo.';
+      newTapeProgressWrap.classList.remove('active');
+    };
+    xhr.send(form);
+  });
+}
 
 // --- Contador REC decorativo ---
 let recSeconds = 0;

@@ -6,6 +6,54 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-18] Fix — Heartbeat de sync causaba "se queda cargando" aleatorio a todos
+
+**Motivo:** reporte del usuario ("el video se queda cargando entre ratos"), pasándole a todos por igual y en momentos aleatorios — se descartó ancho de banda (test de velocidad del host: 428 Mbps de subida, 3ms de ping), lo que apuntaba a algo del propio código en vez de la conexión.
+
+**Causa encontrada:** el heartbeat que el host manda cada 4s para mantener sincronizados a los invitados (existente desde V3) forzaba un salto duro de `currentTime` ante *cualquier* desvío mayor a 1.5 segundos — algo que pasa todo el tiempo por jitter normal de red/decodificación. Cada salto duro le hacía tirar al navegador el buffer pre-cargado y pedir de nuevo un pedazo del archivo al servidor, lo cual se percibía como "se queda cargando", cada 4 segundos, en cualquier invitado, en cualquier momento.
+
+**Fix en `public/room.html`:** para desvíos chicos (0.5s–4s) ya no se salta — se ajusta `playbackRate` levemente (1.06x o 0.94x) hasta que se empareja solo, sin cortar el stream ni volver a pedir nada al servidor. Solo se sigue saltando de golpe (`currentTime = ...`) para desvíos grandes de verdad (más de 4 segundos), donde no queda otra opción.
+- Verificado: sintaxis del script revisada con `node -c` tras el cambio.
+
+## [2026-08-18] V7 — Traspaso de host, contraseña de sala, subtítulos, biblioteca desde la sala y varios pendientes del roadmap
+
+**Motivo:** pedido directo del usuario ("¿el botón de cambiar cinta debería llevar a la biblioteca? ¿y un botón de salir?") + petición explícita de revisar qué funciones le faltaban a la app comparándola con apps de watch party existentes (Teleparty, Scener, Watch2Gether, un proyecto open-source similar) e implementar todo lo de prioridad alta/media que salió de esa revisión.
+
+**Cambios en `server.js`:**
+- **Traspaso de host**: si el host se desconecta y no queda ningún otro socket host conectado en la sala, el servidor asciende automáticamente al siguiente espectador conectado (orden de llegada) y le manda el `hostToken` para que persista en `localStorage`. También se agregó traspaso manual: el host puede darle el control remoto a cualquier espectador desde el panel "Sala" (evento `make-host`), sin quitarse su propio rol.
+- **Contraseña de sala (opcional)**: `POST /create-room` y `/create-room-from-upload` aceptan un campo `password` opcional; se guarda hasheada (`sha256`) en `room.passwordHash`, nunca en texto plano. `GET /api/room/:id` ya no devuelve `videoFile` (para no exponer la ruta del archivo antes de validar contraseña) — solo indica `passwordProtected`. El `videoFile`/`subtitleFile` reales ahora viajan por socket (`room-data`) recién después de un `join-room` válido.
+- **Subtítulos (.srt/.vtt)**: nueva ruta `POST /room/:id/upload-subtitle` (protegida por `hostToken`), convierte `.srt` a `.vtt` (cambia el separador decimal de coma a punto y agrega la cabecera `WEBVTT`) y notifica a toda la sala vía `subtitle-changed`.
+- **Cambiar cinta reutilizando la biblioteca**: nueva ruta `POST /room/:id/change-video-from-upload` (protegida por `hostToken`, valida el nombre de archivo igual que el resto de rutas de biblioteca) — permite cambiarle la cinta a una sala activa sin volver a subir el video.
+- **Buffering compartido**: nuevo evento de socket `buffering-status`; el servidor lo guarda por sala (`bufferingSockets`) y lo incluye en cada `viewer-list`, así todos ven quién está cargando (⏳).
+- **Reconexión sin perder estado**: cada cliente ahora manda un `userId` persistente (guardado en `localStorage`, no cambia entre pestañas/recargas). El estado de "silenciado" ahora se guarda por `userId` en vez de por `socket.id`, así sobrevive una reconexión. Además, si alguien se reconecta dentro de los 15 segundos de haberse ido, no se repiten los mensajes de "se unió"/"salió" en el chat (evita floodear el chat por wifi inestable).
+- **Chat**: el indicador de "escribiendo..." se retransmite vía nuevo evento `typing`. Los mensajes de chat ahora se recortan a 500 caracteres y los nombres de usuario a 40, como saneamiento básico.
+- `public/room.html` y `public/library.html` cambiaron bastante; ver abajo.
+
+**Cambios en `public/room.html`:**
+- **Botón "Cambiar cinta"** ahora es un link a `/library.html?fromRoom=<roomId>` en vez de un `<input type="file">` que resubía el video directo — reutiliza toda la pantalla de biblioteca en vez de duplicar UI. `library.html` detecta el parámetro y adapta sus botones y su comportamiento (ver abajo).
+- **Botón "🚪 Salir"** nuevo en la cabecera del panel lateral (visible para todos, no solo el host): desconecta el socket explícitamente y redirige a `/`.
+- **Botones de salto ±10s** (`⏪ 10` / `10 ⏩`), visibles solo para el host, en la esquina inferior izquierda del reproductor.
+- **Botón "Hacer host"** en la lista de espectadores (solo visible para el host, junto a Silenciar/Expulsar) para traspasar el control manualmente.
+- **Subida de subtítulos** (`.srt`/`.vtt`) desde el panel "Sala", solo visible para el host. Se agrega un `<track>` al `<video>` cuando hay subtítulos activos, actualizado en vivo para todos vía socket.
+- **Indicador de "escribiendo..."** debajo del historial de chat.
+- **Ícono ⏳** junto al nombre de quien esté buffereando, en la lista de espectadores.
+- **Prompt de contraseña** si la sala la tiene, antes de conectar el socket; reintenta si es incorrecta en vez de expulsar directo a la persona.
+- Fix de seguridad menor de paso: los mensajes de chat y nombres de usuario ahora se escapan (`escapeHtml`) antes de insertarse como HTML — el código anterior insertaba texto de usuario sin escapar.
+- El `hostToken` ahora puede llegar por socket (`host-status`) además de `localStorage`, para que el traspaso automático/manual de host funcione sin que la persona tenga que refrescar.
+
+**Cambios en `public/library.html`:**
+- Detecta `?fromRoom=<roomId>` en la URL. Si está presente: el título y el botón "◂ Volver" cambian de contexto ("ELEGIR CINTA PARA LA SALA" / "◂ Volver a la sala"), el botón "USAR" pasa a llamar `POST /room/:id/change-video-from-upload` (cambia la cinta de esa sala) en vez de crear una sala nueva, y aparece un bloque nuevo para **subir una cinta completamente nueva directo a esa sala** (usa la ruta original `POST /room/:id/change-video` con progreso real de subida, igual que en `index.html`) — esto evita que el rediseño le quite al host la posibilidad de poner un video que todavía no está en la biblioteca.
+- Si no hay `fromRoom` en la URL, se comporta exactamente igual que en V6 (crea una sala nueva).
+
+**Cambios en `public/index.html`:**
+- Campo opcional "Contraseña de la sala" antes del botón "GRABAR SALA"; si se llena, se manda en el mismo `FormData` de la subida.
+
+**Cambios en `public/style.css`:** estilos nuevos para el input de contraseña, el botón "Salir", los botones de salto ±10s, el panel de host (cambiar cinta + subtítulos), el indicador de "escribiendo...", y el bloque de subida nueva dentro de la biblioteca.
+
+**Verificado en esta sesión** (contra un servidor real levantado localmente, no solo lectura de código): creación de sala con contraseña + `passwordProtected` reflejado en `/api/room/:id`; conexión de socket con contraseña incorrecta (rechazada) y correcta (aceptada); traspaso automático de host al desconectar al único host, confirmado con `viewer-list` y mensaje de sistema; subida de un `.srt` de prueba y verificación byte a byte de la conversión a `.vtt`; cambio de cinta de una sala activa vía `change-video-from-upload` con token inválido (403) y válido (200); intento de path traversal (`../server.js`) rechazado con 400, igual que en V6.
+
+**Pendiente / fuera de alcance de esta sesión** (quedó anotado en `MEMORIA.md`): video/voz en vivo integrado, soporte multiplataforma (Netflix/YouTube/etc.), rate-limiting real de chat/subida — se evaluaron y se decidió no implementarlos por ahora dado que la app es explícitamente para grupos privados chicos, no para escala pública.
+
 ## [2026-08-16] V6 — Biblioteca de cintas (reutilizar videos ya subidos)
 
 **Motivo:** pregunta directa del usuario: "¿cómo elimino los videos que ya he subido?" → llevó a la idea de una pantalla dedicada para ver, reutilizar y borrar los videos de `public/uploads/` sin tener que tocar el sistema de archivos a mano ni resubir un video para crear una sala nueva.

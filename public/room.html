@@ -17,6 +17,10 @@
         <div class="viewers-badge" id="viewers">👥 0</div>
         <div class="host-badge" id="hostBadge" style="display:none;">🎛 CONTROL REMOTO</div>
         <video id="player" playsinline webkit-playsinline disablepictureinpicture></video>
+        <div class="host-controls" id="hostControlsWrap" style="display:none;">
+          <button id="skipBackBtn" title="Retroceder 10s">⏪ 10</button>
+          <button id="skipFwdBtn" title="Adelantar 10s">10 ⏩</button>
+        </div>
         <div class="local-controls" id="localControls" style="display:none;">
           <span>🔊</span>
           <input type="range" id="volSlider" min="0" max="1" step="0.05" value="1">
@@ -41,6 +45,9 @@
           <span class="osd-counter-code" id="roomCodeText"></span>
           <button class="osd-counter-copy" id="copyBtn" title="Copiar link">COPIAR</button>
         </div>
+        <div class="side-actions">
+          <button class="leave-btn" id="leaveBtn">🚪 Salir</button>
+        </div>
       </div>
 
       <div class="tabs">
@@ -50,6 +57,7 @@
 
       <div class="panel active" id="panel-chat">
         <div id="messages"></div>
+        <div class="typing-indicator" id="typingIndicator"></div>
         <div class="reactions">
           <button data-e="😂">😂</button>
           <button data-e="🔥">🔥</button>
@@ -64,9 +72,13 @@
 
       <div class="panel" id="panel-people">
         <div id="viewerList"></div>
-        <div class="change-video" id="changeVideoWrap" style="display:none;">
-          <label for="newVideo">📼 Cambiar cinta</label>
-          <input type="file" id="newVideo" accept="video/*">
+        <div class="host-panel" id="hostPanelWrap" style="display:none;">
+          <a class="change-video-link" id="changeVideoLink" href="#">📼 Cambiar cinta</a>
+          <div class="subtitle-upload">
+            <label for="subtitleFile">🗣️ Subir subtítulos (.srt)</label>
+            <input type="file" id="subtitleFile" accept=".srt,.vtt">
+          </div>
+          <div id="subtitleStatus" class="subtitle-status"></div>
         </div>
       </div>
     </div>
@@ -75,9 +87,31 @@
 
 <script>
 const roomId = location.pathname.split('/').pop();
-const username = prompt('¿Cómo te llamas?') || 'Anónimo';
-const hostToken = localStorage.getItem('mn_host_' + roomId) || null;
-const socket = io();
+
+function getPersistentUserId() {
+  let id = localStorage.getItem('mn_uid');
+  if (!id) {
+    id = (crypto.randomUUID ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(16).slice(2)));
+    localStorage.setItem('mn_uid', id);
+  }
+  return id;
+}
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
+}
+
+const myUserId = getPersistentUserId();
+let username = sessionStorage.getItem('mn_username_' + roomId);
+if (!username) {
+  username = prompt('¿Cómo te llamas?') || 'Anónimo';
+  sessionStorage.setItem('mn_username_' + roomId, username);
+}
+let hostToken = localStorage.getItem('mn_host_' + roomId) || null;
+let roomPassword = null;
+
+const socket = io({ autoConnect: false });
 const player = document.getElementById('player');
 let isHost = false;
 let ignoreSync = false;
@@ -93,21 +127,74 @@ document.getElementById('copyBtn').onclick = () => {
   setTimeout(() => btn.textContent = original, 1500);
 };
 
+document.getElementById('leaveBtn').onclick = () => {
+  if (confirm('¿Salir de la sala y volver al inicio?')) {
+    socket.disconnect();
+    location.href = '/';
+  }
+};
+
+// --- Chequeo inicial: existencia + si pide contraseña, antes de conectar el socket ---
 fetch(`/api/room/${roomId}`).then(r => r.json()).then(data => {
-  if (data.error) { alert('Sala no encontrada'); return; }
-  player.src = data.videoFile;
+  if (data.error) { alert('Sala no encontrada'); location.href = '/'; return; }
+  if (data.passwordProtected) {
+    roomPassword = prompt('Esta sala tiene contraseña. Ingrésala:') || '';
+  }
+  socket.connect();
+}).catch(() => {
+  alert('No se pudo conectar con el servidor.');
 });
 
-socket.on('connect', () => { myId = socket.id; });
-socket.emit('join-room', { roomId, username, hostToken });
-socket.on('room-error', msg => { alert(msg); location.href = '/'; });
+socket.on('connect', () => {
+  myId = socket.id;
+  socket.emit('join-room', { roomId, username, hostToken, userId: myUserId, password: roomPassword });
+});
 
-socket.on('host-status', (host) => {
+socket.on('room-error', (msg) => {
+  if (msg && msg.includes('Contraseña')) {
+    const pw = prompt('Contraseña incorrecta. Intenta de nuevo (cancelar para volver al inicio):');
+    if (pw === null) { location.href = '/'; return; }
+    roomPassword = pw;
+    socket.emit('join-room', { roomId, username, hostToken, userId: myUserId, password: roomPassword });
+    return;
+  }
+  alert(msg);
+  location.href = '/';
+});
+
+socket.on('room-data', ({ videoFile, subtitleFile }) => {
+  if (player.src.indexOf(videoFile) === -1) player.src = videoFile;
+  updateSubtitleTrack(subtitleFile);
+});
+
+function updateSubtitleTrack(subtitleFile) {
+  const existing = document.getElementById('subsTrack');
+  if (existing) existing.remove();
+  if (subtitleFile) {
+    const track = document.createElement('track');
+    track.id = 'subsTrack';
+    track.kind = 'subtitles';
+    track.label = 'Subtítulos';
+    track.srclang = 'es';
+    track.src = subtitleFile;
+    track.default = true;
+    player.appendChild(track);
+  }
+}
+socket.on('subtitle-changed', ({ subtitleFile }) => updateSubtitleTrack(subtitleFile));
+
+socket.on('host-status', ({ isHost: host, hostToken: token }) => {
   isHost = host;
+  if (host && token) {
+    hostToken = token;
+    localStorage.setItem('mn_host_' + roomId, token);
+  }
   player.controls = isHost;
   document.getElementById('hostBadge').style.display = isHost ? 'block' : 'none';
   document.getElementById('localControls').style.display = isHost ? 'none' : 'flex';
-  document.getElementById('changeVideoWrap').style.display = isHost ? 'block' : 'none';
+  document.getElementById('hostControlsWrap').style.display = isHost ? 'flex' : 'none';
+  document.getElementById('hostPanelWrap').style.display = isHost ? 'block' : 'none';
+  document.getElementById('changeVideoLink').href = `/library.html?fromRoom=${roomId}`;
 });
 
 socket.on('viewer-count', n => document.getElementById('viewers').textContent = `👥 ${n}`);
@@ -128,15 +215,17 @@ socket.on('viewer-list', (list) => {
     let actions = '';
     if (isHost && v.id !== myId && !v.isHost) {
       actions = `<span class="actions">
+        <button class="make-host" data-id="${v.id}">Hacer host</button>
         <button class="mute" data-id="${v.id}">${v.muted ? 'Desilenciar' : 'Silenciar'}</button>
         <button class="kick" data-id="${v.id}">Expulsar</button>
       </span>`;
     }
-    row.innerHTML = `<span>${v.isHost ? '🎛 ' : ''}${v.username}${v.muted ? ' 🔇' : ''}</span>${actions}`;
+    row.innerHTML = `<span>${v.isHost ? '🎛 ' : ''}${escapeHtml(v.username)}${v.buffering ? ' ⏳' : ''}${v.muted ? ' 🔇' : ''}</span>${actions}`;
     el.appendChild(row);
   });
   el.querySelectorAll('.mute').forEach(b => b.onclick = () => socket.emit('toggle-mute', b.dataset.id));
   el.querySelectorAll('.kick').forEach(b => b.onclick = () => { if (confirm('¿Expulsar a este usuario?')) socket.emit('kick-user', b.dataset.id); });
+  el.querySelectorAll('.make-host').forEach(b => b.onclick = () => { if (confirm('¿Darle el control remoto a este usuario?')) socket.emit('make-host', b.dataset.id); });
 });
 
 // --- Tabs ---
@@ -156,17 +245,30 @@ player.addEventListener('seeked', () => { if (isHost && !ignoreSync) socket.emit
 
 socket.on('sync', (data) => {
   if (data.type === 'heartbeat') {
-    if (Math.abs(player.currentTime - data.time) > 1.5) {
+    const drift = data.time - player.currentTime;
+    const absDrift = Math.abs(drift);
+
+    if (absDrift > 4) {
+      // Desvío grande: no queda otra que saltar.
       ignoreSync = true;
       player.currentTime = data.time;
+      player.playbackRate = 1;
       setTimeout(() => ignoreSync = false, 300);
+    } else if (absDrift > 0.5) {
+      // Desvío chico: en vez de saltar (lo que corta el buffer y causa el "se queda cargando"),
+      // se acelera/frena un poquito la reproducción hasta emparejar sola, sin re-pedir nada al servidor.
+      player.playbackRate = drift > 0 ? 1.06 : 0.94;
+    } else {
+      player.playbackRate = 1;
     }
+
     if (data.paused && !player.paused) { ignoreSync = true; player.pause(); setTimeout(() => ignoreSync = false, 300); }
     if (!data.paused && player.paused) { ignoreSync = true; player.play(); setTimeout(() => ignoreSync = false, 300); }
     lastKnownTime = data.time;
     return;
   }
   ignoreSync = true;
+  player.playbackRate = 1;
   if (Math.abs(player.currentTime - data.time) > 1) player.currentTime = data.time;
   if (data.type === 'play') player.play();
   if (data.type === 'pause') player.pause();
@@ -191,25 +293,43 @@ player.addEventListener('seeking', () => {
   }
 });
 
-socket.on('video-changed', ({ videoFile }) => {
-  player.src = videoFile;
-  player.load();
-});
+// --- Botones de salto rápido (solo host) ---
+document.getElementById('skipBackBtn').onclick = () => { player.currentTime = Math.max(0, player.currentTime - 10); };
+document.getElementById('skipFwdBtn').onclick = () => { player.currentTime = Math.min(player.duration || Infinity, player.currentTime + 10); };
+
+// --- Buffering compartido: aviso visible en la lista de espectadores mientras alguien está cargando ---
+let bufferingState = false;
+function setBuffering(state) {
+  if (state === bufferingState) return;
+  bufferingState = state;
+  socket.emit('buffering-status', state);
+}
+player.addEventListener('waiting', () => setBuffering(true));
+player.addEventListener('playing', () => setBuffering(false));
+player.addEventListener('canplaythrough', () => setBuffering(false));
 
 // --- Controles locales (no-host): volumen y pantalla completa ---
 document.getElementById('volSlider').addEventListener('input', (e) => player.volume = e.target.value);
 document.getElementById('fsBtn').onclick = () => player.requestFullscreen();
 
-// --- Cambiar cinta (host) ---
-document.getElementById('newVideo')?.addEventListener('change', async (e) => {
+// --- Subir subtítulos (host) ---
+document.getElementById('subtitleFile').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
+  const statusEl = document.getElementById('subtitleStatus');
+  statusEl.textContent = 'Subiendo subtítulos...';
   const form = new FormData();
-  form.append('video', file);
+  form.append('subtitle', file);
   form.append('hostToken', hostToken);
-  const res = await fetch(`/room/${roomId}/change-video`, { method: 'POST', body: form });
-  const data = await res.json();
-  if (data.error) alert(data.error);
+  try {
+    const res = await fetch(`/room/${roomId}/upload-subtitle`, { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.error) { statusEl.textContent = 'Error: ' + data.error; return; }
+    statusEl.textContent = '✅ Subtítulos activados para todos';
+    setTimeout(() => statusEl.textContent = '', 3000);
+  } catch (err) {
+    statusEl.textContent = 'No se pudo subir el archivo.';
+  }
 });
 
 // --- Chat ---
@@ -222,8 +342,8 @@ function addMessage(html, cls) {
   messages.scrollTop = messages.scrollHeight;
 }
 socket.on('chat-message', (data) => {
-  if (data.system) addMessage(data.text, 'system');
-  else addMessage(`<span class="msg"><b>${data.user}:</b> ${data.text}</span>`, 'msg');
+  if (data.system) addMessage(escapeHtml(data.text), 'system');
+  else addMessage(`<span class="msg"><b>${escapeHtml(data.user)}:</b> ${escapeHtml(data.text)}</span>`, 'msg');
 });
 
 const chatInput = document.getElementById('chatInput');
@@ -232,6 +352,24 @@ chatInput.addEventListener('keydown', (e) => {
     socket.emit('chat-message', chatInput.value.trim());
     chatInput.value = '';
   }
+});
+
+// --- Indicador de "escribiendo..." ---
+let typingThrottle = false;
+chatInput.addEventListener('input', () => {
+  if (typingThrottle) return;
+  typingThrottle = true;
+  socket.emit('typing');
+  setTimeout(() => typingThrottle = false, 1500);
+});
+const typingIndicator = document.getElementById('typingIndicator');
+const remoteTypingTimers = {};
+socket.on('typing', ({ username: who }) => {
+  typingIndicator.textContent = `${who} está escribiendo...`;
+  clearTimeout(remoteTypingTimers[who]);
+  remoteTypingTimers[who] = setTimeout(() => {
+    if (typingIndicator.textContent === `${who} está escribiendo...`) typingIndicator.textContent = '';
+  }, 2500);
 });
 
 // --- Reacciones ---
