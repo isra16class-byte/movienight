@@ -6,6 +6,19 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-18] Fix — Revisión completa de diseño adaptivo (todas las pantallas)
+
+**Motivo:** pregunta directa del usuario ("¿mi app tiene diseño adaptivo para teléfono y todo tipo de pantalla?") tras el fix del layout de la sala en vertical — en vez de asumir que ya estaba todo resuelto, se armó una matriz de pruebas real con Playwright: 3 pantallas (`index.html`, `library.html`, `room.html`) × 7 tamaños (celular chico 360×640, celular normal 390×844, celular landscape 844×390, tablet portrait 768×1024, tablet landscape 1024×768, laptop 1366×800, desktop 1920×1080), más dos casos límite adicionales (landscape angosto tipo iPhone SE, 667×375, en las 3 pantallas).
+
+**Bugs encontrados y arreglados, ambos en `public/style.css`:**
+- **Sala en landscape angosto de celular** (ej. 667×375): la media query nueva del fix anterior forzaba el video a relación de aspecto 16:9 a ancho completo sin importar el alto disponible — en una pantalla de solo 375px de alto, eso hacía que el video ocupara el 100% y el panel de chat/sala **desapareciera por completo**, sin scroll ni forma de acceder a él (ni siquiera al botón "Salir"). Se separó en dos reglas: con alto suficiente (`min-height: 500px`) se apila video arriba / chat abajo como antes; con poco alto se mantiene el layout de fila (video + panel al costado, como en desktop) pero con el panel angostado a 220px y controles más compactos.
+- **`index.html`/`library.html` en pantallas bajitas** (celular landscape, ventanas de escritorio chicas): la tarjeta central podía quedar más alta que la pantalla, cortando visualmente el botón "GRABAR SALA" y todo lo de abajo en el primer vistazo. No era un bug bloqueante (la página sí permite scroll, se verificó con una captura de página completa), pero se le bajó el padding vertical de la tarjeta en pantallas de menos de 500px de alto para que entre más contenido sin depender tanto de scrollear.
+- Limpieza: se sacó código CSS muerto (`.change-video`) que había quedado huérfano desde el cambio de V7 que reemplazó ese input de archivo por el link a la biblioteca.
+
+**Verificado con Playwright** (21 capturas de pantalla + 5 adicionales de casos límite, no solo lectura de código): las 3 pantallas se revisaron una por una contra los 7 tamaños + los 2 casos límite de landscape angosto, confirmando visualmente que no queda contenido cortado ni inaccesible en ningún tamaño probado.
+
+**Conclusión para el roadmap:** con este fix, las 3 pantallas de la app (`index.html`, `library.html`, `room.html`) tienen diseño adaptivo cubierto para celular (portrait y landscape, incluyendo casos angostos), tablet (portrait y landscape) y desktop de cualquier tamaño.
+
 ## [2026-08-18] Fix — Sala rota en vertical/celular (le faltaba la media query)
 
 **Motivo:** reporte del usuario ("se ve raro en el teléfono, como si no estuviera pensado para vertical").
