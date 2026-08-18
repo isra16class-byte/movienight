@@ -6,6 +6,15 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-18] Fix — Sala rota en vertical/celular (le faltaba la media query)
+
+**Motivo:** reporte del usuario ("se ve raro en el teléfono, como si no estuviera pensado para vertical").
+
+**Causa encontrada:** `index.html` y `library.html` sí tenían media queries para mobile (agregadas en V5.1/V5.2/V6, verificadas con Playwright en su momento), pero **`room.html` nunca las tuvo**. El layout de la sala usa `.side { width: 300px; flex-shrink: 0 }` fijo al costado del video sin importar el ancho de pantalla — en un celular en vertical (~390px de ancho) eso deja el video comprimido en una franja de apenas ~90px y el panel de chat ocupando casi toda la pantalla.
+
+**Fix en `public/style.css`:** nueva media query (`max-width: 820px`) que cambia `.screen-row` de fila a columna: video arriba con relación de aspecto 16:9, panel de chat/sala abajo ocupando el ancho completo y el resto del alto disponible. También se limpió CSS muerto (`.change-video`, clase que había quedado sin usar desde el cambio de V7 que reemplazó el input de archivo por el link a la biblioteca).
+- Verificado con Playwright en viewport de 390×844 (tamaño típico de celular en vertical): captura de pantalla confirmando el layout apilado correctamente.
+
 ## [2026-08-18] Fix — Heartbeat de sync causaba "se queda cargando" aleatorio a todos
 
 **Motivo:** reporte del usuario ("el video se queda cargando entre ratos"), pasándole a todos por igual y en momentos aleatorios — se descartó ancho de banda (test de velocidad del host: 428 Mbps de subida, 3ms de ping), lo que apuntaba a algo del propio código en vez de la conexión.
