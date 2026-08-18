@@ -6,6 +6,17 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-16] V6 — Biblioteca de cintas (reutilizar videos ya subidos)
+
+**Motivo:** pregunta directa del usuario: "¿cómo elimino los videos que ya he subido?" → llevó a la idea de una pantalla dedicada para ver, reutilizar y borrar los videos de `public/uploads/` sin tener que tocar el sistema de archivos a mano ni resubir un video para crear una sala nueva.
+
+**Cambios:**
+- **3 rutas nuevas en `server.js`**: `GET /api/uploads` (lista los videos en disco con nombre, tamaño y fecha), `POST /create-room-from-upload` (crea una sala reutilizando un video existente, sin pasar por Multer), `DELETE /api/uploads/:filename` (borra el archivo). Las tres validan el nombre de archivo contra path traversal (`isValidUploadFilename`).
+- Los archivos subidos ahora se guardan como `<hash-corto>__<nombre original sanitizado>.ext` en vez de solo `<hash>.ext`, para poder mostrar un nombre reconocible en la biblioteca. Los videos subidos antes de este cambio siguen funcionando, solo que se muestran con su nombre-hash viejo.
+- **Pantalla nueva `public/library.html`** ("📼 Biblioteca de cintas"), enlazada desde `index.html`: lista cada video con tamaño/fecha y botones "▶ USAR" (crea sala y redirige, sin resubir nada) y "🗑" (borra con confirmación). Mismo sistema de diseño VHS que el resto del sitio, con una variante más ancha de la tarjeta (`.deck-wide`) y layout responsive para mobile.
+- `public/room.html` no cambió.
+- Verificado end-to-end con Playwright (no solo visualmente): subida con nombre real, aparición en la biblioteca, creación de sala desde un video existente con redirect real, borrado con verificación en disco, y rechazo de un intento de path traversal (`../server.js` → 400).
+
 ## [2026-08-16] V5.2 — Floaters más grandes y título con relieve 3D/neón
 
 **Motivo:** feedback sobre la V5.1 en vivo: los objetos cayendo seguían viéndose chicos, y "MOVIE NIGHT" pedía sentirse más como letras reales (con borde/relieve) y más iluminado.

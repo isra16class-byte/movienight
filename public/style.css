@@ -155,6 +155,98 @@ body::after {
   box-shadow: 0 0 60px rgba(255, 46, 154, 0.12);
   overflow: hidden;
 }
+.deck.deck-wide { width: 620px; text-align: left; max-height: 82vh; display: flex; flex-direction: column; }
+.deck.deck-wide .eyebrow-osd,
+.deck.deck-wide .marquee-title,
+.deck.deck-wide .tagline { text-align: center; }
+
+/* ---------- Biblioteca de cintas: lista de videos ya subidos ---------- */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--cyan);
+  text-decoration: none;
+  font-family: var(--font-osd);
+  font-size: 15px;
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.5);
+}
+.back-link:hover { text-decoration: underline; }
+
+.tape-list {
+  list-style: none;
+  margin: 20px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tape-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  transition: border-color 0.2s ease;
+}
+.tape-item:hover { border-color: var(--cyan); }
+.tape-item-icon { font-size: 26px; flex-shrink: 0; }
+.tape-item-info { flex: 1; min-width: 0; }
+.tape-item-name {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tape-item-meta {
+  font-family: var(--font-osd);
+  font-size: 14px;
+  color: var(--text-muted);
+  letter-spacing: 0.03em;
+}
+.tape-item-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.tape-item-actions button {
+  border: 1.5px solid var(--cyan);
+  background: transparent;
+  color: var(--cyan);
+  padding: 7px 12px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-family: var(--font-osd);
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.tape-item-actions button.use-btn:hover { background: var(--cyan); color: #0c1620; }
+.tape-item-actions button.use-btn:disabled { opacity: 0.5; cursor: default; }
+.tape-item-actions button.delete-btn { border-color: var(--pink); color: var(--pink); }
+.tape-item-actions button.delete-btn:hover { background: var(--pink); color: #1a0310; }
+
+.library-empty, .library-loading {
+  text-align: center;
+  color: var(--text-muted);
+  font-family: var(--font-osd);
+  font-size: 16px;
+  padding: 30px 10px;
+}
+
+@media (max-width: 480px) {
+  .deck.deck-wide { padding: 46px 16px 24px; }
+  .tape-item { flex-wrap: wrap; }
+  .tape-item-info { flex-basis: 100%; order: 1; }
+  .tape-item-actions { flex-basis: 100%; order: 2; justify-content: flex-end; margin-top: 4px; }
+  .tape-item-name { white-space: normal; }
+}
 
 /* Textura de estática/ruido sutil, tipo cinta vieja */
 .deck::before {

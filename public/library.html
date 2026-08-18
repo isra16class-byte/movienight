@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>MovieNight — Biblioteca 📼</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Monoton&family=Space+Grotesk:wght@400;500;600;700&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="vhs-scene">
+  <div class="horizon"><div class="sun"></div><div class="grid"></div></div>
+  <div class="floaters">
+    <span class="floater" style="left:4%;  font-size:40px; animation-duration:9s;  animation-delay:-2s;">📼</span>
+    <span class="floater" style="left:14%; font-size:26px; animation-duration:11s; animation-delay:-6s;">💿</span>
+    <span class="floater" style="left:88%; font-size:44px; animation-duration:8s;  animation-delay:-1s;">📀</span>
+    <span class="floater" style="left:94%; font-size:28px; animation-duration:12s; animation-delay:-4s;">🎞️</span>
+    <span class="floater" style="left:8%;  font-size:30px; animation-duration:10s; animation-delay:-8s;">🎞️</span>
+    <span class="floater" style="left:78%; font-size:34px; animation-duration:9.5s; animation-delay:-3s;">📼</span>
+  </div>
+
+  <main class="deck deck-wide">
+    <span class="deck-corner tl"></span>
+    <span class="deck-corner tr"></span>
+    <span class="deck-corner bl"></span>
+    <span class="deck-corner br"></span>
+    <div class="rec-timer"><span class="rec-dot"></span> REC <span id="recTime">00:00</span></div>
+
+    <a href="/" class="back-link">◂ Volver</a>
+    <p class="eyebrow-osd">▸ REWIND · PLAY · REC ◂</p>
+    <h1 class="marquee-title" style="font-size:clamp(24px, 5vw, 34px);">BIBLIOTECA DE CINTAS</h1>
+    <p class="tagline">Videos ya subidos en este servidor. Usa uno para crear una sala sin volver a subirlo.</p>
+
+    <ul class="tape-list" id="tapeList">
+      <li class="library-loading">Cargando cintas...</li>
+    </ul>
+  </main>
+</div>
+
+<script>
+const cassetteIcon = `<svg class="cassette-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="color:var(--cyan)">
+  <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3"/>
+  <circle cx="12" cy="12" r="2.5" fill="currentColor"/>
+</svg>`;
+
+const tapeList = document.getElementById('tapeList');
+
+function formatSize(bytes) {
+  if (bytes >= 1024 ** 3) return (bytes / 1024 ** 3).toFixed(1) + ' GB';
+  if (bytes >= 1024 ** 2) return (bytes / 1024 ** 2).toFixed(0) + ' MB';
+  return Math.round(bytes / 1024) + ' KB';
+}
+
+function formatDate(ms) {
+  const d = new Date(ms);
+  return d.toLocaleDateString('es', { day: '2-digit', month: 'short' }) + ' · ' +
+         d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+}
+
+async function loadTapes() {
+  try {
+    const res = await fetch('/api/uploads');
+    const tapes = await res.json();
+    renderTapes(tapes);
+  } catch (err) {
+    tapeList.innerHTML = '<li class="library-empty">No se pudo cargar la biblioteca. Intenta de nuevo.</li>';
+  }
+}
+
+function renderTapes(tapes) {
+  if (!tapes.length) {
+    tapeList.innerHTML = '<li class="library-empty">📼 Todavía no hay cintas subidas.<br>Crea una sala desde la pantalla principal y aparecerá aquí.</li>';
+    return;
+  }
+  tapeList.innerHTML = '';
+  tapes.forEach(tape => {
+    const li = document.createElement('li');
+    li.className = 'tape-item';
+    li.innerHTML = `
+      <span class="tape-item-icon">📼</span>
+      <div class="tape-item-info">
+        <div class="tape-item-name">${escapeHtml(tape.displayName)}</div>
+        <div class="tape-item-meta">${formatSize(tape.size)} · ${formatDate(tape.mtime)}</div>
+      </div>
+      <div class="tape-item-actions">
+        <button class="use-btn">▶ USAR</button>
+        <button class="delete-btn">🗑</button>
+      </div>
+    `;
+    li.querySelector('.use-btn').addEventListener('click', () => useTape(tape.filename, li));
+    li.querySelector('.delete-btn').addEventListener('click', () => deleteTape(tape.filename, li));
+    tapeList.appendChild(li);
+  });
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+async function useTape(filename, li) {
+  const btn = li.querySelector('.use-btn');
+  btn.disabled = true;
+  btn.innerHTML = cassetteIcon;
+  try {
+    const res = await fetch('/create-room-from-upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename })
+    });
+    const data = await res.json();
+    if (data.error) { alert('Error: ' + data.error); btn.disabled = false; btn.textContent = '▶ USAR'; return; }
+    localStorage.setItem('mn_host_' + data.roomId, data.hostToken);
+    window.location = `/room/${data.roomId}`;
+  } catch (err) {
+    alert('No se pudo crear la sala. Intenta de nuevo.');
+    btn.disabled = false;
+    btn.textContent = '▶ USAR';
+  }
+}
+
+async function deleteTape(filename, li) {
+  if (!confirm('¿Borrar esta cinta del servidor? No se puede deshacer.')) return;
+  try {
+    const res = await fetch('/api/uploads/' + encodeURIComponent(filename), { method: 'DELETE' });
+    const data = await res.json();
+    if (data.error) { alert('Error: ' + data.error); return; }
+    li.remove();
+    if (!tapeList.children.length) renderTapes([]);
+  } catch (err) {
+    alert('No se pudo borrar el archivo. Intenta de nuevo.');
+  }
+}
+
+loadTapes();
+
+// --- Contador REC decorativo ---
+let recSeconds = 0;
+const recTimeEl = document.getElementById('recTime');
+setInterval(() => {
+  recSeconds++;
+  const m = String(Math.floor(recSeconds / 60)).padStart(2, '0');
+  const s = String(recSeconds % 60).padStart(2, '0');
+  recTimeEl.textContent = `${m}:${s}`;
+}, 1000);
+</script>
+</body>
+</html>
