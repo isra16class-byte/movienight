@@ -2,7 +2,7 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 16 de agosto de 2026 (pulido visual V5.1).
+Última actualización: 16 de agosto de 2026 (pulido visual V5.2).
 
 ---
 
@@ -116,6 +116,16 @@ La V5 original quedó "correcta pero genérica" — los elementos temáticos (ll
 - **Contraste mejorado**: los textos en `--font-osd` color `--cyan` (`.eyebrow-osd`, `.osd-counter-code`) ahora llevan `text-shadow` sutil en cian para que no se pierdan contra el fondo morado oscuro.
 - Archivo afectado: solo `public/style.css` y `public/index.html` (agrega el contador REC, las esquinas y las clases `tracking-glitch`). `public/room.html` no cambió — hereda las mejoras de `.floaters`/`.osd-counter` automáticamente por compartir `style.css`.
 - Verificado renderizando la página con Playwright en desktop (1400px) y mobile (390px) antes de entregar — sin overlaps ni cortes de texto.
+
+### 8.2 Pulido visual V5.2 (mismo día, feedback sobre V5.1)
+
+Ajustes puntuales pedidos tras ver V5.1 en vivo: los objetos cayendo seguían chicos, y el título pedía verse "más vivo, como letras reales, con los bordes marcados" (efecto 3D/extrusión) y más iluminado.
+
+- **Floaters más grandes**: tamaños en `public/index.html` subidos de rango `16px–34px` a rango `26px–54px` (solo en la pantalla de inicio; los del panel lateral de `room.html` no se tocaron).
+- **Título "MOVIE NIGHT" con efecto de extrusión/relieve 3D**: se le agregaron capas de `text-shadow` escalonadas en diagonal (blanco tenue arriba-izquierda simulando luz, violeta y morado oscuro hacia abajo-derecha) detrás del degradado rosa-cian existente, para dar sensación de letras con grosor real en vez de texto plano. Se afinó dos veces: la primera versión (offsets más grandes, 6 capas) tapaba el degradado y se veía como un bloque morado sólido — se redujo a offsets más chicos (máx. ~4.5px) y menos capas para que el relieve se note sin perder el color ni el brillo.
+- **Más brillo + parpadeo de neón**: se subió la intensidad del `drop-shadow` (glow) del título y se agregó `@keyframes neonFlicker`, una animación de 5s que simula el parpadeo sutil de un letrero de neón real (un flicker tenue y después un destello más fuerte, muy espaciado, no es molesto).
+- Archivo afectado: solo `public/style.css` (clase `.marquee-title` + `@keyframes neonFlicker`) y `public/index.html` (tamaños inline de `.floater`).
+- Verificado con capturas reales (Playwright, desktop y mobile) antes de entregar, incluyendo una iteración intermedia descartada por verse mal.
 
 ## 8bis. Unirse por código (sin link completo)
 

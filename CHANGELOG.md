@@ -6,6 +6,17 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-16] V5.2 — Floaters más grandes y título con relieve 3D/neón
+
+**Motivo:** feedback sobre la V5.1 en vivo: los objetos cayendo seguían viéndose chicos, y "MOVIE NIGHT" pedía sentirse más como letras reales (con borde/relieve) y más iluminado.
+
+**Cambios:**
+- Tamaños de los emojis flotantes en `public/index.html` subidos de `16px–34px` a `26px–54px`.
+- Nuevo efecto de extrusión 3D en `.marquee-title` (`public/style.css`): capas de `text-shadow` en diagonal (highlight blanco arriba-izquierda, violeta y morado oscuro abajo-derecha) para simular letras con grosor, sin tapar el degradado rosa-cian de fondo. Se afinó en dos pasadas — la primera versión con offsets grandes se veía como un bloque sólido, tapando el color; se ajustó a offsets más chicos.
+- Glow del título más intenso + nueva animación `neonFlicker` (5s) que simula el parpadeo sutil de un letrero de neón real.
+- `server.js` y `public/room.html` no cambiaron.
+- Verificado con Playwright (desktop y mobile) antes de entregar.
+
 ## [2026-08-16] V5.1 — Pulido visual del rediseño VHS/vaporwave
 
 **Motivo:** feedback directo sobre una captura de la V5: la interfaz se veía "correcta pero básica/genérica" — los elementos temáticos (lluvia de cintas, horizonte synthwave) casi no se notaban, y había un bug de legibilidad (el separador "O" se confundía con "0" en la fuente VT323).
