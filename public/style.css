@@ -793,10 +793,31 @@ video { width: 100%; height: 100%; display: block; background: black; }
     border-left: none;
     border-top: 1px solid var(--line);
   }
-  html:not(.device-landscape) .host-controls,
+  html:not(.device-landscape) .host-controls { gap: 6px; }
   html:not(.device-landscape) .local-controls { padding: 6px 10px; gap: 6px; }
   html:not(.device-landscape) .viewers-badge,
   html:not(.device-landscape) .host-badge { font-size: 13px; padding: 4px 9px; }
+}
+
+/* En celular, el badge "CONTROL REMOTO" y los botones de salto ±10s (solo los ve el host) se
+   ocultan por default y solo aparecen al tocar el video — igual que cualquier reproductor
+   (YouTube, Netflix, etc.). En escritorio se quedan siempre visibles como antes, porque ahí no
+   estorban tapando nada (hay mouse, no dedo, y más espacio). El JS (room.html) agrega/quita la
+   clase `controls-visible` en `.screen-wrap` al tocar la pantalla, con un temporizador que la
+   vuelve a esconder sola a los pocos segundos. Se aplica en todo celular (vertical Y landscape
+   angosto), a diferencia del bloque de arriba que sí distingue orientación — acá da igual, en
+   ambas orientaciones el overlay tapa una porción similar del video chico. */
+@media (max-width: 820px) {
+  .host-badge, .host-controls {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+  .screen-wrap.controls-visible .host-badge,
+  .screen-wrap.controls-visible .host-controls {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 /* Teclado abierto en celular (parado): antes el video se achicaba mucho (hasta 20dvh/64px) para
@@ -827,7 +848,7 @@ video { width: 100%; height: 100%; display: block; background: black; }
   html.device-landscape .reactions { padding: 6px; }
   html.device-landscape .reactions button { padding: 4px 8px; font-size: 15px; }
   html.device-landscape .chat-input { padding: 6px; }
-  html.device-landscape .host-controls,
+  html.device-landscape .host-controls { gap: 5px; bottom: 6px; }
   html.device-landscape .local-controls { padding: 5px 8px; gap: 5px; bottom: 6px; }
 }
 
@@ -898,18 +919,31 @@ video { width: 100%; height: 100%; display: block; background: black; }
 }
 
 /* ---------- Botones de salto ±10s (host) ---------- */
-.host-controls {
-  position: absolute; bottom: 14px; left: 14px;
-  background: rgba(12,6,22,0.75); border: 1px solid var(--line);
-  padding: 8px 10px; border-radius: var(--radius-md); display: flex; gap: 8px;
-  align-items: center; z-index: 5; backdrop-filter: blur(4px);
+/* Rediseño: antes eran botones rectangulares planos con emoji de flechas dobles (⏪/⏩), que
+   quedaban desentonados con el resto de la interfaz (todo monocromo con glow de neón, sin
+   emojis a color). Ahora son círculos tipo "chip" con un ícono de flecha circular (↺/↻, texto
+   plano — no emoji, así que no salen a color) y el "10" debajo en la fuente OSD, mismo lenguaje
+   visual que el contador de sala (.osd-counter). Cada botón brilla en rosa (línea de host) y
+   pasa a cian al tocarlo, como el resto de los controles interactivos. */
+.host-controls { position: absolute; bottom: 14px; left: 14px; display: flex; gap: 10px; z-index: 5; }
+.skip-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  width: 50px; height: 50px; border-radius: 50%;
+  background: rgba(12,6,22,0.75); backdrop-filter: blur(4px);
+  border: 1.5px solid var(--pink); color: #fff; cursor: pointer;
+  box-shadow: 0 0 10px rgba(255,46,154,0.35), inset 0 1px 0 rgba(255,255,255,0.06);
+  transition: box-shadow 0.15s, border-color 0.15s, transform 0.1s;
 }
-.host-controls button {
-  background: var(--bg-elevated); color: var(--text); border: 1px solid var(--line);
-  padding: 6px 10px; border-radius: var(--radius-sm); cursor: pointer;
-  font-family: var(--font-osd); font-size: 13px; letter-spacing: 0.03em;
+.skip-btn .skip-icon { font-size: 19px; line-height: 1; }
+.skip-btn .skip-label {
+  font-family: var(--font-osd); font-size: 10px; letter-spacing: 0.05em;
+  margin-top: 1px; color: var(--cyan);
 }
-.host-controls button:hover { border-color: var(--cyan); color: var(--cyan); }
+.skip-btn:hover {
+  border-color: var(--cyan);
+  box-shadow: 0 0 14px rgba(0,229,255,0.45), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+.skip-btn:active { transform: scale(0.9); }
 
 /* ---------- Panel de host: cambiar cinta + subtítulos ---------- */
 .host-panel { padding: 12px; border-top: 1px solid var(--line); margin-top: auto; }

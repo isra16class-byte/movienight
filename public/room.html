@@ -19,8 +19,8 @@
         <div class="host-badge" id="hostBadge" style="display:none;">🎛 CONTROL REMOTO</div>
         <video id="player" playsinline webkit-playsinline disablepictureinpicture></video>
         <div class="host-controls" id="hostControlsWrap" style="display:none;">
-          <button id="skipBackBtn" title="Retroceder 10s">⏪ 10</button>
-          <button id="skipFwdBtn" title="Adelantar 10s">10 ⏩</button>
+          <button id="skipBackBtn" class="skip-btn" title="Retroceder 10s"><span class="skip-icon">↺</span><span class="skip-label">10</span></button>
+          <button id="skipFwdBtn" class="skip-btn" title="Adelantar 10s"><span class="skip-icon">↻</span><span class="skip-label">10</span></button>
         </div>
         <div class="local-controls" id="localControls" style="display:none;">
           <div class="vol-control" id="volControl">
@@ -301,6 +301,10 @@ socket.on('host-status', ({ isHost: host, hostToken: token }) => {
   document.getElementById('hostControlsWrap').style.display = isHost ? 'flex' : 'none';
   document.getElementById('hostPanelWrap').style.display = isHost ? 'block' : 'none';
   document.getElementById('changeVideoLink').href = `/library.html?fromRoom=${roomId}`;
+  // Al volverse host recién ahora (p. ej. traspaso de control remoto), se muestra el overlay un
+  // momento en celular para que la persona se dé cuenta de que ahí están el badge y los botones
+  // de salto — si no, como arrancan ocultos, podría no descubrirlos nunca sin tocar el video antes.
+  if (isHost && mobileLayoutQuery.matches) showHostOverlay();
 });
 
 socket.on('viewer-count', n => document.getElementById('viewers').textContent = `👥 ${n}`);
@@ -404,6 +408,38 @@ player.addEventListener('seeking', () => {
 // --- Botones de salto rápido (solo host) ---
 document.getElementById('skipBackBtn').onclick = () => { player.currentTime = Math.max(0, player.currentTime - 10); };
 document.getElementById('skipFwdBtn').onclick = () => { player.currentTime = Math.min(player.duration || Infinity, player.currentTime + 10); };
+
+// --- Overlay de host (badge "CONTROL REMOTO" + botones ±10s) oculto hasta tocar el video, en
+// celular ---
+// En escritorio se quedan siempre visibles (no estorban, hay mouse). En celular tapaban buena
+// parte del video todo el tiempo, así que ahora imitan a cualquier reproductor: aparecen al
+// tocar la pantalla y se esconden solos a los pocos segundos de no volver a tocarlos. El CSS
+// (style.css) es el que realmente los oculta/muestra vía la clase `controls-visible` en
+// `.screen-wrap` (opacity + pointer-events) — acá solo se decide CUÁNDO agregar/quitar esa clase.
+const screenWrap = document.querySelector('.screen-wrap');
+let hostOverlayHideTimer = null;
+function showHostOverlay() {
+  screenWrap.classList.add('controls-visible');
+  clearTimeout(hostOverlayHideTimer);
+  hostOverlayHideTimer = setTimeout(() => screenWrap.classList.remove('controls-visible'), 3000);
+}
+screenWrap.addEventListener('click', (e) => {
+  if (!isHost || !mobileLayoutQuery.matches) return;
+  // Tocar el badge o los botones de salto no debe "apagar" el overlay de golpe (el botón ya
+  // ejecuta su propia acción con este mismo click) — solo hay que refrescarle el temporizador
+  // de autoescondido para que no desaparezca mientras el dedo todavía está ahí.
+  if (e.target.closest('.host-controls') || e.target.closest('.host-badge')) {
+    showHostOverlay();
+    return;
+  }
+  // Tocar el video (fuera del overlay): alterna, como el tap-to-toggle de cualquier reproductor.
+  if (screenWrap.classList.contains('controls-visible')) {
+    screenWrap.classList.remove('controls-visible');
+    clearTimeout(hostOverlayHideTimer);
+  } else {
+    showHostOverlay();
+  }
+});
 
 // --- Buffering compartido: aviso visible en la lista de espectadores mientras alguien está cargando ---
 let bufferingState = false;

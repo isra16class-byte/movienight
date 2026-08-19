@@ -2,7 +2,7 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 19 de agosto de 2026 (tercer ajuste del mismo día: fix del layout que se deformaba al salir de pantalla completa en celular, y botón de enviar agregado junto al campo de chat).
+Última actualización: 19 de agosto de 2026 (cuarto ajuste del mismo día: en celular, el badge "control remoto" y los botones ±10s del host se ocultan hasta tocar el video, y esos botones se rediseñaron de rectángulos con emoji a chips circulares con glow neón).
 
 ---
 
@@ -463,6 +463,37 @@ con `preventDefault()` (en vez de dejar que el `click` normal le robe el foco al
 no, en celular cada tap en "Enviar" dispararía el `blur` del chat (que cierra el teclado, ver
 8terdecies) justo antes de mandar el mensaje, en vez de dejar el teclado abierto para seguir
 escribiendo.
+
+## 8quindecies. Overlay de host oculto hasta tocar el video (celular) + rediseño de los botones ±10s
+
+Pedido del usuario con captura: en celular, el badge "🎛 CONTROL REMOTO" y los botones de
+retroceder/adelantar 10s (ambos solo visibles para el host) tapaban el video todo el tiempo — quería
+que aparecieran solo al tocar la pantalla, como en cualquier reproductor. De paso pidió mejorar la
+estética de los botones ±10s, que no le gustaban.
+
+**1) Overlay oculto hasta tocar el video (solo celular, `max-width: 820px`).** En escritorio
+`.host-badge` y `.host-controls` se quedan siempre visibles, sin cambios — ahí no estorban (hay
+mouse, más espacio). En celular ahora arrancan con `opacity: 0; pointer-events: none` y solo se
+muestran cuando `.screen-wrap` tiene la clase `controls-visible`, que JS (`room.html`) agrega/quita:
+- Tocar el video (fuera del badge/botones) alterna la clase — igual que el tap-to-toggle de
+  YouTube/Netflix.
+- Al mostrarse, arranca un `setTimeout` de 3s que la vuelve a esconder sola; cada nuevo toque
+  (incluido tocar el badge o los botones ±10s, que además ejecutan su propia acción con ese mismo
+  click) reinicia el temporizador en vez de ocultarla de golpe.
+- Al volverse host recién en caliente (traspaso de control remoto, ver 5bis) se muestra el overlay
+  un momento automáticamente, para que la persona note que ahí están el badge y los botones — si no,
+  como arrancan ocultos, podría no descubrirlos nunca sin tocar el video primero.
+- Se aplica en las dos orientaciones de celular (vertical y landscape angosto), a diferencia de
+  otras reglas de esta sección que sí distinguen orientación (acá el overlay tapa una porción
+  similar del video chico en cualquiera de las dos).
+
+**2) Rediseño de los botones ±10s.** Antes eran rectángulos planos con emoji de flechas dobles
+(⏪/⏩), que se veían a color y desentonaban con el resto de la interfaz (monocroma, con glow de
+neón). Ahora son círculos tipo "chip" (`.skip-btn`, 50px) con un ícono de flecha circular (↺/↻ —
+caracteres de texto plano, no emoji, así que nunca salen a color) y el "10" debajo en la fuente OSD
+(`--font-osd`), el mismo lenguaje visual que ya usa el contador de sala (`.osd-counter`). Brillan en
+rosa (línea visual de todo lo relacionado a host: `.host-badge` ya usaba ese gradiente) y pasan a
+cian al tocarlos, como el resto de los controles interactivos de la sala.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

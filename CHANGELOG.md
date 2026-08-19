@@ -6,6 +6,14 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-19] Mejora + Rediseño — Overlay de host oculto hasta tocar el video en celular, y botones ±10s rediseñados
+
+**Motivo:** feedback del usuario con captura: en celular, el badge "CONTROL REMOTO" y los botones de retroceder/adelantar 10s (ambos solo visibles para el host) tapaban el video todo el tiempo. Pidió que aparecieran solo al tocar la pantalla, y de paso que se mejorara la estética de los botones ±10s.
+
+**Mejora — overlay tap-to-toggle** (`public/room.html`, `public/style.css`): en celular (`max-width: 820px`), `.host-badge` y `.host-controls` arrancan ocultos (`opacity: 0`) y solo se muestran con la clase `controls-visible` en `.screen-wrap`, que se agrega al tocar el video y se quita sola tras 3s de inactividad (temporizador que se reinicia si se toca el badge o los botones). En escritorio no cambia nada, siguen siempre visibles.
+
+**Rediseño — botones ±10s** (`public/style.css`, `public/room.html`): de rectángulos planos con emoji a color (⏪/⏩) a chips circulares con ícono de flecha circular en texto plano (↺/↻, nunca sale a color) + "10" en la fuente OSD, con glow rosa/cian igual al resto de los controles interactivos de la sala.
+
 ## [2026-08-19] Fix + Mejora — Layout deformado al salir de pantalla completa, y botón de enviar en el chat
 
 **Motivo:** reporte del usuario con capturas: en celular, al tocar pantalla completa y luego salir, la sala quedaba deformada (video ocupando el layout equivocado, chat aplastado) y ya no volvía a su estado normal. Se aprovechó para agregar el botón de enviar mensaje que faltaba junto al campo de texto.
