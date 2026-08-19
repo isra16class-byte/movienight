@@ -486,7 +486,10 @@ body::after {
   gap: 8px;
   position: relative;
 }
-.join-row input {
+/* .join-code-field es un <div contenteditable> en vez de <input> por el mismo motivo que el chat
+   de la sala (ver .chat-input-field más abajo): la barra de autofill de Chrome Android aparece
+   sobre cualquier <input>/<textarea>, pero no sobre contenteditable. */
+.join-row .join-code-field {
   flex: 1;
   min-width: 0;
   background: var(--bg-elevated);
@@ -499,9 +502,20 @@ body::after {
   letter-spacing: 0.1em;
   text-transform: lowercase;
   transition: border-color 0.2s ease;
+  max-height: 3em;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
-.join-row input:focus { outline: none; border-color: var(--cyan); }
-.join-row input::placeholder { color: var(--text-muted); opacity: 0.6; }
+.join-row .join-code-field:focus { outline: none; border-color: var(--cyan); }
+/* Placeholder falso: contenteditable no tiene atributo placeholder nativo (mismo patrón que
+   .chat-input-field). */
+.join-row .join-code-field:empty:before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  opacity: 0.6;
+  pointer-events: none;
+}
 
 .join-btn {
   position: relative;
@@ -559,8 +573,11 @@ video { width: 100%; height: 100%; display: block; background: black; }
 .side .floaters { opacity: 0.5; }
 
 .side-header { padding: 14px 16px 12px; border-bottom: 1px solid var(--line); }
-/* Cuando el grupo código+Salir se muda a la pestaña "Sala" en celular (ver JS en room.html),
-   este contenedor de escritorio queda vacío — se oculta solo para no dejar un padding/borde huecos. */
+/* Cuando el grupo código+Salir se muda entre este contenedor y el de la pestaña "Sala" (ver JS
+   `placeCodeSalirGroup` en room.html), el que se queda sin el grupo se oculta con display:none
+   desde ahí mismo — no con :empty, porque le quedan nodos de texto (indentación del HTML) que
+   hacen que el navegador nunca lo considere realmente vacío. Este :empty se deja como respaldo
+   inofensivo por si el JS no llegó a correr todavía. */
 .side-header:empty { display: none; }
 
 /* Contador estilo OSD de videocasetera */
@@ -744,6 +761,22 @@ video { width: 100%; height: 100%; display: block; background: black; }
   html:not(.device-landscape) .local-controls { padding: 6px 10px; gap: 6px; }
   html:not(.device-landscape) .viewers-badge,
   html:not(.device-landscape) .host-badge { font-size: 13px; padding: 4px 9px; }
+}
+
+/* Teclado abierto en celular (parado): con el min-height:100px de arriba, el video se seguía
+   comiendo casi toda la pantalla visible y solo alcanzaba a verse el último mensaje del chat (el
+   que se estaba escribiendo empujaba a los anteriores fuera de vista). JS (room.html) agrega la
+   clase `keyboard-open` a <html> mientras el campo de chat tiene el foco. Con eso: se esconde la
+   fila de emojis (no hace falta mientras se está escribiendo) y se le baja el tope de altura al
+   video, para que los mensajes anteriores tengan mucho más lugar. Solo en vertical — en landscape
+   angosto la pantalla ya es chica de por sí y el teclado tapa una porción distinta. */
+@media (max-width: 820px) {
+  html.keyboard-open:not(.device-landscape) .reactions { display: none; }
+  html.keyboard-open:not(.device-landscape) .screen-wrap {
+    max-height: 20vh; /* respaldo si dvh no está soportado */
+    max-height: 20dvh;
+    min-height: 64px;
+  }
 }
 
 /* Landscape angosto de celular real (celular físicamente acostado, poco alto): se mantiene el

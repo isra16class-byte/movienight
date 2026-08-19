@@ -6,6 +6,16 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-19] Mejora + Fix — Más chat visible con el teclado abierto, hueco vacío arreglado, y `joinCode` sin barra de autofill
+
+**Motivo:** captura del usuario en celular con el teclado abierto: solo se veía un mensaje del chat, un hueco vacío entre el video y las pestañas, y la barra de autofill de Chrome seguía apareciendo al escribir el código de sala en la pantalla de inicio (pendiente desde el fix del chat, ver `[2026-08-18] Fix — Barra de autofill...`).
+
+**Fix 1 — hueco vacío** (`public/room.html`): era un bug de la mudanza código+Salir a la pestaña "Sala" (`[2026-08-18]` anterior): `.side-header:empty` nunca se disparaba porque el contenedor que se quedaba sin el grupo conservaba nodos de texto (indentación del HTML), así que el navegador no lo consideraba realmente vacío. Ahora `placeCodeSalirGroup()` esconde el contenedor perdedor a mano con `style.display`.
+
+**Mejora 2 — más mensajes visibles con el teclado abierto** (`public/room.html`, `public/style.css`): se agrega la clase `keyboard-open` a `<html>` mientras el campo de chat tiene el foco. En celular vertical, eso oculta la fila de emojis y baja el tope de altura del video (de 45dvh/100px mín. a 20dvh/64px mín.), dejándole mucho más lugar a los mensajes anteriores del chat.
+
+**Fix 3 — autofill en `joinCode`** (`public/index.html`, `public/style.css`): mismo patrón que el chat de la sala — pasó de `<input maxlength="6">` a `<div contenteditable="true">`, con manejo a mano de Enter (envía en vez de saltar de línea), paste a texto plano, y recorte a 6 caracteres (ya que contenteditable no tiene `maxlength`).
+
 ## [2026-08-18] Mejora — En celular, código de sala + Salir se mudan a la pestaña "Sala" + rediseño del botón Salir
 
 **Motivo:** pedido del usuario — en celular, el código de sala y el botón Salir ocupaban espacio fijo arriba de las pestañas, restándole lugar visible al chat. Se pidió moverlos dentro de la pestaña "Sala" solo en celular (PC igual que antes), y de paso rediseñar el botón Salir porque se veía "muy simple y genérico".

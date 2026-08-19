@@ -2,7 +2,7 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 18 de agosto de 2026 (en celular, código de sala + botón Salir se mudan a la pestaña "Sala"; rediseño del botón Salir).
+Última actualización: 19 de agosto de 2026 (con el teclado abierto en celular se ve más chat: se arregló el hueco vacío que quedaba entre el video y las pestañas, se achica más el video y se ocultan los emojis; y el campo de código de sala en la pantalla de inicio también pasó a contenteditable para sacarle la barra de autofill de Chrome).
 
 ---
 
@@ -284,11 +284,10 @@ caja de mensaje, en parte por esto mismo. Cambios necesarios en cascada:
   pegado de otro lado. El mute (`toggleMute`) ahora setea `contentEditable = 'false'` en vez de
   `.disabled`.
 
-**Los demás campos de texto del sitio** (`joinCode` y `roomPassword` en `index.html`) siguen siendo
-`<input>` normales con `autocomplete="off"`/`"new-password"` — se decidió no convertirlos a
-contenteditable porque se usan una sola vez al entrar (no repetidamente como el chat durante toda
-la película), así que el costo/beneficio de la conversión no lo justifica por ahora. Si algún día
-molesta ahí también, aplicar el mismo patrón.
+**`roomPassword` en `index.html`** sigue siendo un `<input type="password">` normal con
+`autocomplete="new-password"` — no se convirtió a contenteditable porque perdería el enmascarado
+nativo de contraseña, y no se pidió. **`joinCode`** sí terminó convertido más adelante (ver
+8duodecies) porque el usuario confirmó que la barra también aparecía ahí.
 
 ## 8decies. En celular, código de sala + botón Salir viven en la pestaña "Sala" (no en PC)
 
@@ -321,8 +320,8 @@ dispare un movimiento de por medio. Mismo criterio de fondo que `updateOrientati
 y el fix del layout de landscape angosto (8octies también): separar "cambió el layout real" de
 "cambió cuánto espacio visible queda".
 
-`.side-header:empty { display: none; }` en `style.css` esconde el contenedor de PC cuando queda
-vacío (celular) para no dejar un padding/borde huecos ahí arriba.
+`.side-header:empty { display: none; }` en `style.css` intentaba esconder el contenedor que quedara
+vacío para no dejar un padding/borde hueco ahí arriba — pero tenía un bug, ver 8duodecies.
 
 ## 8undecies. Rediseño del botón "Salir"
 
@@ -336,6 +335,51 @@ efecto de "click" físico al presionar (`transform: translateY(1px) scale(0.99)`
 adentro). Clases: `.leave-btn` (contenedor) y `.leave-btn-icon` (círculo del ícono), ambas en
 `style.css`. El HTML pasó de `<button class="leave-btn">🚪 Salir</button>` a
 `<button class="leave-btn"><span class="leave-btn-icon">🚪</span> Salir</button>`.
+
+## 8duodecies. Más espacio de chat con el teclado abierto + fix del hueco vacío + `joinCode` contenteditable
+
+Tres pedidos del usuario a partir de una captura en celular (con el teclado abierto, solo se veía
+un mensaje del chat, un hueco vacío entre el video y las pestañas, y la barra de autofill de Chrome
+seguía apareciendo en el campo de código de sala de `index.html`).
+
+**1) Hueco vacío entre el video y las pestañas — bug de 8decies.** La franja vacía no era decorativa:
+era el propio `sideHeaderDesktop` (el `.side-header` de PC) que, en celular, se supone debía
+colapsar por `.side-header:empty { display: none; }` al quedarse sin el grupo código+Salir (mudado
+a `codeSalirSlotMobile`, dentro de la pestaña "Sala"). Pero `:empty` nunca se disparaba: al mover
+`codeSalirGroup` con `appendChild`, el contenedor de origen conserva los nodos de texto del HTML
+original (saltos de línea/indentación entre las etiquetas), y esos nodos de texto cuentan como
+contenido para `:empty` — el navegador nunca lo consideraba realmente vacío.
+**Fix**: `placeCodeSalirGroup()` (`room.html`) ahora esconde el contenedor perdedor a mano
+(`sideHeaderDesktop.style.display = isMobile ? 'none' : ''`, y viceversa para
+`codeSalirSlotMobile`), sin depender de `:empty`. La regla CSS se deja como respaldo inofensivo.
+
+**2) Con el teclado abierto solo se veía el último mensaje del chat.** Aunque el video ya tenía un
+`min-height: 100px` (8octies), entre eso, el hueco vacío del punto 1, la fila de emojis y el campo
+de escribir, no quedaba casi nada de alto para `#messages`.
+**Fix**: `room.html` agrega la clase `keyboard-open` a `<html>` mientras el campo de chat
+(`chatInput`) tiene el foco (`focus`/`blur`) — no se usó la altura del `visualViewport` para
+detectarlo porque esa señal ya se usa para otra cosa (`--app-height`) y mezclarlas daría falsos
+positivos (p. ej. el navegador ocultando su barra de direcciones también achica la altura visible
+sin que haya teclado). Con esa clase, en celular vertical (`style.css`,
+`@media (max-width: 820px)`, mismo criterio de excluir `device-landscape` que el resto del layout
+mobile):
+- Se oculta `.reactions` (la fila de emojis) — no hace falta mientras se está escribiendo.
+- `.screen-wrap` baja su tope de `max-height: 45dvh` (8octies) a `max-height: 20dvh` y su
+  `min-height` de `100px` a `64px`, achicando bastante más el video para dejarle el resto del alto
+  visible a los mensajes anteriores.
+
+**3) `joinCode` (`index.html`) seguía mostrando la barra de autofill de Chrome.** En 8nonies se
+había resuelto solo para el chat de la sala; el campo de código para unirse (pantalla de inicio)
+seguía siendo un `<input>` normal y le pasaba lo mismo.
+**Fix**: mismo patrón que 8nonies — `joinCode` pasó de `<input type="text" maxlength="6">` a
+`<div id="joinCode" class="join-code-field" contenteditable="true" data-placeholder="a1b2c3" ...>`.
+Cambios en cascada: `joinCode.value` → `joinCode.textContent` en `tryJoin()`; el `keydown` de Enter
+ahora hace `e.preventDefault()` antes de llamar a `tryJoin()` (si no, insertaría un salto de línea);
+se agregó un handler de `paste` que fuerza texto plano; y como un contenteditable no tiene
+`maxlength`, se agregó un handler de `input` que recorta el texto a 6 caracteres a mano (y limpia
+saltos de línea, por si algo los coló vía paste), moviendo el cursor al final tras recortar. La
+placa de contraseña (`roomPassword`) no se tocó — sigue siendo un `<input type="password">` normal,
+ver nota actualizada en 8nonies.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

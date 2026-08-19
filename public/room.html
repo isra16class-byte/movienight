@@ -135,14 +135,36 @@ const sideHeaderDesktop = document.getElementById('sideHeaderDesktop');
 const codeSalirSlotMobile = document.getElementById('codeSalirSlotMobile');
 const mobileLayoutQuery = window.matchMedia('(max-width: 820px)');
 function placeCodeSalirGroup() {
-  const target = mobileLayoutQuery.matches ? codeSalirSlotMobile : sideHeaderDesktop;
+  const isMobile = mobileLayoutQuery.matches;
+  const target = isMobile ? codeSalirSlotMobile : sideHeaderDesktop;
   if (codeSalirGroup.parentElement !== target) target.appendChild(codeSalirGroup);
+  // El contenedor que se queda sin el grupo (sideHeaderDesktop en celular, codeSalirSlotMobile en
+  // PC) debería colapsar solo por el CSS `.side-header:empty`, pero eso nunca dispara: al moverse
+  // el grupo con appendChild quedan nodos de texto (los saltos de línea/indentación del HTML) como
+  // hijos, así que el contenedor nunca es realmente ":empty" para el navegador. Resultado: quedaba
+  // una franja vacía con su padding y borde entre el video y las pestañas en celular. Se oculta a
+  // mano en vez de confiar en :empty.
+  sideHeaderDesktop.style.display = isMobile ? 'none' : '';
+  codeSalirSlotMobile.style.display = isMobile ? '' : 'none';
 }
 placeCodeSalirGroup();
 if (mobileLayoutQuery.addEventListener) {
   mobileLayoutQuery.addEventListener('change', placeCodeSalirGroup);
 } else {
   mobileLayoutQuery.addListener(placeCodeSalirGroup); // respaldo para navegadores viejos
+}
+
+// --- Achicar el video y ocultar los emojis mientras se escribe en el chat (celular) ---
+// Pedido del usuario: con el teclado abierto solo se alcanzaba a ver el último mensaje (el que se
+// estaba escribiendo empujaba todo lo demás fuera de vista). Se ata al focus/blur del campo de
+// chat (no a la altura del viewport) porque es la señal más directa de "el teclado está abierto",
+// y measurements por visualViewport ya se usan para otra cosa (--app-height) — mezclarlas agrega
+// falsos positivos (p. ej. la barra de direcciones del navegador ocultándose también achica la
+// altura visible sin que haya teclado). El CSS (style.css, dentro del media query de celular)
+// reacciona a la clase `keyboard-open` en <html> para ocultar la fila de reacciones y bajarle el
+// tope de altura al video, dejándole mucho más lugar a los mensajes anteriores del chat.
+function setKeyboardOpen(isOpen) {
+  document.documentElement.classList.toggle('keyboard-open', isOpen);
 }
 
 const roomId = location.pathname.split('/').pop();
@@ -428,6 +450,9 @@ chatInput.addEventListener('paste', (e) => {
   const text = (e.clipboardData || window.clipboardData).getData('text/plain');
   document.execCommand('insertText', false, text);
 });
+
+chatInput.addEventListener('focus', () => setKeyboardOpen(true));
+chatInput.addEventListener('blur', () => setKeyboardOpen(false));
 
 // --- Indicador de "escribiendo..." ---
 let typingThrottle = false;

@@ -64,7 +64,7 @@
 
     <p class="eyebrow-osd" style="color:var(--pink); margin-bottom:10px;">¿Ya tienes un código?</p>
     <div class="join-row tracking-glitch">
-      <input type="text" id="joinCode" placeholder="a1b2c3" maxlength="6" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div id="joinCode" class="join-code-field" contenteditable="true" data-placeholder="a1b2c3" role="textbox" aria-multiline="false" enterkeyhint="go" autocapitalize="off" spellcheck="false"></div>
       <button class="join-btn" id="joinBtn">▶ ENTRAR</button>
     </div>
     <div id="joinStatus" class="status-line"></div>
@@ -150,7 +150,7 @@ const joinCode = document.getElementById('joinCode');
 const joinStatus = document.getElementById('joinStatus');
 
 async function tryJoin() {
-  const code = joinCode.value.trim().toLowerCase();
+  const code = joinCode.textContent.trim().toLowerCase();
   if (!code) { joinStatus.textContent = 'Escribe un código de sala'; return; }
   joinBtn.disabled = true;
   joinStatus.innerHTML = `${cassetteIcon} Buscando sala...`;
@@ -170,7 +170,38 @@ async function tryJoin() {
 }
 
 joinBtn.onclick = tryJoin;
-joinCode.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryJoin(); });
+
+// joinCode pasó de <input> a <div contenteditable> por el mismo motivo que el chat de la sala
+// (ver room.html): la barra de autofill de Chrome para Android (llave/tarjeta/ubicación) aparece
+// sobre CUALQUIER <input>/<textarea> sin importar autocomplete="off", pero nunca sobre elementos
+// contenteditable. Eso trae 3 cosas que un <input> resolvía solo y ahora hay que manejar a mano:
+joinCode.addEventListener('keydown', (e) => {
+  // 1) Enter no "envía" solo: por default inserta un salto de línea, hay que interceptarlo.
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    tryJoin();
+  }
+});
+joinCode.addEventListener('paste', (e) => {
+  // 2) Un paste normal puede traer HTML/formato pegado — se fuerza a texto plano.
+  e.preventDefault();
+  const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+  document.execCommand('insertText', false, text);
+});
+joinCode.addEventListener('input', () => {
+  // 3) No existe el atributo maxlength — se recorta a mano a 6 caracteres (el largo real de un
+  // código de sala) y también se limpian saltos de línea, por si algo los coló vía paste.
+  const clean = joinCode.textContent.replace(/[\r\n]+/g, '').slice(0, 6);
+  if (clean !== joinCode.textContent) {
+    joinCode.textContent = clean;
+    const range = document.createRange();
+    const sel = window.getSelection();
+    range.selectNodeContents(joinCode);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+});
 
 // --- Contador REC decorativo (ambiente, no tiene efecto funcional) ---
 let recSeconds = 0;
