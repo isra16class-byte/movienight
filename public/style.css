@@ -835,10 +835,16 @@ video { width: 100%; height: 100%; display: block; background: black; }
     border-left: none;
     border-top: 1px solid var(--line);
   }
-  html:not(.device-landscape) .host-controls { gap: 6px; }
+  html:not(.device-landscape) .host-controls { gap: 6px; padding: 6px 8px; left: 8px; right: 8px; }
   html:not(.device-landscape) .local-controls { padding: 6px 10px; gap: 6px; }
   html:not(.device-landscape) .viewers-badge,
   html:not(.device-landscape) .host-badge { font-size: 13px; padding: 4px 9px; }
+  /* En pantallas chicas no entran los labels de texto ("10", "FULL") ni el tiempo completo sin
+     apretar demasiado la barra de progreso — se ocultan y quedan solo los íconos + botón central. */
+  html:not(.device-landscape) .skip-btn { width: 32px; height: 32px; }
+  html:not(.device-landscape) .skip-btn .skip-label { display: none; }
+  html:not(.device-landscape) .play-pause-btn { width: 32px; height: 32px; }
+  html:not(.device-landscape) .time-label { font-size: 12px; min-width: 60px; }
 }
 
 /* En celular, el badge "CONTROL REMOTO" y los botones de salto ±10s (solo los ve el host) se
@@ -967,25 +973,67 @@ video { width: 100%; height: 100%; display: block; background: black; }
    plano — no emoji, así que no salen a color) y el "10" debajo en la fuente OSD, mismo lenguaje
    visual que el contador de sala (.osd-counter). Cada botón brilla en rosa (línea de host) y
    pasa a cian al tocarlo, como el resto de los controles interactivos. */
-.host-controls { position: absolute; bottom: 14px; left: 14px; display: flex; gap: 10px; z-index: 5; }
-.skip-btn {
+/* Antes: fila de botones circulares sueltos, flotando sobre el video (solo ±10s + fullscreen).
+   Ahora .host-controls es la barra de reproducción completa del host — reemplaza a los controles
+   nativos del navegador (player.controls ya no se activa nunca, ver room.html), así que necesita
+   verse como una barra de player real: fondo tipo panel, play/pausa + seek + tiempo en el medio,
+   ±10s y fullscreen a los costados. Se estira de borde a borde (left/right) en vez de vivir solo
+   del lado izquierdo. */
+.host-controls {
+  position: absolute; bottom: 14px; left: 14px; right: 14px;
+  display: flex; align-items: center; gap: 10px; z-index: 5;
+  background: rgba(12,6,22,0.78); backdrop-filter: blur(4px);
+  border: 1px solid var(--line); border-radius: var(--radius-md);
+  padding: 7px 12px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+}
+.skip-btn, .play-pause-btn {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  width: 50px; height: 50px; border-radius: 50%;
-  background: rgba(12,6,22,0.75); backdrop-filter: blur(4px);
+  width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0;
+  background: rgba(12,6,22,0.75);
   border: 1.5px solid var(--pink); color: #fff; cursor: pointer;
   box-shadow: 0 0 10px rgba(255,46,154,0.35), inset 0 1px 0 rgba(255,255,255,0.06);
   transition: box-shadow 0.15s, border-color 0.15s, transform 0.1s;
 }
-.skip-btn .skip-icon { font-size: 19px; line-height: 1; }
+.skip-btn .skip-icon { font-size: 16px; line-height: 1; }
 .skip-btn .skip-label {
-  font-family: var(--font-osd); font-size: 10px; letter-spacing: 0.05em;
-  margin-top: 1px; color: var(--cyan);
+  font-family: var(--font-osd); font-size: 9px; letter-spacing: 0.05em;
+  margin-top: 0px; color: var(--cyan);
 }
-.skip-btn:hover {
+.play-pause-btn { font-size: 14px; }
+.skip-btn:hover, .play-pause-btn:hover {
   border-color: var(--cyan);
   box-shadow: 0 0 14px rgba(0,229,255,0.45), inset 0 1px 0 rgba(255,255,255,0.06);
 }
-.skip-btn:active { transform: scale(0.9); }
+.skip-btn:active, .play-pause-btn:active { transform: scale(0.9); }
+
+/* ---------- Barra de progreso propia del host (reemplaza al seek nativo del navegador) ---------- */
+.seek-bar {
+  flex: 1 1 auto; min-width: 40px; position: relative;
+  height: 20px; display: flex; align-items: center; cursor: pointer;
+  touch-action: none; /* evita que el navegador interprete el arrastre como scroll en celular */
+}
+.seek-track {
+  position: relative; width: 100%; height: 5px; border-radius: 3px;
+  background: var(--line-soft); overflow: visible;
+}
+.seek-buffered {
+  position: absolute; top: 0; left: 0; height: 100%; width: 0%;
+  border-radius: 3px; background: rgba(167,139,196,0.4);
+}
+.seek-fill {
+  position: absolute; top: 0; left: 0; height: 100%; width: 0%;
+  border-radius: 3px; background: linear-gradient(90deg, var(--pink), var(--cyan));
+}
+.seek-thumb {
+  position: absolute; top: 50%; left: 0%; width: 13px; height: 13px; border-radius: 50%;
+  background: #fff; border: 2px solid var(--pink); transform: translate(-50%, -50%);
+  box-shadow: 0 0 8px rgba(255,46,154,0.6); pointer-events: none;
+}
+.time-label {
+  font-family: var(--font-osd); font-size: 15px; color: var(--cyan);
+  flex-shrink: 0; white-space: nowrap; min-width: 78px; text-align: center;
+}
 
 /* ---------- Panel de host: cambiar cinta + subtítulos ---------- */
 .host-panel { padding: 12px; border-top: 1px solid var(--line); margin-top: auto; }

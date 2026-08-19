@@ -20,7 +20,18 @@
         <video id="player" playsinline webkit-playsinline disablepictureinpicture></video>
         <div class="danmaku-layer" id="danmakuLayer" aria-hidden="true"></div>
         <div class="host-controls" id="hostControlsWrap" style="display:none;">
+          <button id="playPauseBtn" class="play-pause-btn" title="Reproducir / Pausar">
+            <span id="playPauseIcon">▶</span>
+          </button>
           <button id="skipBackBtn" class="skip-btn" title="Retroceder 10s"><span class="skip-icon">↺</span><span class="skip-label">10</span></button>
+          <div class="seek-bar" id="seekBar">
+            <div class="seek-track">
+              <div class="seek-buffered" id="seekBuffered"></div>
+              <div class="seek-fill" id="seekFill"></div>
+              <div class="seek-thumb" id="seekThumb"></div>
+            </div>
+          </div>
+          <span class="time-label" id="timeLabel">0:00 / 0:00</span>
           <button id="skipFwdBtn" class="skip-btn" title="Adelantar 10s"><span class="skip-icon">↻</span><span class="skip-label">10</span></button>
           <button id="hostFsBtn" class="skip-btn" title="Pantalla completa"><span class="skip-icon">⛶</span><span class="skip-label">FULL</span></button>
         </div>
@@ -297,7 +308,11 @@ socket.on('host-status', ({ isHost: host, hostToken: token }) => {
     hostToken = token;
     localStorage.setItem('mn_host_' + roomId, token);
   }
-  player.controls = isHost;
+  // Antes: player.controls = isHost (el host veía la barra nativa del navegador, que desentona
+  // con el resto de la interfaz "videoclub" y se ve distinta en cada navegador). Ahora el <video>
+  // nunca muestra sus controles nativos — el host tiene su propia barra (#hostControlsWrap: play/
+  // pausa, seek, tiempo, ±10s, pantalla completa), ver más abajo.
+  player.controls = false;
   document.getElementById('hostBadge').style.display = isHost ? 'block' : 'none';
   updateLocalControlsVisibility();
   document.getElementById('hostControlsWrap').style.display = isHost ? 'flex' : 'none';
@@ -410,6 +425,92 @@ player.addEventListener('seeking', () => {
 // --- Botones de salto rápido (solo host) ---
 document.getElementById('skipBackBtn').onclick = () => { player.currentTime = Math.max(0, player.currentTime - 10); };
 document.getElementById('skipFwdBtn').onclick = () => { player.currentTime = Math.min(player.duration || Infinity, player.currentTime + 10); };
+
+// --- Barra de controles propia (solo host): play/pausa + seek + tiempo ---
+// Reemplaza a los controles nativos del navegador (antes player.controls = isHost). Los nativos
+// se ven distinto en cada navegador (Chrome/Firefox/Safari) y no combinan con la estética
+// "videoclub" del resto de la sala — esta barra usa los mismos colores/fuentes que el resto de
+// los controles (skip-btn, osd-counter, etc.).
+const playPauseBtn = document.getElementById('playPauseBtn');
+const playPauseIcon = document.getElementById('playPauseIcon');
+const seekBar = document.getElementById('seekBar');
+const seekFill = document.getElementById('seekFill');
+const seekBuffered = document.getElementById('seekBuffered');
+const seekThumb = document.getElementById('seekThumb');
+const timeLabel = document.getElementById('timeLabel');
+
+function formatTime(sec) {
+  if (!isFinite(sec) || sec < 0) sec = 0;
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  const mm = h > 0 ? String(m).padStart(2, '0') : m;
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+// El ícono de play/pausa se actualiza con los eventos reales del <video> (no con el click del
+// botón): así queda correcto también cuando el estado cambia por otra vía (heartbeat, atajos de
+// teclado nativos que el navegador todavía dispara aunque controls esté en false, etc.).
+player.addEventListener('play', () => { playPauseIcon.textContent = '❚❚'; });
+player.addEventListener('pause', () => { playPauseIcon.textContent = '▶'; });
+playPauseBtn.onclick = () => { if (player.paused) player.play(); else player.pause(); };
+
+// Arrastre de la barra de progreso: mientras se arrastra (mouse o dedo) solo se mueve el visual
+// (seekFill/seekThumb) y el tiempo mostrado, sin tocar player.currentTime todavía — recién al
+// soltar se aplica el salto real. Si se moviera currentTime en cada pixel de arrastre, dispararía
+// un evento 'seeked' (y por lo tanto un 'sync' de red) por cada frame, saturando de mensajes.
+let draggingSeek = false;
+function seekRatioFromEvent(e) {
+  const rect = seekBar.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const ratio = (clientX - rect.left) / rect.width;
+  return Math.min(1, Math.max(0, ratio));
+}
+function paintSeek(ratio, previewTime) {
+  seekFill.style.width = (ratio * 100) + '%';
+  seekThumb.style.left = (ratio * 100) + '%';
+  if (player.duration) timeLabel.textContent = `${formatTime(previewTime)} / ${formatTime(player.duration)}`;
+}
+function startDrag(e) {
+  if (!isHost || !player.duration) return;
+  draggingSeek = true;
+  paintSeek(seekRatioFromEvent(e), seekRatioFromEvent(e) * player.duration);
+  e.preventDefault();
+}
+function moveDrag(e) {
+  if (!draggingSeek) return;
+  const ratio = seekRatioFromEvent(e);
+  paintSeek(ratio, ratio * player.duration);
+}
+function endDrag(e) {
+  if (!draggingSeek) return;
+  draggingSeek = false;
+  const ratio = seekRatioFromEvent(e.changedTouches ? { touches: e.changedTouches } : e);
+  player.currentTime = ratio * player.duration; // dispara 'seeked' -> emite 'sync' (ver arriba)
+}
+seekBar.addEventListener('mousedown', startDrag);
+document.addEventListener('mousemove', moveDrag);
+document.addEventListener('mouseup', endDrag);
+seekBar.addEventListener('touchstart', startDrag, { passive: false });
+document.addEventListener('touchmove', moveDrag, { passive: true });
+document.addEventListener('touchend', endDrag);
+
+// Progreso, buffer y tiempo: se actualizan solos mientras no se está arrastrando la barra.
+player.addEventListener('timeupdate', () => {
+  if (draggingSeek || !player.duration) return;
+  const ratio = player.currentTime / player.duration;
+  seekFill.style.width = (ratio * 100) + '%';
+  seekThumb.style.left = (ratio * 100) + '%';
+  timeLabel.textContent = `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`;
+});
+function updateBufferedBar() {
+  if (!player.duration || player.buffered.length === 0) return;
+  const bufferedEnd = player.buffered.end(player.buffered.length - 1);
+  seekBuffered.style.width = Math.min(100, (bufferedEnd / player.duration) * 100) + '%';
+}
+player.addEventListener('progress', updateBufferedBar);
+player.addEventListener('loadedmetadata', updateBufferedBar);
 
 // --- Overlay de host (badge "CONTROL REMOTO" + botones ±10s) oculto hasta tocar el video, en
 // celular ---
