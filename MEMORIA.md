@@ -2,7 +2,7 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 18 de agosto de 2026 (fix: el teclado activaba por error el layout de landscape angosto en vertical).
+Última actualización: 18 de agosto de 2026 (autocomplete="off" en los campos de texto para reducir la barra de autofill de Chrome sobre el teclado).
 
 ---
 
@@ -248,6 +248,32 @@ elegirlo según la **orientación real del dispositivo** (no afectada por el tec
   Playwright ni acceso de red para descargarlo) — se validó revisando a mano la lógica de CSS/JS.
   Recomendado confirmar en un celular real, sobre todo el caso de landscape angosto real (celular
   acostado) para asegurarse de que `device-landscape` se siga agregando correctamente ahí.
+
+## 8nonies. Barra de autofill de Chrome (llave/tarjeta/ubicación) sobre el teclado
+
+El usuario reportó que, al escribir en el chat desde el celular, Chrome muestra una barra con iconos
+de llave/tarjeta/ubicación arriba del teclado (el "keyboard accessory bar" de Autofill de Chrome
+para Android, que ofrece rellenar con contraseñas, tarjetas o direcciones guardadas).
+
+**Esto NO es algo de MovieNight** — es una función nativa de Chrome que aparece sobre *cualquier*
+campo de texto de *cualquier* sitio, controlada por la configuración de autofill de Chrome del
+usuario (no hay una API web para desactivarla del todo desde el sitio).
+
+Lo único que un sitio puede hacer es marcar los campos como `autocomplete="off"` (y, para el campo
+de contraseña de sala, `autocomplete="new-password"`) para decirle a Chrome que ese campo no es un
+login/dirección/tarjeta guardable — esto reduce bastante la probabilidad de que la barra aparezca,
+pero Chrome puede igual mostrarla en algunos casos; no es 100% garantizado desde el código.
+
+Se aplicó en:
+- `chatInput` (`room.html`): `autocomplete="off"`.
+- `joinCode` (`index.html`, código de 6 caracteres para unirse a una sala): `autocomplete="off"`.
+- `roomPassword` (`index.html`, contraseña de sala al crearla): `autocomplete="new-password"` — esto
+  además evita que Chrome ofrezca "¿guardar esta contraseña?" al enviarla, ya que no es una
+  credencial de cuenta/login real.
+
+Si a pesar de esto la barra sigue apareciendo, es un límite de lo que se puede hacer desde el sitio;
+la única forma de sacarla del todo es que cada usuario la desactive en su propio Chrome
+(Configuración de Chrome → Autofill/Contraseñas y direcciones).
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

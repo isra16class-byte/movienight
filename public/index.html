@@ -50,7 +50,7 @@
       <input type="file" id="videoFile" accept="video/*" hidden>
     </label>
 
-    <input type="password" id="roomPassword" class="password-input" placeholder="Contraseña de la sala (opcional)" maxlength="60">
+    <input type="password" id="roomPassword" class="password-input" placeholder="Contraseña de la sala (opcional)" maxlength="60" autocomplete="new-password">
 
     <button id="createBtn" class="rec-btn tracking-glitch">
       <span class="rec-dot"></span>
@@ -64,7 +64,7 @@
 
     <p class="eyebrow-osd" style="color:var(--pink); margin-bottom:10px;">¿Ya tienes un código?</p>
     <div class="join-row tracking-glitch">
-      <input type="text" id="joinCode" placeholder="a1b2c3" maxlength="6">
+      <input type="text" id="joinCode" placeholder="a1b2c3" maxlength="6" autocomplete="off" autocapitalize="off" spellcheck="false">
       <button class="join-btn" id="joinBtn">▶ ENTRAR</button>
     </div>
     <div id="joinStatus" class="status-line"></div>

@@ -6,6 +6,14 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-18] Ajuste — Reducir la barra de autofill de Chrome (llave/tarjeta/ubicación) sobre el teclado
+
+**Motivo:** captura del usuario mostrando la barra de autofill de Chrome para Android (iconos de contraseñas/tarjetas/direcciones) apareciendo sobre el teclado al escribir en el chat.
+
+**Aclaración:** no es un bug de MovieNight — es una función nativa de Chrome que aparece en cualquier campo de texto de cualquier sitio, y no hay forma de apagarla del todo desde el código de una página (solo desde la configuración de Chrome del usuario).
+
+**Cambio** (`public/room.html`, `public/index.html`): se agregó `autocomplete="off"` al campo de chat (`chatInput`) y al código de sala para unirse (`joinCode`), y `autocomplete="new-password"` al campo de contraseña de sala (`roomPassword`) — esto le indica a Chrome que esos campos no son credenciales/direcciones/tarjetas guardables, lo que reduce bastante la probabilidad de que la barra aparezca (sin garantía del 100%, ya que la decisión final es de Chrome). El campo de contraseña también deja de disparar el popup de "¿guardar esta contraseña?" al enviarla.
+
 ## [2026-08-18] Fix — El teclado activaba por error el layout de "landscape angosto" en vertical
 
 **Motivo:** captura del usuario (celular vertical, escribiendo en el chat) mostrando el video comprimido a un lado y el chat ocupando casi la mitad de la pantalla — probado en varios celulares con el mismo resultado. Era una regresión del fix anterior de esta misma fecha ("el teclado empujaba el video fuera de pantalla").
