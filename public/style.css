@@ -684,6 +684,48 @@ video { width: 100%; height: 100%; display: block; background: black; }
 }
 @keyframes floatUp { 0% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-280px); } }
 
+/* Comentarios flotantes del chat sobre el video (estilo "danmaku"), solo visibles en pantalla
+   completa. El layer vive siempre en el DOM (display:none) para no tener que sincronizar su
+   existencia con el estado de fullscreen desde JS — .is-fullscreen la prende sola cuando
+   .screen-wrap es el elemento en pantalla completa (ver fsBtn/updateFullscreenState en room.html). */
+.danmaku-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 8; /* por encima de badges (5) y controles (5) para que ningún mensaje quede tapado */
+  display: none;
+}
+.screen-wrap.is-fullscreen .danmaku-layer { display: block; }
+
+.danmaku-item {
+  position: absolute;
+  top: var(--danmaku-top, 10%);
+  left: 100%;
+  white-space: nowrap;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 22px;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.9), 0 0 14px rgba(0,0,0,0.65);
+  animation-name: danmaku-fly;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+.danmaku-item b { color: var(--cyan); font-weight: 700; }
+
+/* -100vw cruza el ancho del viewport (screen-wrap ocupa toda la pantalla en fullscreen) y el
+   -100% adicional (relativo al propio elemento) lo termina de sacar por el borde izquierdo,
+   sin importar cuán largo sea el mensaje. */
+@keyframes danmaku-fly {
+  from { transform: translateX(0); }
+  to   { transform: translateX(calc(-100vw - 100%)); }
+}
+
+@media (max-width: 820px) {
+  .danmaku-item { font-size: 16px; }
+}
+
 .viewers-badge {
   position: absolute; top: 12px; right: 12px;
   background: rgba(12,6,22,0.75); border: 1px solid var(--line);

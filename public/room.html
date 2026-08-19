@@ -18,6 +18,7 @@
         <div class="viewers-badge" id="viewers">👥 0</div>
         <div class="host-badge" id="hostBadge" style="display:none;">🎛 CONTROL REMOTO</div>
         <video id="player" playsinline webkit-playsinline disablepictureinpicture></video>
+        <div class="danmaku-layer" id="danmakuLayer" aria-hidden="true"></div>
         <div class="host-controls" id="hostControlsWrap" style="display:none;">
           <button id="skipBackBtn" class="skip-btn" title="Retroceder 10s"><span class="skip-icon">↺</span><span class="skip-label">10</span></button>
           <button id="skipFwdBtn" class="skip-btn" title="Adelantar 10s"><span class="skip-icon">↻</span><span class="skip-label">10</span></button>
@@ -477,7 +478,17 @@ volToggleBtn.addEventListener('click', (e) => {
   }
 });
 document.getElementById('volSlider').addEventListener('input', (e) => player.volume = e.target.value);
-document.getElementById('fsBtn').onclick = () => player.requestFullscreen();
+// Pantalla completa sobre .screen-wrap (no sobre el <video> solo): así los overlays que viven
+// como hermanos del video (badges, banner de silenciado y los comentarios flotantes del chat,
+// ver más abajo) se siguen viendo dentro de la pantalla completa. Si el navegador no soporta
+// pantalla completa sobre un div cualquiera (Safari/iOS viejo), se cae al comportamiento anterior
+// (pantalla completa nativa del video) para no romper el botón, aunque ahí los overlays no se vean
+// — es una limitación del navegador, no hay forma de dibujar HTML encima del <video> nativo de iOS.
+document.getElementById('fsBtn').onclick = () => {
+  const target = (screenWrap.requestFullscreen || screenWrap.webkitRequestFullscreen) ? screenWrap : player;
+  if (target.requestFullscreen) target.requestFullscreen();
+  else if (target.webkitRequestFullscreen) target.webkitRequestFullscreen();
+};
 
 // --- Fix: layout deformado al salir de pantalla completa ---
 // Al pedir pantalla completa sobre el <video> (no sobre toda la página), algunos navegadores
@@ -494,10 +505,18 @@ function resyncLayoutAfterFullscreen() {
     updateOrientationClass();
   }, delay));
 }
+// Clase `is-fullscreen` en .screen-wrap: solo se activa cuando el elemento en pantalla completa
+// es el propio .screen-wrap (ver fsBtn más arriba) — si por algún motivo terminó siendo el <video>
+// (respaldo de navegadores viejos), se deja apagada a propósito: ahí no hay forma de mostrar los
+// comentarios flotantes encima del video nativo, así que mejor no mostrarlos a medias.
+function updateFullscreenState() {
+  const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+  screenWrap.classList.toggle('is-fullscreen', fsEl === screenWrap);
+}
 // 'fullscreenchange' cubre Chrome/Firefox/Safari desktop y Android modernos; 'webkitfullscreenchange'
 // es el respaldo para Safari/iOS más viejos que todavía no exponen el evento sin prefijo.
-document.addEventListener('fullscreenchange', resyncLayoutAfterFullscreen);
-document.addEventListener('webkitfullscreenchange', resyncLayoutAfterFullscreen);
+document.addEventListener('fullscreenchange', () => { resyncLayoutAfterFullscreen(); updateFullscreenState(); });
+document.addEventListener('webkitfullscreenchange', () => { resyncLayoutAfterFullscreen(); updateFullscreenState(); });
 // iOS Safari no soporta pantalla completa "real" en <video> vía la Fullscreen API estándar —
 // usa su propio reproductor nativo con estos eventos en vez de fullscreenchange.
 player.addEventListener('webkitbeginfullscreen', resyncLayoutAfterFullscreen);
@@ -533,9 +552,38 @@ function addMessage(html, cls) {
   messages.scrollTop = messages.scrollHeight;
 }
 socket.on('chat-message', (data) => {
-  if (data.system) addMessage(escapeHtml(data.text), 'system');
-  else addMessage(`<span class="msg"><b>${escapeHtml(data.user)}:</b> ${escapeHtml(data.text)}</span>`, 'msg');
+  if (data.system) { addMessage(escapeHtml(data.text), 'system'); return; }
+  addMessage(`<span class="msg"><b>${escapeHtml(data.user)}:</b> ${escapeHtml(data.text)}</span>`, 'msg');
+  spawnDanmaku(data.user, data.text);
 });
+
+// --- Comentarios flotantes del chat sobre el video (estilo "danmaku"), solo en pantalla completa ---
+// Los mensajes de sistema (alguien entró/salió) se quedan afuera a propósito: solo interesa lo
+// que la gente escribe. `.danmaku-layer` está siempre en el DOM pero solo se muestra vía CSS
+// cuando .screen-wrap tiene la clase `is-fullscreen` — igual se puede seguir agregando comentarios
+// sin fullscreen (no cuesta nada, están ocultos) para no tener que acordarse de chequear el estado acá.
+const danmakuLayer = document.getElementById('danmakuLayer');
+const DANMAKU_LANES = 6;
+const laneFreeAt = new Array(DANMAKU_LANES).fill(0); // próximo momento (Date.now()) en que cada carril queda libre
+function pickDanmakuLane() {
+  const now = Date.now();
+  let lane = laneFreeAt.findIndex(t => t <= now);
+  if (lane === -1) lane = laneFreeAt.indexOf(Math.min(...laneFreeAt)); // todos ocupados: fuerza el que se libera antes
+  laneFreeAt[lane] = now + 1300; // margen chico antes de reusar el carril, para no encimar el arranque del siguiente
+  return lane;
+}
+function spawnDanmaku(user, text) {
+  const lane = pickDanmakuLane();
+  const el = document.createElement('div');
+  el.className = 'danmaku-item';
+  el.innerHTML = `<b>${escapeHtml(user)}:</b> ${escapeHtml(text)}`;
+  el.style.setProperty('--danmaku-top', (10 + lane * 7.5) + '%');
+  // Mensajes largos cruzan la pantalla un poco más lento, para que alcancen a leerse.
+  const duration = Math.min(15, Math.max(7, text.length / 10 + 6));
+  el.style.animationDuration = duration + 's';
+  danmakuLayer.appendChild(el);
+  el.addEventListener('animationend', () => el.remove());
+}
 
 const chatInput = document.getElementById('chatInput');
 // Extraído a función aparte (antes vivía inline en el keydown de Enter) para poder llamarlo
