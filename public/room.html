@@ -528,10 +528,36 @@ function resyncLayoutAfterFullscreen() {
 // claro que, estando adentro, un segundo toque sirve para salir.
 const fsBtn = document.getElementById('fsBtn');
 const hostFsBtn = document.getElementById('hostFsBtn');
+
+// --- Forzar horizontal al entrar en pantalla completa (Screen Orientation API) ---
+// Antes, al pedir pantalla completa sobre el <video> (comportamiento viejo), Chrome/Android hacía
+// este giro automáticamente por su cuenta como un truco interno específico de <video> — pero eso
+// se perdió al mover la pantalla completa a .screen-wrap (necesario para que el chat flotante se
+// vea encima del video, ver commit anterior). Sin ese truco, la sala se quedaba en pantalla
+// completa vertical, obligando a activar el giro automático del celular a mano — y al salir, si el
+// celular volvía a estar parado antes de que el navegador terminara de revertir el giro, el layout
+// quedaba atascado en horizontal (bug reportado: video angosto + chat ocupando media pantalla).
+// La Screen Orientation API resuelve esto de raíz: 'landscape' bloquea la pantalla completa en
+// horizontal (dejando girar libremente entre las dos variantes, izquierda o derecha) sin depender
+// de que el giro automático del sistema esté activado, y unlock() la libera prolijamente al salir
+// para que el celular vuelva a mostrar la orientación física real. Solo tiene efecto en celulares:
+// la API está pensada para dispositivos con sensor de orientación, así que en PC el navegador
+// simplemente rechaza la promesa de lock() sin hacer nada (por eso no hace falta distinguir PC vs
+// celular a mano acá) — y Safari/iOS, que no implementa `.lock`, cae en el chequeo de más abajo.
+function setLandscapeLock(shouldLock) {
+  if (!screen.orientation || !screen.orientation.lock) return; // Safari/iOS no lo soporta: no hace nada
+  if (shouldLock) {
+    screen.orientation.lock('landscape').catch(() => {}); // rechaza sola en PC/tablets sin sensor; no es un error real
+  } else if (screen.orientation.unlock) {
+    screen.orientation.unlock();
+  }
+}
+
 function updateFullscreenState() {
   const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
   const isFs = fsEl === screenWrap;
   screenWrap.classList.toggle('is-fullscreen', isFs);
+  setLandscapeLock(isFs);
   const icon = isFs ? '✕' : '⛶';
   const title = isFs ? 'Salir de pantalla completa' : 'Pantalla completa';
   fsBtn.textContent = icon;
