@@ -558,6 +558,10 @@ function updateFullscreenState() {
   const isFs = fsEl === screenWrap;
   screenWrap.classList.toggle('is-fullscreen', isFs);
   setLandscapeLock(isFs);
+  // Al salir, se limpian los comentarios flotantes que hayan quedado a mitad de animación (ver
+  // clearDanmaku más abajo) — si no, quedan "congelados" en el layer oculto y revientan todos
+  // juntos, chocando con los nuevos, la próxima vez que se entre en pantalla completa.
+  if (!isFs) clearDanmaku();
   const icon = isFs ? '✕' : '⛶';
   const title = isFs ? 'Salir de pantalla completa' : 'Pantalla completa';
   fsBtn.textContent = icon;
@@ -638,6 +642,15 @@ socket.on('chat-message', (data) => {
 const danmakuLayer = document.getElementById('danmakuLayer');
 const DANMAKU_LANES = 6;
 const laneFreeAt = new Array(DANMAKU_LANES).fill(0); // próximo momento (Date.now()) en que cada carril queda libre
+// Se llama al SALIR de pantalla completa (ver updateFullscreenState más arriba): borra cualquier
+// comentario que haya quedado a mitad de animación en vez de dejarlo "congelado" en el layer
+// oculto — si no, al volver a entrar en pantalla completa esos mensajes viejos reinician su
+// animación desde cero (así maneja Chrome las animaciones CSS dentro de un ancestro con
+// display:none) y chocan con los mensajes nuevos que sí llegan en tiempo real.
+function clearDanmaku() {
+  laneFreeAt.fill(0);
+  danmakuLayer.innerHTML = '';
+}
 function pickDanmakuLane() {
   const now = Date.now();
   let lane = laneFreeAt.findIndex(t => t <= now);
