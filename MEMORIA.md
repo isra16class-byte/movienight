@@ -2,7 +2,7 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 19 de agosto de 2026 (con el teclado abierto en celular se ve más chat: se arregló el hueco vacío que quedaba entre el video y las pestañas, se achica más el video y se ocultan los emojis; y el campo de código de sala en la pantalla de inicio también pasó a contenteditable para sacarle la barra de autofill de Chrome).
+Última actualización: 19 de agosto de 2026 (segundo ajuste del mismo día: el video se achica poco con el teclado abierto en vez de mucho, se arregló el bug de que no volvía a su tamaño original al cerrar el teclado, y la barra de volumen ahora es colapsable y se oculta mientras se escribe).
 
 ---
 
@@ -356,13 +356,13 @@ contenido para `:empty` — el navegador nunca lo consideraba realmente vacío.
 **2) Con el teclado abierto solo se veía el último mensaje del chat.** Aunque el video ya tenía un
 `min-height: 100px` (8octies), entre eso, el hueco vacío del punto 1, la fila de emojis y el campo
 de escribir, no quedaba casi nada de alto para `#messages`.
-**Fix**: `room.html` agrega la clase `keyboard-open` a `<html>` mientras el campo de chat
-(`chatInput`) tiene el foco (`focus`/`blur`) — no se usó la altura del `visualViewport` para
-detectarlo porque esa señal ya se usa para otra cosa (`--app-height`) y mezclarlas daría falsos
-positivos (p. ej. el navegador ocultando su barra de direcciones también achica la altura visible
-sin que haya teclado). Con esa clase, en celular vertical (`style.css`,
-`@media (max-width: 820px)`, mismo criterio de excluir `device-landscape` que el resto del layout
-mobile):
+**Fix (primera versión, ver 8terdecies para el ajuste posterior)**: `room.html` agrega la clase
+`keyboard-open` a `<html>` mientras el campo de chat (`chatInput`) tiene el foco (`focus`/`blur`) —
+no se usó la altura del `visualViewport` para detectarlo porque esa señal ya se usa para otra cosa
+(`--app-height`) y mezclarlas daría falsos positivos (p. ej. el navegador ocultando su barra de
+direcciones también achica la altura visible sin que haya teclado). Con esa clase, en celular
+vertical (`style.css`, `@media (max-width: 820px)`, mismo criterio de excluir `device-landscape`
+que el resto del layout mobile):
 - Se oculta `.reactions` (la fila de emojis) — no hace falta mientras se está escribiendo.
 - `.screen-wrap` baja su tope de `max-height: 45dvh` (8octies) a `max-height: 20dvh` y su
   `min-height` de `100px` a `64px`, achicando bastante más el video para dejarle el resto del alto
@@ -380,6 +380,51 @@ se agregó un handler de `paste` que fuerza texto plano; y como un contenteditab
 saltos de línea, por si algo los coló vía paste), moviendo el cursor al final tras recortar. La
 placa de contraseña (`roomPassword`) no se tocó — sigue siendo un `<input type="password">` normal,
 ver nota actualizada en 8nonies.
+
+## 8terdecies. Ajuste: video más grande con el teclado abierto, bug del tamaño que no se restauraba, y barra de volumen colapsable
+
+Feedback del usuario tras probar 8duodecies: el 20dvh/64px dejaba el video demasiado chico —
+"la cuestión es poder hablar y ver el video al mismo tiempo", prioridad al video. Además reportó un
+bug (video no volvía a su tamaño original al cerrar el teclado) y pidió sacarle protagonismo a la
+barra de volumen. Antes de tocar nada se le preguntó qué tanto debía achicarse el video y qué hacer
+con la barra de volumen — eligió "poco, prioridad al video" y "ocultarla mientras el teclado está
+abierto + rediseñarla para que el deslizador solo aparezca al tocar el ícono".
+
+**1) Video más grande con teclado abierto.** `.screen-wrap` en `html.keyboard-open` pasó de
+`max-height: 20dvh; min-height: 64px` a `max-height: 38dvh; min-height: 90px` — mucho más cerca del
+tamaño normal (`45dvh`/`100px`, 8octies). El espacio extra para el chat ya no sale de aplastar el
+video, sino de esconder los emojis, el hueco vacío arreglado en 8duodecies, y ahora también la
+barra de volumen (punto 3).
+
+**2) Bug: el video no volvía a su tamaño original al cerrar el teclado.** Causa: en algunos
+Android + Chrome, tras cerrar el teclado, el evento final de `visualViewport.resize` no llega a
+tiempo (o llega con un valor intermedio de la animación de cierre), y `--app-height` se queda
+pegado en ese valor chico — el CSS ya no tiene la clase `keyboard-open` pero el `--app-height` que
+usa `.room-scene` para calcular su alto real sigue siendo el reducido.
+**Fix**: dos cambios en `room.html`. (a) `visualViewport` ahora también escucha `scroll` además de
+`resize` (algunos Android disparan `scroll` en vez de/antes que el `resize` final al cerrar el
+teclado). (b) el handler de `blur` del chat, además de sacar la clase `keyboard-open`, refuerza el
+recálculo de `setAppHeight()` varias veces con `setTimeout` (`50, 150, 300, 500` ms) para cubrir
+toda la duración de la animación de cierre del teclado, en vez de confiar en un solo evento.
+
+**3) Barra de volumen colapsable.** Antes `.local-controls` mostraba el ícono 🔊, el deslizador de
+volumen y el botón de pantalla completa (⛶) todos fijos y siempre visibles sobre el video. Dos
+cambios:
+- **Se oculta mientras el teclado está abierto** (celular vertical, mismo criterio que los emojis):
+  se agregó `updateLocalControlsVisibility()` en `room.html`, que decide el `display` de
+  `#localControls` combinando dos cosas — si es host (nunca se muestra, ya existía) y si el teclado
+  está abierto en celular vertical (nuevo). Se maneja por JS y no por una regla CSS con
+  `html.keyboard-open` porque el `display` de `#localControls` ya se fija por JS en otro lado
+  (`socket.on('host-status', ...)`) vía `style.display`, y una regla de CSS normal no le gana a un
+  inline style — hacía falta que ambas decisiones vivan en el mismo lugar.
+- **El deslizador ahora es colapsable**, como en varios reproductores: se envolvió el ícono y el
+  `<input type="range">` en un `<div class="vol-control" id="volControl">`, y el ícono pasó de
+  `<span>` a `<button id="volToggleBtn">`. Al tocarlo, alterna la clase `.open` en `volControl`; el
+  CSS (`.vol-slider`) anima su ancho de `0` a `90px` con `transition`. Se cierra solo si se toca
+  afuera (listener de `click` en `document` mientras está abierto, que se remueve al cerrarlo para
+  no dejar listeners colgando) o si se abre el teclado (`setKeyboardOpen` llama a `closeVolPopup()`
+  para que no quede el popup abierto detrás de la barra ya escondida). El botón de pantalla
+  completa (`fsBtn`) no forma parte de este colapso — sigue siempre visible aparte.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

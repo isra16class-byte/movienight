@@ -23,8 +23,10 @@
           <button id="skipFwdBtn" title="Adelantar 10s">10 ⏩</button>
         </div>
         <div class="local-controls" id="localControls" style="display:none;">
-          <span>🔊</span>
-          <input type="range" id="volSlider" min="0" max="1" step="0.05" value="1">
+          <div class="vol-control" id="volControl">
+            <button id="volToggleBtn" title="Volumen">🔊</button>
+            <input type="range" id="volSlider" class="vol-slider" min="0" max="1" step="0.05" value="1">
+          </div>
           <button id="fsBtn" title="Pantalla completa">⛶</button>
         </div>
         <div class="muted-banner" id="mutedBanner" style="display:none;">🔇 Te silenciaron el chat</div>
@@ -106,6 +108,10 @@ window.addEventListener('resize', setAppHeight);
 window.addEventListener('orientationchange', setAppHeight);
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', setAppHeight);
+  // 'scroll' también, no solo 'resize': en algunos Android+Chrome, al cerrarse el teclado
+  // visualViewport dispara un 'scroll' en vez de (o antes que) el 'resize' final, y sin este
+  // listener --app-height se queda pegado en el valor chico de cuando el teclado estaba abierto.
+  window.visualViewport.addEventListener('scroll', setAppHeight);
 }
 
 // --- Layout fila (video+chat al costado) vs. columna (video arriba, chat abajo) en celular ---
@@ -154,17 +160,35 @@ if (mobileLayoutQuery.addEventListener) {
   mobileLayoutQuery.addListener(placeCodeSalirGroup); // respaldo para navegadores viejos
 }
 
-// --- Achicar el video y ocultar los emojis mientras se escribe en el chat (celular) ---
+// --- Achicar el video y ocultar los emojis/barra de volumen mientras se escribe en el chat (celular) ---
 // Pedido del usuario: con el teclado abierto solo se alcanzaba a ver el último mensaje (el que se
 // estaba escribiendo empujaba todo lo demás fuera de vista). Se ata al focus/blur del campo de
 // chat (no a la altura del viewport) porque es la señal más directa de "el teclado está abierto",
 // y measurements por visualViewport ya se usan para otra cosa (--app-height) — mezclarlas agrega
 // falsos positivos (p. ej. la barra de direcciones del navegador ocultándose también achica la
 // altura visible sin que haya teclado). El CSS (style.css, dentro del media query de celular)
-// reacciona a la clase `keyboard-open` en <html> para ocultar la fila de reacciones y bajarle el
-// tope de altura al video, dejándole mucho más lugar a los mensajes anteriores del chat.
+// reacciona a la clase `keyboard-open` en <html> para ocultar la fila de reacciones y bajarle un
+// poco el tope de altura al video (poco, a pedido — la prioridad es que el video se siga viendo
+// grande, no maximizar el chat).
 function setKeyboardOpen(isOpen) {
   document.documentElement.classList.toggle('keyboard-open', isOpen);
+  updateLocalControlsVisibility();
+  if (isOpen) closeVolPopup();
+}
+
+// La barra de volumen/pantalla completa (solo para invitados, no-host) también se oculta mientras
+// el teclado está abierto en celular, mismo criterio que los emojis — ninguna de las dos hace
+// falta mientras se está escribiendo, y le dejan más aire al chat. Se maneja acá y no con CSS
+// puro porque el display de #localControls ya se controla por JS (host vs invitado, ver
+// `socket.on('host-status', ...)` más abajo) y una regla de CSS no le ganaría a ese inline style.
+function updateLocalControlsVisibility() {
+  const el = document.getElementById('localControls');
+  if (!el) return;
+  if (isHost) { el.style.display = 'none'; return; }
+  const hiddenForKeyboard = document.documentElement.classList.contains('keyboard-open')
+    && mobileLayoutQuery.matches
+    && !document.documentElement.classList.contains('device-landscape');
+  el.style.display = hiddenForKeyboard ? 'none' : 'flex';
 }
 
 const roomId = location.pathname.split('/').pop();
@@ -272,7 +296,7 @@ socket.on('host-status', ({ isHost: host, hostToken: token }) => {
   }
   player.controls = isHost;
   document.getElementById('hostBadge').style.display = isHost ? 'block' : 'none';
-  document.getElementById('localControls').style.display = isHost ? 'none' : 'flex';
+  updateLocalControlsVisibility();
   document.getElementById('hostControlsWrap').style.display = isHost ? 'flex' : 'none';
   document.getElementById('hostPanelWrap').style.display = isHost ? 'block' : 'none';
   document.getElementById('changeVideoLink').href = `/library.html?fromRoom=${roomId}`;
@@ -392,6 +416,29 @@ player.addEventListener('playing', () => setBuffering(false));
 player.addEventListener('canplaythrough', () => setBuffering(false));
 
 // --- Controles locales (no-host): volumen y pantalla completa ---
+// La barrita de volumen antes estaba siempre visible y se veía tosca ocupando espacio sobre el
+// video de forma permanente. Ahora, como en varios reproductores, el control deslizante solo
+// aparece al tocar el ícono del parlante (y se vuelve a esconder si se toca afuera o se vuelve a
+// tocar el ícono) — el botón de pantalla completa sigue siendo siempre visible aparte.
+const volControl = document.getElementById('volControl');
+const volToggleBtn = document.getElementById('volToggleBtn');
+function closeVolPopup() {
+  volControl.classList.remove('open');
+  document.removeEventListener('click', handleOutsideVolClick, true);
+}
+function handleOutsideVolClick(e) {
+  if (!volControl.contains(e.target)) closeVolPopup();
+}
+volToggleBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const willOpen = !volControl.classList.contains('open');
+  volControl.classList.toggle('open', willOpen);
+  if (willOpen) {
+    document.addEventListener('click', handleOutsideVolClick, true);
+  } else {
+    document.removeEventListener('click', handleOutsideVolClick, true);
+  }
+});
 document.getElementById('volSlider').addEventListener('input', (e) => player.volume = e.target.value);
 document.getElementById('fsBtn').onclick = () => player.requestFullscreen();
 
@@ -452,7 +499,16 @@ chatInput.addEventListener('paste', (e) => {
 });
 
 chatInput.addEventListener('focus', () => setKeyboardOpen(true));
-chatInput.addEventListener('blur', () => setKeyboardOpen(false));
+chatInput.addEventListener('blur', () => {
+  setKeyboardOpen(false);
+  // Fix: al cerrar el teclado, el video se quedaba más chico de lo que debía (no volvía a su
+  // tamaño original). Causa: en algunos Android + Chrome, el evento final de
+  // `visualViewport.resize`/`scroll` no llega a tiempo, o llega con un valor intermedio de la
+  // animación de cierre del teclado — y `--app-height` se queda pegado en ese valor chico. Se
+  // refuerza el recálculo varias veces mientras dura esa animación (unos ~300-500ms en la
+  // mayoría de los dispositivos), en vez de confiar en un solo evento.
+  [50, 150, 300, 500].forEach((delay) => setTimeout(setAppHeight, delay));
+});
 
 // --- Indicador de "escribiendo..." ---
 let typingThrottle = false;

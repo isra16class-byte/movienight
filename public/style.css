@@ -708,6 +708,26 @@ video { width: 100%; height: 100%; display: block; background: black; }
   padding: 5px 9px; border-radius: var(--radius-sm); cursor: pointer;
 }
 
+/* Control de volumen colapsable: antes la barrita estaba siempre a la vista, ocupando espacio
+   fijo sobre el video de forma permanente — se pidió que, como en varios reproductores, el
+   deslizador solo aparezca al tocar el ícono del parlante. El botón mide siempre lo mismo; lo que
+   se expande/colapsa con una transición de ancho es el <input type=range> de al lado. */
+.vol-control { display: flex; align-items: center; }
+.vol-slider {
+  width: 0;
+  opacity: 0;
+  margin-left: 0;
+  pointer-events: none;
+  overflow: hidden;
+  transition: width 0.2s ease, opacity 0.2s ease, margin-left 0.2s ease;
+}
+.vol-control.open .vol-slider {
+  width: 90px;
+  opacity: 1;
+  margin-left: 8px;
+  pointer-events: auto;
+}
+
 .muted-banner {
   position: absolute; bottom: 14px; left: 14px;
   background: var(--pink-dim); border: 1px solid var(--pink); color: #ffd7ee;
@@ -763,19 +783,20 @@ video { width: 100%; height: 100%; display: block; background: black; }
   html:not(.device-landscape) .host-badge { font-size: 13px; padding: 4px 9px; }
 }
 
-/* Teclado abierto en celular (parado): con el min-height:100px de arriba, el video se seguía
-   comiendo casi toda la pantalla visible y solo alcanzaba a verse el último mensaje del chat (el
-   que se estaba escribiendo empujaba a los anteriores fuera de vista). JS (room.html) agrega la
-   clase `keyboard-open` a <html> mientras el campo de chat tiene el foco. Con eso: se esconde la
-   fila de emojis (no hace falta mientras se está escribiendo) y se le baja el tope de altura al
-   video, para que los mensajes anteriores tengan mucho más lugar. Solo en vertical — en landscape
-   angosto la pantalla ya es chica de por sí y el teclado tapa una porción distinta. */
+/* Teclado abierto en celular (parado): antes el video se achicaba mucho (hasta 20dvh/64px) para
+   maximizar el chat, pero el pedido cambió — la prioridad es que el video se siga viendo grande
+   (poder "hablar y ver el video al mismo tiempo"), así que ahora se achica poco. El resto del
+   espacio para el chat sale de esconder la fila de emojis y la barra de volumen (no hacen falta
+   mientras se escribe) y del fix de la franja vacía de arriba, no de aplastar el video. JS
+   (room.html) agrega la clase `keyboard-open` a <html> mientras el campo de chat tiene el foco.
+   Solo en vertical — en landscape angosto la pantalla ya es chica de por sí y el teclado tapa una
+   porción distinta. */
 @media (max-width: 820px) {
   html.keyboard-open:not(.device-landscape) .reactions { display: none; }
   html.keyboard-open:not(.device-landscape) .screen-wrap {
-    max-height: 20vh; /* respaldo si dvh no está soportado */
-    max-height: 20dvh;
-    min-height: 64px;
+    max-height: 38vh; /* respaldo si dvh no está soportado */
+    max-height: 38dvh;
+    min-height: 90px;
   }
 }
 

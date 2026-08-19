@@ -6,6 +6,16 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-19] Ajuste — Video más grande con el teclado abierto, fix del tamaño que no se restauraba, y barra de volumen colapsable
+
+**Motivo:** feedback tras el cambio anterior — el video quedaba demasiado chico con el teclado abierto ("la cuestión es poder hablar y ver el video al mismo tiempo"), un bug donde no volvía a su tamaño original al cerrar el teclado, y pedido de simplificar la barra de volumen/pantalla completa.
+
+**Ajuste 1 — video más grande** (`public/style.css`): `.screen-wrap` en `html.keyboard-open` pasa de `max-height: 20dvh; min-height: 64px` a `max-height: 38dvh; min-height: 90px`, mucho más cerca del tamaño normal. El espacio para el chat ahora sale de esconder emojis + barra de volumen + el fix del hueco vacío, no de aplastar el video.
+
+**Fix 2 — el video no volvía a su tamaño original** (`public/room.html`): `visualViewport` ahora también escucha `scroll` (no solo `resize` — algunos Android disparan eso al cerrar el teclado), y el `blur` del chat refuerza `setAppHeight()` con varios `setTimeout` (50/150/300/500ms) para cubrir toda la animación de cierre.
+
+**Ajuste 3 — barra de volumen colapsable** (`public/room.html`, `public/style.css`): se oculta mientras el teclado está abierto (mismo criterio que los emojis, vía `updateLocalControlsVisibility()`). El ícono 🔊 pasó de `<span>` a `<button>` que alterna un deslizador colapsable (`.vol-control.open .vol-slider`, animado con `transition`) — solo aparece al tocarlo, y se cierra tocando afuera o al abrirse el teclado. El botón de pantalla completa sigue siempre visible, aparte.
+
 ## [2026-08-19] Mejora + Fix — Más chat visible con el teclado abierto, hueco vacío arreglado, y `joinCode` sin barra de autofill
 
 **Motivo:** captura del usuario en celular con el teclado abierto: solo se veía un mensaje del chat, un hueco vacío entre el video y las pestañas, y la barra de autofill de Chrome seguía apareciendo al escribir el código de sala en la pantalla de inicio (pendiente desde el fix del chat, ver `[2026-08-18] Fix — Barra de autofill...`).
