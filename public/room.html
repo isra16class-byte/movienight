@@ -574,6 +574,19 @@ document.addEventListener('webkitfullscreenchange', () => { resyncLayoutAfterFul
 player.addEventListener('webkitbeginfullscreen', resyncLayoutAfterFullscreen);
 player.addEventListener('webkitendfullscreen', resyncLayoutAfterFullscreen);
 
+// Señal extra de resync: cuando el giro automático del sistema está ACTIVADO, compite con el
+// bloqueo de orientación de arriba (setLandscapeLock) — Chrome/Android a veces tarda en resolver
+// ese forcejeo y el layout queda un instante desincronizado (reportado como "se buguea" con el
+// giro automático activo, algo que no pasa con el giro automático apagado, donde no hay con qué
+// competir). `screen.orientation.onchange` es la señal MÁS confiable para esto: a diferencia de
+// `orientationchange` (evento viejo, basado en el ángulo físico del dispositivo), este dispara
+// específicamente cuando cambia `screen.orientation.type` — que es el valor que en definitiva
+// decide cómo se pinta la página — así que resincroniza justo cuando el forcejeo recién se resolvió,
+// en vez de solo confiar en los reintentos con delay fijo de resyncLayoutAfterFullscreen.
+if (screen.orientation && screen.orientation.addEventListener) {
+  screen.orientation.addEventListener('change', resyncLayoutAfterFullscreen);
+}
+
 // --- Subir subtítulos (host) ---
 document.getElementById('subtitleFile').addEventListener('change', async (e) => {
   const file = e.target.files[0];
@@ -611,9 +624,17 @@ socket.on('chat-message', (data) => {
 
 // --- Comentarios flotantes del chat sobre el video (estilo "danmaku"), solo en pantalla completa ---
 // Los mensajes de sistema (alguien entró/salió) se quedan afuera a propósito: solo interesa lo
-// que la gente escribe. `.danmaku-layer` está siempre en el DOM pero solo se muestra vía CSS
-// cuando .screen-wrap tiene la clase `is-fullscreen` — igual se puede seguir agregando comentarios
-// sin fullscreen (no cuesta nada, están ocultos) para no tener que acordarse de chequear el estado acá.
+// que la gente escribe.
+// IMPORTANTE — por qué se chequea `is-fullscreen` ANTES de crear el elemento (y no solo ocultar
+// el layer por CSS como se hacía antes): un elemento con una animación CSS dentro de un ancestro
+// con `display:none` no anima — queda "pausado" desde el instante en que se crea. Antes se seguían
+// creando los `.danmaku-item` en cada mensaje aunque no se estuviera en pantalla completa (el layer
+// entero tenía display:none y listo, sin chequear nada acá) — así que se iban acumulando, quietos,
+// dentro del layer oculto. Al entrar recién ahí en pantalla completa, el layer pasaba a
+// display:block de golpe y TODOS esos mensajes acumulados arrancaban su animación al mismo tiempo,
+// todos compitiendo por las mismas 6 pistas — de ahí el bug reportado de mensajes viejos saliendo
+// todos juntos y chocando entre sí. Ahora, si no se está en pantalla completa, directamente no se
+// crea el elemento (no hace falta ocultarlo: no existe).
 const danmakuLayer = document.getElementById('danmakuLayer');
 const DANMAKU_LANES = 6;
 const laneFreeAt = new Array(DANMAKU_LANES).fill(0); // próximo momento (Date.now()) en que cada carril queda libre
@@ -625,6 +646,7 @@ function pickDanmakuLane() {
   return lane;
 }
 function spawnDanmaku(user, text) {
+  if (!screenWrap.classList.contains('is-fullscreen')) return; // ver nota arriba: nunca se crea fuera de pantalla completa
   const lane = pickDanmakuLane();
   const el = document.createElement('div');
   el.className = 'danmaku-item';
