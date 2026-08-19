@@ -22,6 +22,7 @@
         <div class="host-controls" id="hostControlsWrap" style="display:none;">
           <button id="skipBackBtn" class="skip-btn" title="Retroceder 10s"><span class="skip-icon">↺</span><span class="skip-label">10</span></button>
           <button id="skipFwdBtn" class="skip-btn" title="Adelantar 10s"><span class="skip-icon">↻</span><span class="skip-label">10</span></button>
+          <button id="hostFsBtn" class="skip-btn" title="Pantalla completa"><span class="skip-icon">⛶</span><span class="skip-label">FULL</span></button>
         </div>
         <div class="local-controls" id="localControls" style="display:none;">
           <div class="vol-control" id="volControl">
@@ -484,11 +485,17 @@ document.getElementById('volSlider').addEventListener('input', (e) => player.vol
 // pantalla completa sobre un div cualquiera (Safari/iOS viejo), se cae al comportamiento anterior
 // (pantalla completa nativa del video) para no romper el botón, aunque ahí los overlays no se vean
 // — es una limitación del navegador, no hay forma de dibujar HTML encima del <video> nativo de iOS.
-document.getElementById('fsBtn').onclick = () => {
+// Un solo botón para invitado (fsBtn) y host (hostFsBtn): el host también tiene el fullscreen
+// nativo del navegador vía sus controles de video (player.controls = true), pero ese pide
+// fullscreen sobre el <video> puro y ahí no se ven ni los badges ni el chat flotante — este botón
+// evita que el host tenga que usar el nativo para que el danmaku también le funcione a él.
+function requestAppFullscreen() {
   const target = (screenWrap.requestFullscreen || screenWrap.webkitRequestFullscreen) ? screenWrap : player;
   if (target.requestFullscreen) target.requestFullscreen();
   else if (target.webkitRequestFullscreen) target.webkitRequestFullscreen();
-};
+}
+document.getElementById('fsBtn').onclick = requestAppFullscreen;
+document.getElementById('hostFsBtn').onclick = requestAppFullscreen;
 
 // --- Fix: layout deformado al salir de pantalla completa ---
 // Al pedir pantalla completa sobre el <video> (no sobre toda la página), algunos navegadores
