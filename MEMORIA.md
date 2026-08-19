@@ -2,7 +2,7 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 18 de agosto de 2026 (fix: teclado móvil empujaba el video fuera de pantalla).
+Última actualización: 18 de agosto de 2026 (fix: el teclado activaba por error el layout de landscape angosto en vertical).
 
 ---
 
@@ -212,6 +212,42 @@ Al crear una sala (desde `index.html`) hay un campo opcional "Contraseña de la 
 - Se sacó una regla vieja (`@media (max-width:480px) { .room-scene { height:auto } }`, agregada en un fix anterior como parche) que hubiera pisado este arreglo en la mayoría de los celulares — quedó obsoleta con la solución real.
 - **Verificado con Playwright simulando la apertura del teclado** (achicando el viewport a mano, ya que un navegador headless no despliega teclado real): con una proporción de teclado realista (~34% del alto de pantalla, similar a Gboard en un Pixel 7), `.room-scene` se ajusta al alto visible real y tanto el video como el campo de chat enfocado quedan dentro de la zona visible, sin salirse de pantalla. También se confirmó que no hay regresión en desktop ni en landscape angosto de celular.
 - **Limitación conocida del testing**: Playwright/Chromium headless no renderiza un teclado virtual real, así que esto se probó simulando el achique de viewport que el teclado causaría — no hay forma de probar 100% automatizado el comportamiento exacto de un teclado nativo de Android. Si en un celular real se ve algún caso raro, lo más probable es un navegador/versión que no soporte `interactive-widget` ni `visualViewport` (muy poco común hoy).
+
+## 8octies. Fix: el teclado activaba por error el layout de "landscape angosto" en vertical
+
+**El problema:** era una regresión indirecta del fix anterior (8septies). El layout apilado (video
+arriba, chat abajo) vs. el layout de fila (video + chat al costado, pensado para cuando el celular
+está físicamente acostado y con poco alto) se elegía en CSS puro con `min-height: 500px` /
+`max-height: 499px` sobre el viewport. El problema: `interactive-widget=resizes-content` (agregado
+en 8septies) hace que abrir el teclado *también* achique esa altura visible — así que al escribir en
+el chat con el celular parado, el viewport visible caía debajo de 500px y la media query pensaba
+que estaba en landscape angosto, activando el layout de fila (video comprimido a un lado, chat
+ocupando casi la mitad de la pantalla) en medio de una sesión normal en vertical. Reproducible en
+cualquier celular por igual, porque no depende del hardware sino de que el teclado angosta el
+viewport de la misma forma en todos.
+
+**Fix:** dejar de elegir el layout según cuánto espacio visible queda (afectado por el teclado) y
+elegirlo según la **orientación real del dispositivo** (no afectada por el teclado):
+
+- En `room.html`, `updateOrientationClass()` lee `window.matchMedia('(orientation: landscape)')` y
+  agrega/saca la clase `device-landscape` en `<html>`. Se llama una vez al cargar la página y **solo
+  se vuelve a calcular en el evento `orientationchange`** — que dispara una rotación física real del
+  celular. Abrir/cerrar el teclado dispara `resize` y `visualViewport.resize`, pero nunca
+  `orientationchange`, así que ya no puede confundir esto (a diferencia de `setAppHeight()`, que sí
+  debe reaccionar a esos eventos porque su trabajo es justamente reflejar el alto visible real).
+- En `style.css`, las dos media queries que antes usaban `min-height`/`max-height` ahora usan
+  `html:not(.device-landscape)` (layout apilado, el caso normal) y `html.device-landscape` (layout
+  de fila, solo para landscape angosto real), ambas todavía dentro de `max-width: 820px` para no
+  afectar escritorio.
+- `--app-height` (8septies) sigue haciendo su trabajo sin cambios: decide cuánto espacio visible hay
+  disponible. Esta sección solo decide fila vs. columna. Las dos cosas ahora están desacopladas.
+- **Limitación conocida:** si el navegador no soporta `matchMedia('(orientation: ...)')` (rarísimo
+  hoy), la clase nunca se agrega y el layout apilado queda como default — que es el comportamiento
+  correcto para el caso mucho más común (celular en vertical), así que el fallback es seguro.
+- **No se pudo probar con un navegador real en este entorno** (sin Chromium disponible para
+  Playwright ni acceso de red para descargarlo) — se validó revisando a mano la lógica de CSS/JS.
+  Recomendado confirmar en un celular real, sobre todo el caso de landscape angosto real (celular
+  acostado) para asegurarse de que `device-landscape` se siga agregando correctamente ahí.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

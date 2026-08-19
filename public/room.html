@@ -102,6 +102,21 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', setAppHeight);
 }
 
+// --- Layout fila (video+chat al costado) vs. columna (video arriba, chat abajo) en celular ---
+// Fix: esto antes se decidía en CSS puro con max-height/min-height del viewport, pero abrir el
+// teclado también achica esa altura y hacía que, en pantalla vertical, se activara por error el
+// layout de fila pensado para landscape angosto (video comprimido, chat ocupando media pantalla).
+// Ahora se decide acá con la orientación REAL del dispositivo (no la altura visible), y solo se
+// vuelve a calcular en 'orientationchange' — que dispara una rotación física real del celular.
+// Abrir/cerrar el teclado dispara 'resize' / 'visualViewport.resize', pero NUNCA 'orientationchange',
+// así que ya no puede confundir esto. El CSS (style.css) lee la clase `device-landscape` en <html>.
+function updateOrientationClass() {
+  const isLandscape = window.matchMedia('(orientation: landscape)').matches;
+  document.documentElement.classList.toggle('device-landscape', isLandscape);
+}
+updateOrientationClass();
+window.addEventListener('orientationchange', updateOrientationClass);
+
 const roomId = location.pathname.split('/').pop();
 
 function getPersistentUserId() {

@@ -6,6 +6,19 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-18] Fix — El teclado activaba por error el layout de "landscape angosto" en vertical
+
+**Motivo:** captura del usuario (celular vertical, escribiendo en el chat) mostrando el video comprimido a un lado y el chat ocupando casi la mitad de la pantalla — probado en varios celulares con el mismo resultado. Era una regresión del fix anterior de esta misma fecha ("el teclado empujaba el video fuera de pantalla").
+
+**Causa:** el layout apilado (video arriba, chat abajo) vs. el layout de fila (video + chat al costado, pensado para landscape angosto real) se elegía en CSS con `min-height: 500px` / `max-height: 499px` sobre el viewport visible. Pero `interactive-widget=resizes-content` (agregado en el fix anterior) hace que el teclado *también* achique esa altura visible — así que al escribir en el chat en vertical, el viewport caía debajo de 500px y la media query pensaba que era landscape angosto, activando el layout de fila en medio de una sesión normal. Reproducible en cualquier celular por igual, porque no depende del hardware sino de que el teclado angosta el viewport de la misma forma en todos — coincide con lo reportado.
+
+**Fix** (`public/room.html`, `public/style.css`): se dejó de elegir el layout según cuánto espacio visible queda (afectado por el teclado) y se pasó a elegir según la orientación *real* del dispositivo:
+1. `updateOrientationClass()` en `room.html` lee `matchMedia('(orientation: landscape)')` y agrega/saca la clase `device-landscape` en `<html>`. Se llama al cargar la página y **solo se recalcula en `orientationchange`** (rotación física real) — el teclado dispara `resize`/`visualViewport.resize`, nunca `orientationchange`, así que ya no puede confundir el layout.
+2. En `style.css`, las media queries de layout apilado/fila pasaron de `min-height`/`max-height` a `html:not(.device-landscape)` / `html.device-landscape`, ambas siguen limitadas a `max-width: 820px` para no afectar escritorio.
+3. `--app-height` (fix anterior) sigue decidiendo cuánto espacio visible hay; esta sección solo decide fila vs. columna. Quedan desacopladas.
+
+**Limitación del testing:** no se pudo verificar con un navegador real en este entorno (sin Chromium disponible para Playwright ni acceso de red para descargarlo) — se validó revisando a mano la lógica de CSS/JS. Recomendado confirmar en un celular real, en particular el caso de landscape angosto real (celular acostado).
+
 ## [2026-08-18] Fix — El teclado del celular empujaba el video fuera de pantalla
 
 **Motivo:** captura del usuario mostrando que, al tocar el campo de chat en el celular, el teclado aparecía y el video se iba fuera de la pantalla hacia arriba. Una sesión anterior había diagnosticado la causa correctamente (compartió el análisis en texto) pero se quedó sin terminar de aplicar el fix — ningún archivo llegó a actualizarse. Se repitió el diagnóstico, se confirmó, y se implementó completo.
