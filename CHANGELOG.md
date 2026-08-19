@@ -6,6 +6,21 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-18] Fix — El teclado del celular empujaba el video fuera de pantalla
+
+**Motivo:** captura del usuario mostrando que, al tocar el campo de chat en el celular, el teclado aparecía y el video se iba fuera de la pantalla hacia arriba. Una sesión anterior había diagnosticado la causa correctamente (compartió el análisis en texto) pero se quedó sin terminar de aplicar el fix — ningún archivo llegó a actualizarse. Se repitió el diagnóstico, se confirmó, y se implementó completo.
+
+**Causa:** `.room-scene` usaba `height: 100vh`, que en Chrome/Android no se achica cuando aparece el teclado (se calcula sobre el alto de pantalla completa). Al enfocar el input, el navegador scrollea la página para "mostrarlo", y como la sala seguía creyendo que medía la pantalla completa, el video (arriba de todo en el layout de celular) terminaba fuera de vista.
+
+**Fix en 3 capas** (`public/room.html`, `public/index.html`, `public/library.html`, `public/style.css`):
+1. `interactive-widget=resizes-content` agregado al `<meta viewport>` de las 3 páginas — le pide al navegador que redimensione el layout real cuando aparece el teclado (Chrome 108+).
+2. `height: 100dvh` en `.room-scene`, con `100vh` de respaldo para navegadores que no reconocen `dvh`.
+3. Variable `--app-height` actualizada por JS en `room.html` vía `window.visualViewport`, como capa final más confiable — `.room-scene` usa `calc(var(--app-height, 100vh))`.
+4. El video (`.screen-wrap`) en la media query de celular vertical pasó de `aspect-ratio` rígido a poder achicarse con un piso de 100px y techo de 45dvh, para no forzar que el chat desaparezca si el espacio se aprieta mucho.
+5. Se sacó una regla vieja (`.room-scene { height: auto }` en pantallas chicas) que hubiera pisado este fix.
+
+**Verificado con Playwright** simulando la apertura del teclado (achicando el viewport ~34%, proporción realista de un teclado Android típico): el video y el chat quedan dentro del área visible, sin salirse de pantalla. Sin regresión en desktop ni en landscape angosto de celular.
+
 ## [2026-08-18] Fix — Faltaba `<meta name="viewport">` en las 3 páginas (causa real de "se ve raro en el celular")
 
 **Motivo:** el usuario mandó una captura de su celular real mostrando la sala rota en vertical — a pesar de que la sesión anterior ("revisión completa de diseño adaptivo") había dado por buena la sala en celular. Al reproducir el caso exacto con emulación de un dispositivo móvil real (Pixel 7, vía Playwright), en vez de solo achicar la ventana de un Chrome de escritorio, se encontró la causa real.

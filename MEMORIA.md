@@ -2,7 +2,7 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 18 de agosto de 2026 (V7 — traspaso de host, contraseña de sala, subtítulos, biblioteca desde la sala).
+Última actualización: 18 de agosto de 2026 (fix: teclado móvil empujaba el video fuera de pantalla).
 
 ---
 
@@ -200,6 +200,19 @@ Al crear una sala (desde `index.html`) hay un campo opcional "Contraseña de la 
 - El servidor guarda la ruta en `room.subtitleFile` y avisa a todos los clientes conectados (`subtitle-changed`) para que agreguen/reemplacen el `<track>` del `<video>` en vivo, sin recargar.
 - Si se sube un subtítulo nuevo, el anterior de esa sala se borra del disco (best-effort, no rompe nada si falla).
 
+## 8septies. Fix: el teclado móvil empujaba el video fuera de pantalla
+
+**El problema:** en `room.html`, `.room-scene` usaba `height: 100vh`. En Chrome/Android, `100vh` se calcula sobre el alto de pantalla completa **sin descontar el teclado**, y no se achica cuando el teclado aparece. Al tocar el campo de chat, el navegador intenta llevar el input enfocado a la vista y, como `.room-scene` seguía "creyendo" que medía la pantalla completa, terminaba scrolleando toda la sala hacia arriba — el video (arriba de todo en el layout apilado de celular) se iba literalmente fuera de la pantalla.
+
+**Fix, en 3 capas (de más a menos compatible, cada una pisa a la anterior si el navegador la soporta):**
+1. **`interactive-widget=resizes-content`** agregado al `<meta name="viewport">` de las 3 páginas. Le pide explícitamente al navegador (Chrome 108+) que redimensione el viewport de layout cuando aparece el teclado, en vez de solo "taparlo" — es la solución de raíz cuando el navegador la soporta.
+2. **`height: 100dvh`** como capa intermedia en `.room-scene` (con `100vh` de respaldo antes, para navegadores que no reconocen `dvh` — la declaración inválida se ignora entera y queda el `vh`).
+3. **`--app-height`, manejado por JS en `room.html`**, como capa final y más confiable: escucha `window.visualViewport.resize` (y `resize`/`orientationchange` de respaldo) y guarda el alto real visible en una custom property. `.room-scene` usa `height: calc(var(--app-height, 100vh))` como última declaración, que gana si JS ya corrió, y cae a `100vh` si todavía no.
+- Además, en la media query de celular en vertical, `.screen-wrap` (el video) pasó de `flex: none; aspect-ratio: 16/9` (rígido, no cede espacio) a `flex: 1 1 auto` con `min-height: 100px` y `max-height: 45dvh`(/`45vh` de respaldo) — así, si el espacio se aprieta mucho, el video se achica con gracia en vez de forzar que el chat desaparezca.
+- Se sacó una regla vieja (`@media (max-width:480px) { .room-scene { height:auto } }`, agregada en un fix anterior como parche) que hubiera pisado este arreglo en la mayoría de los celulares — quedó obsoleta con la solución real.
+- **Verificado con Playwright simulando la apertura del teclado** (achicando el viewport a mano, ya que un navegador headless no despliega teclado real): con una proporción de teclado realista (~34% del alto de pantalla, similar a Gboard en un Pixel 7), `.room-scene` se ajusta al alto visible real y tanto el video como el campo de chat enfocado quedan dentro de la zona visible, sin salirse de pantalla. También se confirmó que no hay regresión en desktop ni en landscape angosto de celular.
+- **Limitación conocida del testing**: Playwright/Chromium headless no renderiza un teclado virtual real, así que esto se probó simulando el achique de viewport que el teclado causaría — no hay forma de probar 100% automatizado el comportamiento exacto de un teclado nativo de Android. Si en un celular real se ve algún caso raro, lo más probable es un navegador/versión que no soporte `interactive-widget` ni `visualViewport` (muy poco común hoy).
+
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 
 - El `hostToken` viaja en texto plano por HTTP (a menos que Cloudflare Tunnel lo cifre en tránsito, que sí lo hace vía HTTPS). Si alguien lo obtiene (inspeccionando `localStorage` de la persona equivocada, por ejemplo), puede hacerse pasar por host.
@@ -225,6 +238,7 @@ Al crear una sala (desde `index.html`) hay un campo opcional "Contraseña de la 
 - [x] ~~Contraseña de sala además del link~~ — resuelto en V7 (ver sección 8quinquies).
 - [x] ~~El botón de "Cambiar cinta" debería llevar a la biblioteca~~ — resuelto en V7: ahora enlaza a `/library.html?fromRoom=<roomId>`, que además permite subir una cinta completamente nueva sin perder esa opción.
 - [x] ~~Botón de "Salir" para volver al inicio y unirse a otra sala~~ — resuelto en V7.
+- [x] ~~El teclado móvil empuja el video fuera de pantalla al escribir en el chat~~ — resuelto (ver sección 8septies).
 
 ## 11. Historial de cambios
 

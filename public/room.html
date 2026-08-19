@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <title>MovieNight — Sala</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -87,6 +87,21 @@
 </div>
 
 <script>
+// --- Alto real de la sala (fix: el teclado en Android empujaba el video fuera de la pantalla) ---
+// 100dvh ya cubre la mayoría de navegadores modernos, pero visualViewport es la fuente más confiable
+// del área realmente visible (se actualiza incluso donde dvh tarda en reaccionar o no está soportado).
+// El CSS de .room-scene usa esta variable como última capa: calc(var(--app-height, 100vh)).
+function setAppHeight() {
+  const h = (window.visualViewport ? window.visualViewport.height : window.innerHeight);
+  document.documentElement.style.setProperty('--app-height', h + 'px');
+}
+setAppHeight();
+window.addEventListener('resize', setAppHeight);
+window.addEventListener('orientationchange', setAppHeight);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', setAppHeight);
+}
+
 const roomId = location.pathname.split('/').pop();
 
 function getPersistentUserId() {

@@ -525,7 +525,22 @@ body::after {
    PÁGINA DE SALA
    =================================================================== */
 
-.room-scene { height: 100vh; display: flex; flex-direction: column; }
+/* Alto de la sala: 3 capas de respaldo, de la más compatible a la más precisa.
+   1) 100vh — funciona en todos lados, pero en Chrome/Android NO se achica cuando aparece el teclado
+      (se queda del tamaño de pantalla completa sin teclado), lo que hace que el navegador empuje
+      todo hacia arriba para "mostrar" el input enfocado — y el video, arriba de todo, se va de la pantalla.
+   2) 100dvh — unidad dinámica que sí reacciona al teclado en navegadores que la soportan (Chrome 108+,
+      Safari 15.4+). Si el navegador no la reconoce, ignora la línea entera y se queda con el 100vh de arriba.
+   3) calc(var(--app-height, 100vh)) — la más confiable: --app-height la actualiza JS (ver room.html) en
+      cada cambio de window.visualViewport, así que refleja el alto real visible incluso en navegadores
+      donde dvh no alcanza a reaccionar a tiempo. Si el JS todavía no corrió, cae de nuevo a 100vh. */
+.room-scene {
+  height: 100vh;
+  height: 100dvh;
+  height: calc(var(--app-height, 100vh));
+  display: flex;
+  flex-direction: column;
+}
 .screen-row { flex: 1; display: flex; min-height: 0; }
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .screen-wrap { flex: 1; position: relative; background: black; min-height: 0; }
@@ -672,7 +687,17 @@ video { width: 100%; height: 100%; display: block; background: black; }
 @media (max-width: 820px) and (min-height: 500px) {
   .screen-row { flex-direction: column; }
   .main { flex: none; }
-  .screen-wrap { flex: none; aspect-ratio: 16 / 9; }
+  /* Antes: aspect-ratio fijo 16/9 sin importar el espacio disponible — si el teclado
+     se comía mucha altura, no había forma de que el video cediera espacio al chat.
+     Ahora: intenta mantener 16/9 (flex-basis), pero puede achicarse (flex-shrink) hasta
+     un piso de 100px, y nunca crece más de 45dvh para dejarle aire al chat de abajo. */
+  .screen-wrap {
+    flex: 1 1 auto;
+    aspect-ratio: 16 / 9;
+    min-height: 100px;
+    max-height: 45vh; /* respaldo si dvh no está soportado */
+    max-height: 45dvh;
+  }
   .side {
     width: 100%;
     flex: 1;
@@ -695,10 +720,6 @@ video { width: 100%; height: 100%; display: block; background: black; }
   .host-controls, .local-controls { padding: 5px 8px; gap: 5px; bottom: 6px; }
 }
 
-/* En celulares muy chicos, si además el teclado achica el viewport, se deja scrollear todo por las dudas */
-@media (max-width: 480px) {
-  .room-scene { height: auto; min-height: 100vh; }
-}
 .password-input {
   display: block;
   width: 100%;
