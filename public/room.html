@@ -489,13 +489,21 @@ document.getElementById('volSlider').addEventListener('input', (e) => player.vol
 // nativo del navegador vía sus controles de video (player.controls = true), pero ese pide
 // fullscreen sobre el <video> puro y ahí no se ven ni los badges ni el chat flotante — este botón
 // evita que el host tenga que usar el nativo para que el danmaku también le funcione a él.
-function requestAppFullscreen() {
+// Es un toggle (entra y sale): antes solo pedía fullscreen y para salir había que usar ESC o el
+// control nativo del navegador, que no siempre es obvio en celular.
+function toggleAppFullscreen() {
+  const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+  if (fsEl) {
+    if (document.exitFullscreen) document.exitFullscreen();
+    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    return;
+  }
   const target = (screenWrap.requestFullscreen || screenWrap.webkitRequestFullscreen) ? screenWrap : player;
   if (target.requestFullscreen) target.requestFullscreen();
   else if (target.webkitRequestFullscreen) target.webkitRequestFullscreen();
 }
-document.getElementById('fsBtn').onclick = requestAppFullscreen;
-document.getElementById('hostFsBtn').onclick = requestAppFullscreen;
+document.getElementById('fsBtn').onclick = toggleAppFullscreen;
+document.getElementById('hostFsBtn').onclick = toggleAppFullscreen;
 
 // --- Fix: layout deformado al salir de pantalla completa ---
 // Al pedir pantalla completa sobre el <video> (no sobre toda la página), algunos navegadores
@@ -513,12 +521,23 @@ function resyncLayoutAfterFullscreen() {
   }, delay));
 }
 // Clase `is-fullscreen` en .screen-wrap: solo se activa cuando el elemento en pantalla completa
-// es el propio .screen-wrap (ver fsBtn más arriba) — si por algún motivo terminó siendo el <video>
-// (respaldo de navegadores viejos), se deja apagada a propósito: ahí no hay forma de mostrar los
-// comentarios flotantes encima del video nativo, así que mejor no mostrarlos a medias.
+// es el propio .screen-wrap (ver toggleAppFullscreen más arriba) — si por algún motivo terminó
+// siendo el <video> (respaldo de navegadores viejos), se deja apagada a propósito: ahí no hay
+// forma de mostrar los comentarios flotantes encima del video nativo, así que mejor no mostrarlos
+// a medias. También cambia el ícono/título de los botones de pantalla completa para que quede
+// claro que, estando adentro, un segundo toque sirve para salir.
+const fsBtn = document.getElementById('fsBtn');
+const hostFsBtn = document.getElementById('hostFsBtn');
 function updateFullscreenState() {
   const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
-  screenWrap.classList.toggle('is-fullscreen', fsEl === screenWrap);
+  const isFs = fsEl === screenWrap;
+  screenWrap.classList.toggle('is-fullscreen', isFs);
+  const icon = isFs ? '✕' : '⛶';
+  const title = isFs ? 'Salir de pantalla completa' : 'Pantalla completa';
+  fsBtn.textContent = icon;
+  fsBtn.title = title;
+  hostFsBtn.querySelector('.skip-icon').textContent = icon;
+  hostFsBtn.title = title;
 }
 // 'fullscreenchange' cubre Chrome/Firefox/Safari desktop y Android modernos; 'webkitfullscreenchange'
 // es el respaldo para Safari/iOS más viejos que todavía no exponen el evento sin prefijo.
