@@ -2,7 +2,7 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 18 de agosto de 2026 (autocomplete="off" en los campos de texto para reducir la barra de autofill de Chrome sobre el teclado).
+Última actualización: 18 de agosto de 2026 (el chat pasó a usar un div contenteditable en vez de un input, para que Chrome deje de mostrar su barra de autofill sobre el teclado).
 
 ---
 
@@ -255,25 +255,40 @@ El usuario reportó que, al escribir en el chat desde el celular, Chrome muestra
 de llave/tarjeta/ubicación arriba del teclado (el "keyboard accessory bar" de Autofill de Chrome
 para Android, que ofrece rellenar con contraseñas, tarjetas o direcciones guardadas).
 
-**Esto NO es algo de MovieNight** — es una función nativa de Chrome que aparece sobre *cualquier*
-campo de texto de *cualquier* sitio, controlada por la configuración de autofill de Chrome del
-usuario (no hay una API web para desactivarla del todo desde el sitio).
+**Primer intento (insuficiente):** agregar `autocomplete="off"` al `<input>` del chat. No funcionó —
+Chrome sigue mostrando la barra en `<input>`/`<textarea>` de la página sin importar `autocomplete`,
+según confirmó el usuario con una captura.
 
-Lo único que un sitio puede hacer es marcar los campos como `autocomplete="off"` (y, para el campo
-de contraseña de sala, `autocomplete="new-password"`) para decirle a Chrome que ese campo no es un
-login/dirección/tarjeta guardable — esto reduce bastante la probabilidad de que la barra aparezca,
-pero Chrome puede igual mostrarla en algunos casos; no es 100% garantizado desde el código.
+**Pista clave que dio el usuario:** el diálogo nativo `prompt()` que pide el nombre al entrar a la
+sala (`¿Cómo te llamas?`) **nunca** muestra esa barra. La diferencia: `prompt()` es un diálogo del
+propio navegador, no un `<input>` del HTML de la página — y ahí está la solución real, porque la
+barra de autofill de Chrome solo se activa sobre elementos de formulario reales
+(`<input>`/`<textarea>`); no se activa sobre elementos `contenteditable`, porque no forman parte del
+sistema de formularios que esa barra asiste.
 
-Se aplicó en:
-- `chatInput` (`room.html`): `autocomplete="off"`.
-- `joinCode` (`index.html`, código de 6 caracteres para unirse a una sala): `autocomplete="off"`.
-- `roomPassword` (`index.html`, contraseña de sala al crearla): `autocomplete="new-password"` — esto
-  además evita que Chrome ofrezca "¿guardar esta contraseña?" al enviarla, ya que no es una
-  credencial de cuenta/login real.
+**Fix aplicado:** el campo de chat (`chatInput`, en `room.html`) pasó de `<input>` a
+`<div contenteditable="true">`. Es el mismo truco que usan WhatsApp Web, Messenger o Slack para su
+caja de mensaje, en parte por esto mismo. Cambios necesarios en cascada:
+- **HTML**: `<div id="chatInput" class="chat-input-field" contenteditable="true"
+  data-placeholder="Escribe algo..." role="textbox" aria-multiline="false" enterkeyhint="send">`.
+- **CSS** (`.chat-input-field` en `style.css`): reemplaza a `.chat-input input`. Como
+  `contenteditable` no tiene atributo `placeholder` nativo, se simula con
+  `.chat-input-field:empty:before { content: attr(data-placeholder); ... }`. El estado
+  "silenciado" ya no puede usar `:disabled` (no existe en un div), se maneja con una clase
+  `.is-disabled` (opacidad + `pointer-events: none`).
+- **JS** (`room.html`): todo lo que leía/escribía `chatInput.value` pasó a `chatInput.textContent`.
+  `Enter` en un contenteditable inserta un salto de línea por default (no "envía" como en un
+  `<input>`), así que el handler de `keydown` hace `e.preventDefault()` y arma el envío a mano. Se
+  agregó un handler de `paste` que fuerza texto plano (`document.execCommand('insertText', ...)`
+  con `clipboardData.getData('text/plain')`), para que pegar contenido no traiga HTML/formato
+  pegado de otro lado. El mute (`toggleMute`) ahora setea `contentEditable = 'false'` en vez de
+  `.disabled`.
 
-Si a pesar de esto la barra sigue apareciendo, es un límite de lo que se puede hacer desde el sitio;
-la única forma de sacarla del todo es que cada usuario la desactive en su propio Chrome
-(Configuración de Chrome → Autofill/Contraseñas y direcciones).
+**Los demás campos de texto del sitio** (`joinCode` y `roomPassword` en `index.html`) siguen siendo
+`<input>` normales con `autocomplete="off"`/`"new-password"` — se decidió no convertirlos a
+contenteditable porque se usan una sola vez al entrar (no repetidamente como el chat durante toda
+la película), así que el costo/beneficio de la conversión no lo justifica por ahora. Si algún día
+molesta ahí también, aplicar el mismo patrón.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

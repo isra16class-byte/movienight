@@ -67,7 +67,7 @@
           <button data-e="👏">👏</button>
         </div>
         <div class="chat-input">
-          <input id="chatInput" placeholder="Escribe algo..." autocomplete="off" autocapitalize="sentences" spellcheck="true">
+          <div id="chatInput" class="chat-input-field" contenteditable="true" data-placeholder="Escribe algo..." role="textbox" aria-multiline="false" enterkeyhint="send"></div>
         </div>
       </div>
 
@@ -233,7 +233,9 @@ socket.on('viewer-count', n => document.getElementById('viewers').textContent = 
 socket.on('kicked', () => { alert('Te expulsaron de la sala 🚪'); location.href = '/'; });
 socket.on('mute-status', ({ muted }) => {
   document.getElementById('mutedBanner').style.display = muted ? 'block' : 'none';
-  document.getElementById('chatInput').disabled = muted;
+  const chatInputEl = document.getElementById('chatInput');
+  chatInputEl.contentEditable = muted ? 'false' : 'true';
+  chatInputEl.classList.toggle('is-disabled', muted);
 });
 
 // --- Lista de espectadores (solo el host ve botones) ---
@@ -379,10 +381,24 @@ socket.on('chat-message', (data) => {
 
 const chatInput = document.getElementById('chatInput');
 chatInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && chatInput.value.trim()) {
-    socket.emit('chat-message', chatInput.value.trim());
-    chatInput.value = '';
+  if (e.key === 'Enter') {
+    // preventDefault: en un contenteditable, Enter por default inserta un salto de línea
+    // (<br> o <div>) en vez de "enviar" como en un <input> normal — hay que interceptarlo.
+    e.preventDefault();
+    const text = chatInput.textContent.trim();
+    if (text) {
+      socket.emit('chat-message', text);
+      chatInput.textContent = '';
+    }
   }
+});
+
+// Al ser contenteditable, un paste normal puede traer HTML/formato con estilos pegados —
+// se fuerza a texto plano para que el chat quede consistente.
+chatInput.addEventListener('paste', (e) => {
+  e.preventDefault();
+  const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+  document.execCommand('insertText', false, text);
 });
 
 // --- Indicador de "escribiendo..." ---

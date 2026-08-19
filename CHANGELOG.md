@@ -6,6 +6,16 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-18] Fix — Barra de autofill de Chrome sobre el teclado del chat (solución definitiva)
+
+**Motivo:** el intento anterior (`autocomplete="off"`) no funcionó — el usuario mandó una captura confirmando que la barra de llave/tarjeta/ubicación seguía apareciendo sobre el teclado al escribir en el chat. También notó, con otra captura, que el diálogo nativo `prompt()` que pide el nombre al entrar a la sala *nunca* muestra esa barra — esa pista fue la clave para encontrar la causa real.
+
+**Causa:** la barra de autofill de Chrome para Android se activa sobre cualquier `<input>`/`<textarea>` de la página sin importar `autocomplete`, pero no sobre elementos `contenteditable` (no forman parte del sistema de formularios que esa barra asiste) — de ahí que `prompt()`, que ni siquiera es un elemento de la página, nunca la dispare.
+
+**Fix** (`public/room.html`, `public/style.css`): el campo de chat (`chatInput`) pasó de `<input>` a `<div contenteditable="true">` — el mismo truco que usan WhatsApp Web, Messenger y Slack en su caja de mensaje. Requirió: placeholder simulado con `:empty:before` + `data-placeholder` (contenteditable no tiene `placeholder` nativo), manejo de `Enter` con `preventDefault()` para enviar en vez de insertar un salto de línea, `chatInput.value` → `chatInput.textContent` en toda la lógica de envío, un handler de `paste` que fuerza texto plano, y el estado "silenciado" pasó de `.disabled` a `contentEditable = 'false'` + una clase `.is-disabled`.
+
+**Alcance:** solo se aplicó al chat, que es el campo que se usa repetidamente durante toda la sesión. `joinCode` y `roomPassword` (`index.html`) siguen siendo `<input>` normales con `autocomplete="off"`/`"new-password"` del intento anterior, porque se usan una sola vez al entrar — si en el futuro molesta ahí también, se puede aplicar el mismo patrón.
+
 ## [2026-08-18] Ajuste — Reducir la barra de autofill de Chrome (llave/tarjeta/ubicación) sobre el teclado
 
 **Motivo:** captura del usuario mostrando la barra de autofill de Chrome para Android (iconos de contraseñas/tarjetas/direcciones) apareciendo sobre el teclado al escribir en el chat.
