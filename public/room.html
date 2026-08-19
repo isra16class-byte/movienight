@@ -36,6 +36,15 @@
           <button id="hostFsBtn" class="skip-btn" title="Pantalla completa"><span class="skip-icon">⛶</span><span class="skip-label">FULL</span></button>
         </div>
         <div class="local-controls" id="localControls" style="display:none;">
+          <!-- Solo lectura: los invitados ven cuánto dura la peli y por dónde va, pero no pueden
+               tocar la barra (sin thumb arrastrable, sin listeners de mouse/touch, ver room.html) -->
+          <div class="seek-bar seek-bar--readonly" id="guestSeekBar">
+            <div class="seek-track">
+              <div class="seek-buffered" id="guestSeekBuffered"></div>
+              <div class="seek-fill" id="guestSeekFill"></div>
+            </div>
+          </div>
+          <span class="time-label" id="guestTimeLabel">0:00 / 0:00</span>
           <div class="vol-control" id="volControl">
             <button id="volToggleBtn" title="Volumen">🔊</button>
             <input type="range" id="volSlider" class="vol-slider" min="0" max="1" step="0.05" value="1">
@@ -438,6 +447,10 @@ const seekFill = document.getElementById('seekFill');
 const seekBuffered = document.getElementById('seekBuffered');
 const seekThumb = document.getElementById('seekThumb');
 const timeLabel = document.getElementById('timeLabel');
+// Barra de solo lectura para invitados (mismo formato de tiempo, sin thumb ni drag)
+const guestSeekFill = document.getElementById('guestSeekFill');
+const guestSeekBuffered = document.getElementById('guestSeekBuffered');
+const guestTimeLabel = document.getElementById('guestTimeLabel');
 
 function formatTime(sec) {
   if (!isFinite(sec) || sec < 0) sec = 0;
@@ -497,17 +510,27 @@ document.addEventListener('touchmove', moveDrag, { passive: true });
 document.addEventListener('touchend', endDrag);
 
 // Progreso, buffer y tiempo: se actualizan solos mientras no se está arrastrando la barra.
+// La barra de invitado (guestSeekFill/guestTimeLabel) se actualiza siempre en paralelo a la del
+// host, aunque solo una de las dos esté visible según el rol (ver updateLocalControlsVisibility
+// y el display de #hostControlsWrap/#localControls) — así no depende de quién sea host en cada
+// momento (traspaso de control remoto incluido) y no hace falta duplicar el listener.
 player.addEventListener('timeupdate', () => {
-  if (draggingSeek || !player.duration) return;
+  if (!player.duration) return;
   const ratio = player.currentTime / player.duration;
-  seekFill.style.width = (ratio * 100) + '%';
-  seekThumb.style.left = (ratio * 100) + '%';
-  timeLabel.textContent = `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`;
+  const timeText = `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`;
+  if (!draggingSeek) {
+    seekFill.style.width = (ratio * 100) + '%';
+    seekThumb.style.left = (ratio * 100) + '%';
+    timeLabel.textContent = timeText;
+  }
+  guestSeekFill.style.width = (ratio * 100) + '%';
+  guestTimeLabel.textContent = timeText;
 });
 function updateBufferedBar() {
   if (!player.duration || player.buffered.length === 0) return;
-  const bufferedEnd = player.buffered.end(player.buffered.length - 1);
-  seekBuffered.style.width = Math.min(100, (bufferedEnd / player.duration) * 100) + '%';
+  const bufferedPct = Math.min(100, (player.buffered.end(player.buffered.length - 1) / player.duration) * 100);
+  seekBuffered.style.width = bufferedPct + '%';
+  guestSeekBuffered.style.width = bufferedPct + '%';
 }
 player.addEventListener('progress', updateBufferedBar);
 player.addEventListener('loadedmetadata', updateBufferedBar);

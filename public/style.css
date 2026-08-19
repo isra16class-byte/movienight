@@ -754,8 +754,12 @@ video { width: 100%; height: 100%; display: block; background: black; }
 .viewer-item .actions button.mute:hover { border-color: var(--cyan); color: var(--cyan); }
 
 
+/* Antes: caja angosta pegada a la esquina inferior derecha (solo volumen + fullscreen). Ahora se
+   estira de borde a borde como .host-controls, porque además de esos dos botones tiene que entrar
+   la barra de progreso de solo lectura con la duración (ver seek-bar--readonly más abajo) — así el
+   invitado ve cuánto dura la peli y por dónde va, sin poder tocarla. */
 .local-controls {
-  position: absolute; bottom: 14px; right: 14px;
+  position: absolute; bottom: 14px; left: 14px; right: 14px;
   background: rgba(12,6,22,0.75); border: 1px solid var(--line);
   padding: 8px 14px; border-radius: var(--radius-md); display: flex; gap: 10px;
   align-items: center; z-index: 5; backdrop-filter: blur(4px);
@@ -763,8 +767,13 @@ video { width: 100%; height: 100%; display: block; background: black; }
 .local-controls input[type=range] { accent-color: var(--cyan); }
 .local-controls button {
   background: var(--bg-elevated); color: var(--text); border: 1px solid var(--line);
-  padding: 5px 9px; border-radius: var(--radius-sm); cursor: pointer;
+  padding: 5px 9px; border-radius: var(--radius-sm); cursor: pointer; flex-shrink: 0;
 }
+
+/* Barra de progreso de invitado: mismo look que .seek-bar del host (track, buffer, fill) pero sin
+   thumb y sin cursor de "arrastrable" — no tiene mousedown/touchstart en room.html, es puramente
+   informativa. */
+.seek-bar--readonly { cursor: default; touch-action: auto; }
 
 /* Control de volumen colapsable: antes la barrita estaba siempre a la vista, ocupando espacio
    fijo sobre el video de forma permanente — se pidió que, como en varios reproductores, el
@@ -836,7 +845,7 @@ video { width: 100%; height: 100%; display: block; background: black; }
     border-top: 1px solid var(--line);
   }
   html:not(.device-landscape) .host-controls { gap: 6px; padding: 6px 8px; left: 8px; right: 8px; }
-  html:not(.device-landscape) .local-controls { padding: 6px 10px; gap: 6px; }
+  html:not(.device-landscape) .local-controls { padding: 6px 10px; gap: 6px; left: 8px; right: 8px; }
   html:not(.device-landscape) .viewers-badge,
   html:not(.device-landscape) .host-badge { font-size: 13px; padding: 4px 9px; }
   /* En pantallas chicas no entran los labels de texto ("10", "FULL") ni el tiempo completo sin

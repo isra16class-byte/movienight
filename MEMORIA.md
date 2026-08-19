@@ -2,7 +2,7 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 19 de agosto de 2026 (cuarto ajuste del mismo día: en celular, el badge "control remoto" y los botones ±10s del host se ocultan hasta tocar el video, y esos botones se rediseñaron de rectángulos con emoji a chips circulares con glow neón).
+Última actualización: 19 de agosto de 2026 (quinto ajuste del mismo día: los invitados ahora ven la duración y el progreso de la película en `#localControls`, con una barra de solo lectura — sin poder tocarla — en paralelo a la del host).
 
 ---
 

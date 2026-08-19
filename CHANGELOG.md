@@ -6,6 +6,12 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-19] Feature — Duración y progreso también para invitados (solo lectura)
+
+**Motivo:** pedido del usuario: los invitados no tenían forma de saber cuánto duraba la película ni por dónde iba, ya que la barra de progreso solo existía en `#hostControlsWrap` (exclusivo del host).
+
+**Cambio** (`public/room.html`, `public/style.css`): se agregó una barra de progreso + tiempo dentro de `#localControls` (el panel que ya tenían los invitados con volumen y pantalla completa), reutilizando las mismas clases visuales del host (`seek-bar`, `seek-track`, `seek-buffered`, `seek-fill`, `time-label`) pero **sin thumb arrastrable y sin listeners de mouse/touch** (`seek-bar--readonly`) — es puramente informativa, no se puede tocar para adelantar/atrasar. El `timeupdate`/`progress` del `<video>` ahora actualiza en paralelo la barra del host y la del invitado (`guestSeekFill`, `guestSeekBuffered`, `guestTimeLabel`), sin importar el rol actual — así sigue funcionando igual si hay un traspaso de host en el medio. `.local-controls` pasó de ser una caja angosta en la esquina inferior derecha a una barra completa de borde a borde (`left/right: 14px`), igual que `.host-controls`, para que entre la barra de progreso.
+
 ## [2026-08-19] Mejora + Rediseño — Overlay de host oculto hasta tocar el video en celular, y botones ±10s rediseñados
 
 **Motivo:** feedback del usuario con captura: en celular, el badge "CONTROL REMOTO" y los botones de retroceder/adelantar 10s (ambos solo visibles para el host) tapaban el video todo el tiempo. Pidió que aparecieran solo al tocar la pantalla, y de paso que se mejorara la estética de los botones ±10s.
