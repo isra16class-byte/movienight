@@ -856,22 +856,26 @@ video { width: 100%; height: 100%; display: block; background: black; }
   html:not(.device-landscape) .time-label { font-size: 12px; min-width: 60px; }
 }
 
-/* En celular, el badge "CONTROL REMOTO" y los botones de salto ±10s (solo los ve el host) se
-   ocultan por default y solo aparecen al tocar el video — igual que cualquier reproductor
-   (YouTube, Netflix, etc.). En escritorio se quedan siempre visibles como antes, porque ahí no
-   estorban tapando nada (hay mouse, no dedo, y más espacio). El JS (room.html) agrega/quita la
-   clase `controls-visible` en `.screen-wrap` al tocar la pantalla, con un temporizador que la
-   vuelve a esconder sola a los pocos segundos. Se aplica en todo celular (vertical Y landscape
-   angosto), a diferencia del bloque de arriba que sí distingue orientación — acá da igual, en
-   ambas orientaciones el overlay tapa una porción similar del video chico. */
+/* En celular, el badge "CONTROL REMOTO" y los botones de salto ±10s (solo los ve el host), y la
+   barra de solo lectura + volumen + pantalla completa (solo las ve el invitado), se ocultan por
+   default y solo aparecen al tocar el video — igual que cualquier reproductor (YouTube, Netflix,
+   etc.). En escritorio se quedan siempre visibles como antes, porque ahí no estorban tapando nada
+   (hay mouse, no dedo, y más espacio). El JS (room.html) agrega/quita la clase `controls-visible`
+   en `.screen-wrap` al tocar la pantalla, con un temporizador que la vuelve a esconder sola a los
+   pocos segundos — mismo mecanismo para host e invitado, cada uno ve solo su propio set de
+   controles (nunca los dos a la vez, ver `updateLocalControlsVisibility`/`host-status` en
+   room.html). Se aplica en todo celular (vertical Y landscape angosto), a diferencia del bloque de
+   arriba que sí distingue orientación — acá da igual, en ambas orientaciones el overlay tapa una
+   porción similar del video chico. */
 @media (max-width: 820px) {
-  .host-badge, .host-controls {
+  .host-badge, .host-controls, .local-controls {
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.25s ease;
   }
   .screen-wrap.controls-visible .host-badge,
-  .screen-wrap.controls-visible .host-controls {
+  .screen-wrap.controls-visible .host-controls,
+  .screen-wrap.controls-visible .local-controls {
     opacity: 1;
     pointer-events: auto;
   }

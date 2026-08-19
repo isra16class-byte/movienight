@@ -330,7 +330,7 @@ socket.on('host-status', ({ isHost: host, hostToken: token }) => {
   // Al volverse host recién ahora (p. ej. traspaso de control remoto), se muestra el overlay un
   // momento en celular para que la persona se dé cuenta de que ahí están el badge y los botones
   // de salto — si no, como arrancan ocultos, podría no descubrirlos nunca sin tocar el video antes.
-  if (isHost && mobileLayoutQuery.matches) showHostOverlay();
+  if (isHost && mobileLayoutQuery.matches) showControlsOverlay();
 });
 
 socket.on('viewer-count', n => document.getElementById('viewers').textContent = `👥 ${n}`);
@@ -539,31 +539,35 @@ player.addEventListener('loadedmetadata', updateBufferedBar);
 // celular ---
 // En escritorio se quedan siempre visibles (no estorban, hay mouse). En celular tapaban buena
 // parte del video todo el tiempo, así que ahora imitan a cualquier reproductor: aparecen al
-// tocar la pantalla y se esconden solos a los pocos segundos de no volver a tocarlos. El CSS
+// tocar la pantalla y se esconden solos a los pocos segundos de no volver a tocarlos. Esto vale
+// tanto para #hostControlsWrap (host) como para #localControls (invitado: barra de solo lectura +
+// volumen + pantalla completa) — nunca se muestran los dos a la vez porque `isHost` decide cuál de
+// los dos está en el DOM con `display` distinto de `none` (ver `host-status` más arriba). El CSS
 // (style.css) es el que realmente los oculta/muestra vía la clase `controls-visible` en
 // `.screen-wrap` (opacity + pointer-events) — acá solo se decide CUÁNDO agregar/quitar esa clase.
 const screenWrap = document.querySelector('.screen-wrap');
-let hostOverlayHideTimer = null;
-function showHostOverlay() {
+let overlayHideTimer = null;
+function showControlsOverlay() {
   screenWrap.classList.add('controls-visible');
-  clearTimeout(hostOverlayHideTimer);
-  hostOverlayHideTimer = setTimeout(() => screenWrap.classList.remove('controls-visible'), 3000);
+  clearTimeout(overlayHideTimer);
+  overlayHideTimer = setTimeout(() => screenWrap.classList.remove('controls-visible'), 3000);
 }
 screenWrap.addEventListener('click', (e) => {
-  if (!isHost || !mobileLayoutQuery.matches) return;
-  // Tocar el badge o los botones de salto no debe "apagar" el overlay de golpe (el botón ya
-  // ejecuta su propia acción con este mismo click) — solo hay que refrescarle el temporizador
-  // de autoescondido para que no desaparezca mientras el dedo todavía está ahí.
-  if (e.target.closest('.host-controls') || e.target.closest('.host-badge')) {
-    showHostOverlay();
+  if (!mobileLayoutQuery.matches) return;
+  // Tocar el badge, los botones de salto (host) o la barra/volumen/pantalla completa (invitado)
+  // no debe "apagar" el overlay de golpe (el botón ya ejecuta su propia acción con este mismo
+  // click) — solo hay que refrescarle el temporizador de autoescondido para que no desaparezca
+  // mientras el dedo todavía está ahí.
+  if (e.target.closest('.host-controls') || e.target.closest('.host-badge') || e.target.closest('.local-controls')) {
+    showControlsOverlay();
     return;
   }
   // Tocar el video (fuera del overlay): alterna, como el tap-to-toggle de cualquier reproductor.
   if (screenWrap.classList.contains('controls-visible')) {
     screenWrap.classList.remove('controls-visible');
-    clearTimeout(hostOverlayHideTimer);
+    clearTimeout(overlayHideTimer);
   } else {
-    showHostOverlay();
+    showControlsOverlay();
   }
 });
 
