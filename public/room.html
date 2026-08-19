@@ -72,6 +72,7 @@
         </div>
         <div class="chat-input">
           <div id="chatInput" class="chat-input-field" contenteditable="true" data-placeholder="Escribe algo..." role="textbox" aria-multiline="false" enterkeyhint="send"></div>
+          <button id="chatSendBtn" class="chat-send-btn" title="Enviar" aria-label="Enviar mensaje">➤</button>
         </div>
       </div>
 
@@ -442,6 +443,30 @@ volToggleBtn.addEventListener('click', (e) => {
 document.getElementById('volSlider').addEventListener('input', (e) => player.volume = e.target.value);
 document.getElementById('fsBtn').onclick = () => player.requestFullscreen();
 
+// --- Fix: layout deformado al salir de pantalla completa ---
+// Al pedir pantalla completa sobre el <video> (no sobre toda la página), algunos navegadores
+// (sobre todo Chrome/Android) fuerzan una rotación a landscape mientras dura la pantalla completa
+// aunque el celular esté físicamente en vertical, y al salir la revierten — pero esa rotación
+// "de mentiras" no siempre dispara 'orientationchange', y el 'resize' que sí llega puede traer
+// un valor intermedio de la animación (mismo problema que ya se documentó para el teclado, ver
+// el listener de 'blur' de chatInput más abajo). Sin este fix, --app-height y la clase
+// `device-landscape` se quedaban pegados en el valor de cuando estaba en pantalla completa, y la
+// sala ya no volvía a su layout normal aunque el celular siguiera en vertical.
+function resyncLayoutAfterFullscreen() {
+  [0, 50, 150, 300, 500].forEach((delay) => setTimeout(() => {
+    setAppHeight();
+    updateOrientationClass();
+  }, delay));
+}
+// 'fullscreenchange' cubre Chrome/Firefox/Safari desktop y Android modernos; 'webkitfullscreenchange'
+// es el respaldo para Safari/iOS más viejos que todavía no exponen el evento sin prefijo.
+document.addEventListener('fullscreenchange', resyncLayoutAfterFullscreen);
+document.addEventListener('webkitfullscreenchange', resyncLayoutAfterFullscreen);
+// iOS Safari no soporta pantalla completa "real" en <video> vía la Fullscreen API estándar —
+// usa su propio reproductor nativo con estos eventos en vez de fullscreenchange.
+player.addEventListener('webkitbeginfullscreen', resyncLayoutAfterFullscreen);
+player.addEventListener('webkitendfullscreen', resyncLayoutAfterFullscreen);
+
 // --- Subir subtítulos (host) ---
 document.getElementById('subtitleFile').addEventListener('change', async (e) => {
   const file = e.target.files[0];
@@ -477,18 +502,29 @@ socket.on('chat-message', (data) => {
 });
 
 const chatInput = document.getElementById('chatInput');
+// Extraído a función aparte (antes vivía inline en el keydown de Enter) para poder llamarlo
+// también desde el botón de enviar (chatSendBtn) sin duplicar la lógica.
+function sendChatMessage() {
+  const text = chatInput.textContent.trim();
+  if (text) {
+    socket.emit('chat-message', text);
+    chatInput.textContent = '';
+  }
+}
 chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     // preventDefault: en un contenteditable, Enter por default inserta un salto de línea
     // (<br> o <div>) en vez de "enviar" como en un <input> normal — hay que interceptarlo.
     e.preventDefault();
-    const text = chatInput.textContent.trim();
-    if (text) {
-      socket.emit('chat-message', text);
-      chatInput.textContent = '';
-    }
+    sendChatMessage();
   }
 });
+const chatSendBtn = document.getElementById('chatSendBtn');
+// mousedown (no click) con preventDefault: evita que el botón le robe el foco al chatInput.
+// Sin esto, en celular cada tap en "Enviar" cerraría el teclado de golpe (blur -> setKeyboardOpen(false))
+// justo antes de mandar el mensaje, en vez de dejar el teclado abierto para seguir escribiendo.
+chatSendBtn.addEventListener('mousedown', (e) => e.preventDefault());
+chatSendBtn.addEventListener('click', sendChatMessage);
 
 // Al ser contenteditable, un paste normal puede traer HTML/formato con estilos pegados —
 // se fuerza a texto plano para que el chat quede consistente.

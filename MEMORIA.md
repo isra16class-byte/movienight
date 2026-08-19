@@ -2,7 +2,7 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 19 de agosto de 2026 (segundo ajuste del mismo día: el video se achica poco con el teclado abierto en vez de mucho, se arregló el bug de que no volvía a su tamaño original al cerrar el teclado, y la barra de volumen ahora es colapsable y se oculta mientras se escribe).
+Última actualización: 19 de agosto de 2026 (tercer ajuste del mismo día: fix del layout que se deformaba al salir de pantalla completa en celular, y botón de enviar agregado junto al campo de chat).
 
 ---
 
@@ -425,6 +425,44 @@ cambios:
   no dejar listeners colgando) o si se abre el teclado (`setKeyboardOpen` llama a `closeVolPopup()`
   para que no quede el popup abierto detrás de la barra ya escondida). El botón de pantalla
   completa (`fsBtn`) no forma parte de este colapso — sigue siempre visible aparte.
+
+## 8quaterdecies. Fix: layout deformado al salir de pantalla completa + botón de enviar en el chat
+
+Reporte del usuario con dos capturas de celular: al tocar el botón de pantalla completa (⛶) y
+luego salir, la sala quedaba deformada — el video pasaba a ocupar el layout de escritorio (fila,
+video angosto a un costado en vez de columna con video arriba) y el chat quedaba aplastado abajo,
+sin volver nunca a su estado normal aunque el celular siguiera en vertical.
+
+**Causa.** La pantalla completa se pide sobre el `<video>` solo (`player.requestFullscreen()`), no
+sobre toda la página. En Chrome/Android (y el reproductor nativo de iOS Safari) es común que, al
+entrar en pantalla completa sobre un video, el navegador fuerce una rotación a landscape mientras
+dura — aunque el celular esté físicamente en vertical — y la revierta al salir. El problema es que
+esa rotación "de mentiras" no siempre dispara `orientationchange` (el evento del que depende
+`updateOrientationClass()`, ver 8octies), y el `resize`/`visualViewport.resize` que sí llega puede
+traer un valor intermedio de la animación de transición — el mismo tipo de carrera ya documentado
+para el cierre del teclado (8terdecies, punto 2). Resultado: `--app-height` y la clase
+`device-landscape` en `<html>` se quedaban pegados en el valor de cuando estaba en pantalla
+completa, y ya nada volvía a recalcularlos porque ni `resize` ni `orientationchange` volvían a
+disparar con el valor correcto.
+
+**Fix** (`public/room.html`): se agregó `resyncLayoutAfterFullscreen()`, que reintenta
+`setAppHeight()` + `updateOrientationClass()` varias veces (`0, 50, 150, 300, 500` ms) para cubrir
+toda la duración de la animación de transición, igual que ya se hace en el `blur` del chat para el
+teclado. Se cuelga de tres pares de eventos para cubrir navegadores distintos:
+- `fullscreenchange` / `webkitfullscreenchange` en `document` (Chrome/Firefox/Safari desktop y
+  Android modernos, Fullscreen API estándar).
+- `webkitbeginfullscreen` / `webkitendfullscreen` en el propio `<video>` (iOS Safari, que no
+  implementa la Fullscreen API estándar sobre `<video>` — usa su reproductor nativo con estos
+  eventos propios en su lugar).
+
+**Botón de enviar mensaje.** Se aprovechó para agregar `#chatSendBtn` (➤) al lado del campo de
+chat, a pedido del usuario — antes solo se podía mandar el mensaje con Enter. La lógica de armar y
+emitir el mensaje se sacó del listener de `keydown` a una función aparte (`sendChatMessage()`) para
+no duplicarla entre el Enter y el click del botón nuevo. El botón intercepta su propio `mousedown`
+con `preventDefault()` (en vez de dejar que el `click` normal le robe el foco al `chatInput`) — si
+no, en celular cada tap en "Enviar" dispararía el `blur` del chat (que cierra el teclado, ver
+8terdecies) justo antes de mandar el mensaje, en vez de dejar el teclado abierto para seguir
+escribiendo.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

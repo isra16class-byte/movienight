@@ -6,6 +6,14 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-19] Fix + Mejora — Layout deformado al salir de pantalla completa, y botón de enviar en el chat
+
+**Motivo:** reporte del usuario con capturas: en celular, al tocar pantalla completa y luego salir, la sala quedaba deformada (video ocupando el layout equivocado, chat aplastado) y ya no volvía a su estado normal. Se aprovechó para agregar el botón de enviar mensaje que faltaba junto al campo de texto.
+
+**Fix — layout roto al salir de pantalla completa** (`public/room.html`): la pantalla completa se pide sobre el `<video>` solo (`player.requestFullscreen()`), y algunos navegadores (sobre todo Chrome/Android) fuerzan una rotación a landscape mientras dura, revirtiéndola al salir — pero esa rotación no siempre dispara `orientationchange`, y el `resize` que sí llega puede traer un valor intermedio de la animación de transición (mismo tipo de problema ya documentado para el cierre del teclado). Resultado: `--app-height` y la clase `device-landscape` se quedaban pegados en el valor de cuando estaba en pantalla completa. Se agregaron listeners de `fullscreenchange`/`webkitfullscreenchange` (y `webkitbeginfullscreen`/`webkitendfullscreen` para el reproductor nativo de iOS Safari, que no usa la Fullscreen API estándar en `<video>`) que reintentan `setAppHeight()` + `updateOrientationClass()` varias veces (0/50/150/300/500ms) para cubrir toda la animación, igual que ya se hacía con el teclado.
+
+**Mejora — botón de enviar** (`public/room.html`, `public/style.css`): se agrega `#chatSendBtn` (➤) al lado del campo de chat. La lógica de armar y mandar el mensaje se sacó a una función (`sendChatMessage()`) para no duplicarla entre el `Enter` y el click del botón. El botón usa `mousedown` con `preventDefault()` en vez de dejar que el `click` normal le quite el foco al campo — si no, en celular cada tap en "Enviar" cerraría el teclado de golpe antes de mandar el mensaje.
+
 ## [2026-08-19] Ajuste — Video más grande con el teclado abierto, fix del tamaño que no se restauraba, y barra de volumen colapsable
 
 **Motivo:** feedback tras el cambio anterior — el video quedaba demasiado chico con el teclado abierto ("la cuestión es poder hablar y ver el video al mismo tiempo"), un bug donde no volvía a su tamaño original al cerrar el teclado, y pedido de simplificar la barra de volumen/pantalla completa.

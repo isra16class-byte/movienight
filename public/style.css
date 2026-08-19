@@ -662,6 +662,22 @@ video { width: 100%; height: 100%; display: block; background: black; }
   pointer-events: none;
 }
 
+/* Botón de enviar: mismo alto que el campo de texto (align-items: center del .chat-input padre
+   ya no alcanza solo porque el campo puede crecer varias líneas; se fija a self-end para que el
+   botón se quede pegado abajo, al lado de la última línea escrita, en vez de centrarse en todo
+   el alto del textarea cuando el mensaje ocupa varias líneas). */
+.chat-send-btn {
+  flex-shrink: 0;
+  align-self: flex-end;
+  width: 34px; height: 34px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-elevated); border: 1px solid var(--line); color: var(--cyan);
+  border-radius: var(--radius-sm); cursor: pointer; font-size: 14px;
+  transition: border-color 0.15s, color 0.15s;
+}
+.chat-send-btn:hover { border-color: var(--cyan); }
+.chat-send-btn:active { transform: scale(0.94); }
+
 .float-emoji {
   position: absolute; bottom: 70px; font-size: 30px;
   animation: floatUp 2.5s ease-out forwards; pointer-events: none;
