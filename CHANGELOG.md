@@ -6,6 +6,14 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-18] Mejora — En celular, código de sala + Salir se mudan a la pestaña "Sala" + rediseño del botón Salir
+
+**Motivo:** pedido del usuario — en celular, el código de sala y el botón Salir ocupaban espacio fijo arriba de las pestañas, restándole lugar visible al chat. Se pidió moverlos dentro de la pestaña "Sala" solo en celular (PC igual que antes), y de paso rediseñar el botón Salir porque se veía "muy simple y genérico".
+
+**Cambio 1 — reubicación responsive** (`public/room.html`, `public/style.css`): el bloque código+Salir se envolvió en `<div id="codeSalirGroup">` y se mueve con JS entre dos contenedores (`sideHeaderDesktop` arriba de las pestañas, o `codeSalirSlotMobile` dentro de la pestaña "Sala") según `matchMedia('(max-width: 820px)')`, reaccionando a `change` — no a `resize` — para que el teclado (que solo cambia el alto visible) nunca dispare un movimiento de más. Es el mismo nodo del DOM en ambos casos, así que `copyBtn`/`leaveBtn` no pierden sus listeners al moverse.
+
+**Cambio 2 — rediseño del botón Salir** (`public/style.css`): pasó de outline rosa plano a un estilo "eyectar cinta" acorde a la estética VHS: fondo con gradiente oscuro, ícono en su propio círculo, glow rosa en hover, y efecto de click físico al presionar.
+
 ## [2026-08-18] Fix — Barra de autofill de Chrome sobre el teclado del chat (solución definitiva)
 
 **Motivo:** el intento anterior (`autocomplete="off"`) no funcionó — el usuario mandó una captura confirmando que la barra de llave/tarjeta/ubicación seguía apareciendo sobre el teclado al escribir en el chat. También notó, con otra captura, que el diálogo nativo `prompt()` que pide el nombre al entrar a la sala *nunca* muestra esa barra — esa pista fue la clave para encontrar la causa real.

@@ -2,7 +2,7 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 18 de agosto de 2026 (el chat pasó a usar un div contenteditable en vez de un input, para que Chrome deje de mostrar su barra de autofill sobre el teclado).
+Última actualización: 18 de agosto de 2026 (en celular, código de sala + botón Salir se mudan a la pestaña "Sala"; rediseño del botón Salir).
 
 ---
 
@@ -289,6 +289,53 @@ caja de mensaje, en parte por esto mismo. Cambios necesarios en cascada:
 contenteditable porque se usan una sola vez al entrar (no repetidamente como el chat durante toda
 la película), así que el costo/beneficio de la conversión no lo justifica por ahora. Si algún día
 molesta ahí también, aplicar el mismo patrón.
+
+## 8decies. En celular, código de sala + botón Salir viven en la pestaña "Sala" (no en PC)
+
+Pedido explícito: en celular, el código de sala y el botón "Salir" ocupaban espacio fijo arriba de
+las pestañas Chat/Sala, restándole lugar visible al chat (justo lo que la gente quiere ver más
+mientras mira la peli). En PC no molesta porque el panel lateral es más alto. Se pidió que en
+celular esas dos cosas se muden dentro de la pestaña "Sala", y que en PC se queden tal cual estaban.
+
+**Cómo se hizo:** en vez de duplicar el HTML (lo cual duplicaría los ids `roomCodeText`, `copyBtn`,
+`leaveBtn` y rompería `getElementById`), se envolvió el bloque en un único grupo
+`<div id="codeSalirGroup">` y se mueve ese mismo nodo del DOM entre dos posibles contenedores con
+JS, según el ancho de pantalla:
+- `sideHeaderDesktop` (`<div class="side-header">`, arriba de las pestañas) — posición para PC.
+- `codeSalirSlotMobile` (otro `<div class="side-header">`, vacío, como primer hijo de
+  `#panel-people`, la pestaña "Sala") — posición para celular.
+
+```js
+const mobileLayoutQuery = window.matchMedia('(max-width: 820px)');
+function placeCodeSalirGroup() {
+  const target = mobileLayoutQuery.matches ? codeSalirSlotMobile : sideHeaderDesktop;
+  if (codeSalirGroup.parentElement !== target) target.appendChild(codeSalirGroup);
+}
+```
+
+Como es el mismo nodo (no una copia), sus listeners (`copyBtn`, `leaveBtn`) nunca se pierden al
+moverlo. Se decide por **ancho** (`max-width: 820px`, el mismo breakpoint que ya usa el resto del
+layout mobile) y se reacciona con `mobileLayoutQuery.addEventListener('change', ...)` — no con
+`resize` plano — para que abrir el teclado (que solo achica el *alto* visible, no el ancho) nunca
+dispare un movimiento de por medio. Mismo criterio de fondo que `updateOrientationClass()` (8octies)
+y el fix del layout de landscape angosto (8octies también): separar "cambió el layout real" de
+"cambió cuánto espacio visible queda".
+
+`.side-header:empty { display: none; }` en `style.css` esconde el contenedor de PC cuando queda
+vacío (celular) para no dejar un padding/borde huecos ahí arriba.
+
+## 8undecies. Rediseño del botón "Salir"
+
+Pedido: el botón "Salir" se veía "muy simple y genérico" (outline rosa plano tipo botón de
+formulario estándar), sin relación con la estética "videoclub VHS" del resto de la sala.
+
+Se rediseñó pensándolo como un botón de "eyectar cinta" de videocasetera: fondo oscuro con
+gradiente sutil (panel físico, no un rectángulo plano), el ícono 🚪 en su propio círculo separado
+del texto, glow rosa (`box-shadow`) que se intensifica en hover en vez de invertir colores, y un
+efecto de "click" físico al presionar (`transform: translateY(1px) scale(0.99)` + sombra hacia
+adentro). Clases: `.leave-btn` (contenedor) y `.leave-btn-icon` (círculo del ícono), ambas en
+`style.css`. El HTML pasó de `<button class="leave-btn">🚪 Salir</button>` a
+`<button class="leave-btn"><span class="leave-btn-icon">🚪</span> Salir</button>`.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

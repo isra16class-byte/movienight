@@ -40,14 +40,16 @@
         <span class="floater" style="left:75%; font-size:18px; animation-duration:12s; animation-delay:-6s;">📼</span>
         <span class="floater" style="left:90%; font-size:16px; animation-duration:9.5s; animation-delay:-1s;">🎞️</span>
       </div>
-      <div class="side-header">
-        <div class="osd-counter">
-          <span class="rec-dot"></span>
-          <span class="osd-counter-code" id="roomCodeText"></span>
-          <button class="osd-counter-copy" id="copyBtn" title="Copiar link">COPIAR</button>
-        </div>
-        <div class="side-actions">
-          <button class="leave-btn" id="leaveBtn">🚪 Salir</button>
+      <div class="side-header" id="sideHeaderDesktop">
+        <div class="code-salir-group" id="codeSalirGroup">
+          <div class="osd-counter">
+            <span class="rec-dot"></span>
+            <span class="osd-counter-code" id="roomCodeText"></span>
+            <button class="osd-counter-copy" id="copyBtn" title="Copiar link">COPIAR</button>
+          </div>
+          <div class="side-actions">
+            <button class="leave-btn" id="leaveBtn"><span class="leave-btn-icon">🚪</span> Salir</button>
+          </div>
         </div>
       </div>
 
@@ -72,6 +74,10 @@
       </div>
 
       <div class="panel" id="panel-people">
+        <!-- En celular, el código de sala y el botón Salir se mudan acá (ver JS más abajo) para
+             que la pestaña Chat quede libre y el chat sea más visible mientras se ve la peli.
+             En PC se quedan arriba de las pestañas, tal como estaban. -->
+        <div class="side-header" id="codeSalirSlotMobile"></div>
         <div id="viewerList"></div>
         <div class="host-panel" id="hostPanelWrap" style="display:none;">
           <a class="change-video-link" id="changeVideoLink" href="#">📼 Cambiar cinta</a>
@@ -116,6 +122,28 @@ function updateOrientationClass() {
 }
 updateOrientationClass();
 window.addEventListener('orientationchange', updateOrientationClass);
+
+// --- Mover código de sala + botón Salir a la pestaña "Sala" solo en celular ---
+// En PC se quedan arriba de las pestañas (posición original). En celular se mudan dentro del
+// panel "Sala" para liberar espacio y que el chat (lo que la gente está escribiendo) tenga más
+// lugar visible en pantallas chicas. Es el mismo nodo del DOM movido de contenedor (no una copia:
+// así los ids (roomCodeText, copyBtn, leaveBtn) siguen siendo únicos y sus listeners no se pierden).
+// Se usa matchMedia sobre el ANCHO (no el alto) para que abrir el teclado (que solo achica el alto
+// visible) nunca dispare un movimiento de por medio — mismo criterio que updateOrientationClass().
+const codeSalirGroup = document.getElementById('codeSalirGroup');
+const sideHeaderDesktop = document.getElementById('sideHeaderDesktop');
+const codeSalirSlotMobile = document.getElementById('codeSalirSlotMobile');
+const mobileLayoutQuery = window.matchMedia('(max-width: 820px)');
+function placeCodeSalirGroup() {
+  const target = mobileLayoutQuery.matches ? codeSalirSlotMobile : sideHeaderDesktop;
+  if (codeSalirGroup.parentElement !== target) target.appendChild(codeSalirGroup);
+}
+placeCodeSalirGroup();
+if (mobileLayoutQuery.addEventListener) {
+  mobileLayoutQuery.addEventListener('change', placeCodeSalirGroup);
+} else {
+  mobileLayoutQuery.addListener(placeCodeSalirGroup); // respaldo para navegadores viejos
+}
 
 const roomId = location.pathname.split('/').pop();
 
