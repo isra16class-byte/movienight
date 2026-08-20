@@ -302,17 +302,27 @@ body::after {
      achicarlo con clamp() en vez de dejarlo fijo libera más alto en pantallas bajas sin llegar a
      superponerse con el contador (que mide ~34px desde arriba). */
   .deck.deck-wide { padding: clamp(32px, 8dvh, 46px) 16px clamp(14px, 3dvh, 24px); }
-  /* Antes las tarjetas quedaban muy grandes en mobile (captura del usuario): padding generoso +
-     ícono grande + fila de botones envuelta debajo, con harto aire entre cada bloque. Se compacta
-     todo (padding, ícono, tipografía, gap) sin tocar el layout en fila/columna que ya resolvía el
-     wrap de acciones. */
-  .tape-item { flex-wrap: wrap; padding: 9px 11px; gap: 8px; }
-  .tape-item-icon { font-size: 20px; }
-  .tape-item-info { flex-basis: 100%; order: 1; }
-  .tape-item-name { white-space: normal; font-size: 14px; }
-  .tape-item-meta { font-size: 12px; }
-  .tape-item-actions { flex-basis: 100%; order: 2; justify-content: flex-end; margin-top: 2px; gap: 6px; }
-  .tape-item-actions button { padding: 5px 10px; font-size: 13px; }
+
+  /* Antes: "O inserta una cinta nueva" (.new-upload) dejaba 18px de margen + 18px de padding antes
+     de su línea punteada, y la lista arrancaba con otros ~20px más de margen-top propio — casi 60px
+     de aire muerto entre la caja y la primera cinta, que además quedaba resaltado (más "gigante")
+     ahora que las tarjetas de abajo son compactas. Se aprieta ambos a la mitad en mobile. */
+  .new-upload { margin-bottom: 10px; padding-bottom: 10px; }
+  .deck.deck-wide .tape-list { margin-top: clamp(4px, 1dvh, 10px); }
+
+  /* Antes las tarjetas quedaban muy grandes en mobile (captura del usuario): padding generoso,
+     ícono grande, y encima las acciones (USAR/eliminar) se envolvían DEBAJO de toda la tarjeta en
+     su propia fila ("abajado"), duplicando la altura de cada cinta. Ahora van en la misma fila que
+     el ícono y el nombre ("alado", como en desktop) — se compacta todo (padding, ícono, tipografía,
+     gap) para que entren sin desbordar en una pantalla angosta, y así entran más cintas a la vista
+     sin scrollear. El nombre vuelve a truncar con "…" en una sola línea (antes se dejaba envolver
+     en varias porque tenía todo el ancho de la tarjeta para sí solo). */
+  .tape-item { padding: 8px 10px; gap: 8px; }
+  .tape-item-icon { font-size: 18px; }
+  .tape-item-name { font-size: 13.5px; }
+  .tape-item-meta { font-size: 11.5px; }
+  .tape-item-actions { gap: 6px; }
+  .tape-item-actions button { padding: 5px 9px; font-size: 12.5px; white-space: nowrap; }
 }
 
 /* Textura de estática/ruido sutil, tipo cinta vieja */
