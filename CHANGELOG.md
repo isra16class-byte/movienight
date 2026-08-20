@@ -6,6 +6,16 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-20] Security fix — Biblioteca (`/api/uploads`) accesible sin autenticación a cualquiera con el link de una sala
+
+**Motivo:** el usuario preguntó específicamente por seguridad pensando en el escenario "un amigo reenvía el link a alguien que no debería tenerlo". Al revisar el server bajo ese ángulo apareció el problema más serio detectado hasta ahora: `GET /api/uploads` (listar) y `DELETE /api/uploads/:filename` (borrar) no pedían absolutamente nada — ni `hostToken` de ninguna sala, ni ninguna contraseña. Bastaba con conocer el dominio del server (que se conoce apenas se tiene el link de una sala) y escribir `/library.html` para ver **todos** los videos subidos alguna vez, de cualquier sala, y borrar cualquiera de ellos — incluso mientras estaban en uso en otra sala activa, rompiéndola sin avisar.
+
+**Cambio:** se agregó `LIBRARY_PASSWORD`, una contraseña única a nivel de todo el servidor (no por sala, ya que la biblioteca es compartida entre todas). Se lee de la variable de entorno del mismo nombre; si no está definida, se genera una al azar en cada arranque y se imprime por consola con instrucciones. Un middleware nuevo, `requireLibraryAuth`, protege ambas rutas (`GET`/`DELETE` de `/api/uploads`) y responde `401` si falta o es incorrecta. En el cliente (`library.html`), se agregó `mnLibraryFetch()`, que adjunta la contraseña guardada en `localStorage` a cada request y, si el servidor responde `401`, la pide con el modal propio (`mnPrompt`, que se sumó a este archivo — antes solo estaba en `room.html`) y reintenta.
+
+No se protegió `POST /create-room-from-upload`: explotarlo requeriría adivinar el nombre exacto del archivo en disco, que lleva un prefijo aleatorio de 8 caracteres hex — sin poder listar primero, es tan poco viable como adivinar un `hostToken`.
+
+Ver `MEMORIA.md`, secciones 4 y 8septendecies, para el detalle completo.
+
 ## [2026-08-20] Fix — Host duplicado: el traspaso de host (automático o manual) no degradaba al anterior
 
 **Motivo:** reporte del usuario: al irse el host, el control se transfería al siguiente conectado (correcto), pero si el host original regresaba, el servidor lo volvía a marcar como host **sin quitárselo** a quien ya lo tenía — quedaban 2 hosts a la vez, y repitiendo el ciclo se podían acumular más.

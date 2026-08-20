@@ -161,10 +161,39 @@ function mnAlert(message, title = 'MovieNight') {
 function mnConfirm(message, title = '¿Estás seguro?') {
   return mnDialog({ title, message, okLabel: 'Sí', cancelLabel: 'Cancelar' });
 }
+function mnPrompt({ title, message = '', placeholder = '', type = 'text', okLabel = 'Aceptar', cancelLabel = 'Cancelar', showCancel = true }) {
+  return mnDialog({ title, message, showInput: true, inputType: type, placeholder, okLabel, cancelLabel, showCancel });
+}
+
+// --- Contraseña de biblioteca (V9): protege listar/borrar cintas, separada de la contraseña de cada
+// sala. Se guarda en localStorage tras la primera vez que se ingresa correctamente, así no se vuelve
+// a pedir en visitas futuras desde el mismo navegador (ver mnLibraryFetch, usado por todas las
+// llamadas a /api/uploads).
+async function mnLibraryFetch(url, options = {}) {
+  let pw = localStorage.getItem('mn_library_pw') || '';
+  while (true) {
+    const headers = Object.assign({}, options.headers, { 'x-library-password': pw });
+    const res = await fetch(url, Object.assign({}, options, { headers }));
+    if (res.status !== 401) {
+      if (pw) localStorage.setItem('mn_library_pw', pw);
+      return res;
+    }
+    pw = await mnPrompt({
+      title: 'Biblioteca protegida',
+      message: pw
+        ? 'Contraseña incorrecta. Probá de nuevo (te la pasa quien armó el servidor).'
+        : 'Esta biblioteca es compartida entre todas las salas. Pedile la contraseña a quien armó el servidor.',
+      placeholder: 'Contraseña de la biblioteca',
+      type: 'password',
+      okLabel: 'Entrar',
+      showCancel: false
+    });
+  }
+}
 
 async function loadTapes() {
   try {
-    const res = await fetch('/api/uploads');
+    const res = await mnLibraryFetch('/api/uploads');
     const tapes = await res.json();
     renderTapes(tapes);
   } catch (err) {
@@ -234,7 +263,7 @@ async function useTape(filename, li) {
 async function deleteTape(filename, li) {
   if (!(await mnConfirm('¿Borrar esta cinta del servidor? No se puede deshacer.'))) return;
   try {
-    const res = await fetch('/api/uploads/' + encodeURIComponent(filename), { method: 'DELETE' });
+    const res = await mnLibraryFetch('/api/uploads/' + encodeURIComponent(filename), { method: 'DELETE' });
     const data = await res.json();
     if (data.error) { await mnAlert('Error: ' + data.error); return; }
     li.remove();

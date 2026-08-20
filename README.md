@@ -39,6 +39,20 @@ npm start
 
 El servidor queda escuchando en `http://localhost:3000`.
 
+### Contraseña de la biblioteca
+
+`/library.html` (donde se ven y se pueden borrar todos los videos ya subidos, de cualquier sala) pide
+una contraseña propia, separada de la contraseña de cada sala — porque a diferencia de una sala, la
+biblioteca es compartida por todo el servidor. Si no configurás nada, el servidor genera una al azar
+en cada arranque y la imprime en la consola al iniciar. Para que sea siempre la misma, definila como
+variable de entorno antes de arrancar:
+
+```bash
+LIBRARY_PASSWORD=lo-que-quieras npm start
+```
+
+Compartila con tu grupo por otro canal (no por el mismo link de la sala).
+
 ## Cómo usarla en la misma red (WiFi de casa)
 
 1. Corre `npm start`.

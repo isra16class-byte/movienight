@@ -2,7 +2,7 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 20 de agosto de 2026 (V8: se corrigió un bug de host duplicado — el traspaso de host, automático o manual, no degradaba al host anterior, así que podían quedar 2 o más hosts a la vez en una sala — y se reemplazaron los diálogos nativos del navegador `prompt()`/`confirm()`/`alert()` por un modal propio con el estilo "videoclub" de la app).
+Última actualización: 20 de agosto de 2026 (V9: se cerró el hallazgo más serio de la sección de riesgos — `GET /api/uploads` y `DELETE /api/uploads/:filename` no pedían ninguna autenticación, así que cualquiera con el link de una sala podía navegar a `/library.html` y ver o borrar todos los videos del servidor. Ahora requieren una contraseña de biblioteca, `LIBRARY_PASSWORD`, separada de las contraseñas de sala).
 
 ---
 
@@ -60,6 +60,7 @@ rooms = {
 - `hostSocketId` (V8): a diferencia de `hostToken` (que es una credencial, no cambia), este campo dice quién es el host **ahora mismo** — el `socket.id` del único socket con `isHost = true` en la sala en un momento dado. Es la pieza que faltaba antes de V8: sin ella, presentar un `hostToken` válido alcanzaba para volverse host sin importar si ya había otro. Ver sección 5bis para el fix completo.
 - `passwordHash` (V7): opcional. Si está seteado, `join-room` exige que el cliente mande la contraseña en texto plano por socket; el servidor la hashea (`sha256`) y compara. No hay salt por usuario — es una protección básica pensada para un grupo de amigos, no para resistir ataques serios (ver sección 9).
 - `userId` (V7): identificador persistente generado en el cliente (`crypto.randomUUID()`, guardado en `localStorage` como `mn_uid`, uno solo por navegador — no por sala). Se manda en cada `join-room` y es lo que permite que el estado de "silenciado" y la supresión de mensajes de reconexión sobrevivan a un refresh o a una caída de wifi. Es distinto de `socket.id`, que cambia en cada conexión.
+- `LIBRARY_PASSWORD` (V9): **no** es un campo de `rooms` — es una única contraseña a nivel de todo el servidor (no por sala), guardada en una variable de módulo (`libraryPasswordHash`), que protege `GET /api/uploads` y `DELETE /api/uploads/:filename` (ver sección 8septendecies). Se lee de la variable de entorno del mismo nombre; si no está definida, se genera una al azar en cada arranque y se imprime por consola.
 
 ## 5. Sistema de roles (host vs invitado) — IMPORTANTE
 
@@ -535,15 +536,55 @@ autocontenida, no hay un JS compartido entre páginas).
 Es puramente de UI/estética — no tiene relación con Cloudflare Tunnel ni con que el link cambie de
 sesión a sesión; eso sigue siendo así y no tiene solución sin un dominio fijo (ver roadmap, sección 10).
 
+## 8septendecies. Contraseña de biblioteca (V9) — cierra el acceso libre a listar/borrar cintas
+
+El usuario preguntó por seguridad pensando en el escenario "un amigo reenvía el link de una sala a
+alguien que no debería tenerlo". Repasando el server bajo ese lente apareció el hallazgo más serio de
+toda la sección de riesgos: `GET /api/uploads` (listar) y `DELETE /api/uploads/:filename` (borrar) no
+pedían **absolutamente nada** — ni `hostToken`, ni contraseña de sala, ni ningún otro chequeo. No hacía
+falta ni ser especialmente hábil: alcanzaba con conocer el dominio del server (que ya lo sabés apenas
+tenés el link de una sala) y escribir `/library.html` a mano. Desde ahí se podía ver **todo** lo que se
+subió alguna vez a ese server (de cualquier sala, no solo la propia) y borrar cualquier archivo —
+incluso mientras otra sala lo estaba usando en ese momento, rompiéndola sin avisar a nadie (riesgo ya
+anotado en la sección 9, ahora mitigado).
+
+**Por qué un secreto aparte, y no reusar `hostToken` o la contraseña de sala:** la biblioteca es
+compartida por *todo* el servidor, no por una sala puntual — no tendría sentido atarla al token de una
+sala específica. Se optó por un secreto único a nivel de servidor, `LIBRARY_PASSWORD` (ver sección 4),
+en la misma línea que ya existían "secretos por alcance" en el proyecto (token por sala, contraseña por
+sala): ahora hay también uno por servidor.
+
+**Cómo se configura:** variable de entorno `LIBRARY_PASSWORD`. Si no se define, el servidor genera una
+al azar en cada arranque (`crypto.randomBytes(4).toString('hex')`) y la imprime por consola al iniciar,
+con instrucciones para fijarla. Se guarda hasheada (reusa `hashPassword`, el mismo `sha256` que ya se
+usa para contraseñas de sala) en `libraryPasswordHash`, nunca en texto plano en memoria más tiempo del
+necesario para hashearla.
+
+**Backend:** middleware `requireLibraryAuth` (recibe el valor por header `x-library-password`, o por
+query/body como alternativa) aplicado a las dos rutas mencionadas. Responde `401` si falta o no
+coincide. **No** se agregó a `POST /create-room-from-upload` — para explotarlo haría falta adivinar el
+nombre exacto del archivo en el servidor, que lleva un prefijo aleatorio de 8 caracteres hex
+(`crypto.randomBytes(4)`, ver sección 8quater), así que sin poder listar antes es, en la práctica, tan
+poco adivinable como el `hostToken` mismo — no se consideró necesario duplicar la protección ahí.
+
+**Frontend (`library.html`):** función `mnLibraryFetch(url, options)`, que envuelve `fetch` agregando
+el header con la contraseña guardada en `localStorage` (`mn_library_pw`); si el server responde `401`,
+pide la contraseña con el modal propio (`mnPrompt`, agregado a este archivo en este mismo cambio — antes
+solo estaba en `room.html`) y reintenta, en un loop sin botón de cancelar (para no dejar mostrar una
+biblioteca vacía como si no hubiera nada, que sería confuso). Una vez que la contraseña funciona una
+vez, queda guardada para las próximas visitas desde el mismo navegador — no se vuelve a pedir salvo que
+cambie (ej. el servidor se reinició sin `LIBRARY_PASSWORD` fija y generó una nueva).
+
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 
 - El `hostToken` viaja en texto plano por HTTP (a menos que Cloudflare Tunnel lo cifre en tránsito, que sí lo hace vía HTTPS). Si alguien lo obtiene (inspeccionando `localStorage` de la persona equivocada, por ejemplo), puede hacerse pasar por host.
-- La contraseña de sala (V7) usa `sha256` sin salt — suficiente para que alguien con el link no entre "sin querer", pero no es resistente a un atacante que se lo proponga en serio (sin rate-limiting en `join-room`, se podría probar contraseñas por fuerza bruta contra el socket). Dado el caso de uso (grupo de amigos), se consideró un trade-off aceptable.
-- No hay rate-limiting en el chat, en `join-room`, ni en la subida de archivos — un usuario malicioso podría floodear el chat, probar contraseñas repetidamente, o intentar subir archivos gigantes repetidamente.
+- La contraseña de sala (V7) y la de biblioteca (V9) usan `sha256` sin salt — suficiente para que alguien con el link no entre "sin querer", pero no es resistente a un atacante que se lo proponga en serio (sin rate-limiting en `join-room` ni en `requireLibraryAuth`, se podrían probar contraseñas por fuerza bruta). Dado el caso de uso (grupo de amigos), se consideró un trade-off aceptable.
+- No hay rate-limiting en el chat, en `join-room`, en `requireLibraryAuth`, ni en la subida de archivos — un usuario malicioso podría floodear el chat, probar contraseñas repetidamente, o intentar subir archivos gigantes repetidamente.
 - No hay validación de tipo de archivo más allá de lo que el navegador manda como `video/*` en el `<input accept>` (o la extensión `.srt`/`.vtt` para subtítulos) — no es una validación real de seguridad, solo de UX.
 - Las salas nunca se borran ni expiran — si el server corre mucho tiempo, `rooms` y los archivos en `uploads/` se van acumulando. (Ahora al menos se pueden borrar a mano fácil desde `library.html`, ver sección 8quater.)
-- Borrar un video desde `library.html` mientras una sala activa lo está usando rompe esa sala sin avisar (ver 8quater) — sigue sin resolverse en V7.
+- Borrar un video desde `library.html` mientras una sala activa lo está usando rompe esa sala sin avisar (ver 8quater) — sigue sin resolverse en V9. Mitigado en parte por V9: ahora hace falta la contraseña de biblioteca para borrar, así que ya no puede pasar por accidente por un desconocido random con el link de una sala — pero un amigo del grupo (que sí tiene la contraseña) todavía podría borrar sin querer un video en uso.
 - El traspaso automático de host (sección 5bis) elige al espectador que lleva más tiempo conectado sin ningún otro criterio (no hay forma de "vetar" a alguien de ser host automático). Improbable que sea un problema real dado que es para grupos de amigos, pero queda anotado.
+- ~~`GET /api/uploads` y `DELETE /api/uploads/:filename` no pedían ninguna autenticación~~ — resuelto en V9 con `LIBRARY_PASSWORD` (ver sección 8septendecies). Era el riesgo más serio de esta lista: no requería ninguna habilidad especial, solo conocer el dominio del server (que ya se sabe con el link de una sala) y escribir `/library.html`.
 
 ## 10. Ideas pendientes / roadmap
 
@@ -563,6 +604,7 @@ sesión a sesión; eso sigue siendo así y no tiene solución sin un dominio fij
 - [x] ~~El teclado móvil empuja el video fuera de pantalla al escribir en el chat~~ — resuelto (ver sección 8septies).
 - [x] ~~Diálogos nativos del navegador (prompt/confirm/alert) sin estilo propio~~ — resuelto en V8 con un modal propio (ver sección 8sedecies).
 - [x] ~~Bug: podía haber más de un host a la vez en una sala~~ — resuelto en V8 (ver sección 5bis).
+- [x] ~~/api/uploads (listar/borrar cintas) sin ninguna autenticación~~ — resuelto en V9 con contraseña de biblioteca (ver sección 8septendecies).
 
 ## 11. Historial de cambios
 

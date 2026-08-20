@@ -16,6 +16,31 @@ if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
+// --- Contraseña de biblioteca (V9) --------------------------------------------------------------
+// Antes, /api/uploads (listar) y DELETE /api/uploads/:filename (borrar) no pedían nada: cualquiera
+// que tuviera la URL base del server —por ejemplo, alguien a quien le reenviaron el link de UNA sala—
+// podía navegar a /library.html y ver o borrar TODOS los videos subidos alguna vez, de cualquier sala,
+// sin necesitar el hostToken de ninguna. Esto es independiente de la contraseña de sala (que protege
+// una sala puntual) y de hostToken (que protege el control de una sala puntual): la biblioteca es
+// compartida entre todas las salas del servidor, así que necesita su propio secreto, uno solo para
+// todo el server (no por sala), ya que no hay sistema de cuentas.
+//
+// Se define con la variable de entorno LIBRARY_PASSWORD (ej. en un archivo .env o al arrancar:
+// `LIBRARY_PASSWORD=lo-que-sea npm start`). Si no se define, se genera una al azar y se imprime en
+// consola al arrancar — quien corre el server la comparte una sola vez con su grupo de amigos (por
+// el chat que usen, no por el mismo link de la sala).
+const LIBRARY_PASSWORD = process.env.LIBRARY_PASSWORD || crypto.randomBytes(4).toString('hex');
+const libraryPasswordWasGenerated = !process.env.LIBRARY_PASSWORD;
+const libraryPasswordHash = hashPassword(LIBRARY_PASSWORD);
+
+function requireLibraryAuth(req, res, next) {
+  const provided = req.get('x-library-password') || req.query.libraryPassword || (req.body && req.body.libraryPassword) || '';
+  if (hashPassword(provided) !== libraryPasswordHash) {
+    return res.status(401).json({ error: 'Contraseña de biblioteca requerida o incorrecta.' });
+  }
+  next();
+}
+
 // Salas en memoria
 // roomId -> { videoFile, subtitleFile, viewers, hostToken, passwordHash,
 //             mutedUserIds:Set<userId>, userNames:Map(socketId->name),
@@ -157,7 +182,7 @@ app.get('/api/room/:id', (req, res) => {
 
 // --- Biblioteca de cintas: videos ya subidos en public/uploads ---
 
-app.get('/api/uploads', (req, res) => {
+app.get('/api/uploads', requireLibraryAuth, (req, res) => {
   fs.readdir(UPLOAD_DIR, (err, files) => {
     if (err) return res.status(500).json({ error: 'No se pudo leer la carpeta de uploads' });
     const list = files
@@ -171,7 +196,7 @@ app.get('/api/uploads', (req, res) => {
   });
 });
 
-app.delete('/api/uploads/:filename', (req, res) => {
+app.delete('/api/uploads/:filename', requireLibraryAuth, (req, res) => {
   const { filename } = req.params;
   if (!isValidUploadFilename(filename)) return res.status(400).json({ error: 'Ese archivo no existe' });
   fs.unlink(path.join(UPLOAD_DIR, filename), (err) => {
@@ -366,4 +391,15 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`MovieNight corriendo en http://localhost:${PORT}`));
+server.listen(PORT, () => {
+  console.log(`MovieNight corriendo en http://localhost:${PORT}`);
+  if (libraryPasswordWasGenerated) {
+    console.log('');
+    console.log('🔒 Contraseña de biblioteca (protege /library.html — listar y borrar cintas):');
+    console.log(`   ${LIBRARY_PASSWORD}`);
+    console.log('   Se generó al azar porque no definiste LIBRARY_PASSWORD como variable de entorno.');
+    console.log('   Compártela con tu grupo por otro canal (no por el link de la sala) y va a cambiar');
+    console.log('   cada vez que reinicies el servidor. Para que sea fija: LIBRARY_PASSWORD=lo-que-sea npm start');
+    console.log('');
+  }
+});
