@@ -93,14 +93,27 @@ body::after {
    PÁGINA DE INICIO
    =================================================================== */
 
+/* Alto de la escena (home y biblioteca): antes era `min-height: 100vh`, que en mobile vale el alto
+   "grande" de la pantalla (como si la barra de Chrome estuviera oculta) — más alto que el área que
+   en verdad se ve al cargar la página (con la barra visible). Con min-height, la escena terminaba
+   siendo más alta que lo visible, y el navegador agregaba scroll de PÁGINA para poder llegar a ese
+   sobrante — eso es lo que arrastraba el título y la tagline en el bug de biblioteca en mobile.
+   `height: 100dvh` usa el alto dinámico real (mismo patrón que `.room-scene`, ver sección de sala
+   más abajo), así la escena nunca mide más que lo que hay visible en pantalla. Se deja `100vh` como
+   capa de respaldo para navegadores sin soporte de `dvh`.
+   `overflow-y: auto` (en vez de `hidden`) es una red de seguridad para casos extremos de ventana muy
+   baja: si el contenido interno no llega a entrar ni encogiéndose al mínimo (ver clamp() más abajo),
+   preferimos un scroll ocasional y discreto a recortar y esconder un botón con `overflow: hidden`. */
 .vhs-scene {
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  overflow: hidden;
-  padding: 24px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: clamp(10px, 3dvh, 24px);
 }
 
 /* Horizonte vaporwave: sol + grid en perspectiva */
@@ -155,24 +168,35 @@ body::after {
   box-shadow: 0 0 60px rgba(255, 46, 154, 0.12);
   overflow: hidden;
 }
-.deck.deck-wide { width: 620px; text-align: left; max-height: 82vh; display: flex; flex-direction: column; }
+/* Antes `max-height: 82vh` — fijo, sin capa `dvh`, no compensaba la barra de Chrome en mobile (ver
+   comentario en `.vhs-scene`). Ahora que `.vhs-scene` mide `dvh` de verdad y es quien limita el alto
+   disponible (con su propio padding alrededor), a `.deck-wide` le alcanza con no pasarse del 100% de
+   ese espacio — así el límite siempre coincide con lo que se ve en pantalla, nunca con un vh inflado.
+   El contenido de arriba (título, tagline, etc.) mantiene su alto natural; `.tape-list`, que es la
+   única que tiene `flex:1` + `overflow-y:auto`, es la que cede y absorbe el resto — por eso scrollea
+   sola sin mover el resto de la tarjeta. */
+.deck.deck-wide { width: 620px; text-align: left; max-height: 100%; display: flex; flex-direction: column; }
 .deck.deck-wide .eyebrow-osd,
 .deck.deck-wide .marquee-title,
 .deck.deck-wide .tagline { text-align: center; }
 
-/* Home (`.deck` sin `.deck-wide`, exclusivo de index.html): padding más chico y ritmo vertical más
-   apretado que la tarjeta genérica, para que entre completa sin scroll en ventanas de altura normal
-   (esto no toca `.deck.deck-wide`, que es la de la biblioteca y ya maneja su propio scroll interno
-   en `.tape-list`). */
-.deck:not(.deck-wide) { padding: 34px 30px 28px; }
+/* Cabecera de la biblioteca (todo lo que va ANTES de `.tape-list`: volver, eyebrow, título, tagline,
+   la caja de "subir cinta nueva" cuando aplica): en mobile es proporcionalmente más alta que en
+   desktop y es lo primero que hay que achicar para dejarle espacio real a la lista. Se usa `clamp()`
+   con `dvh` para que encoja gradual y proporcionalmente en vez de un salto brusco en un solo
+   breakpoint — cuanto más bajo el viewport, más se comprime, con un piso legible. */
+.deck.deck-wide .back-link { margin-bottom: clamp(4px, 1.2dvh, 10px); }
+.deck.deck-wide .eyebrow-osd { margin: 0 0 clamp(4px, 1.2dvh, 10px); }
+.deck.deck-wide .marquee-title { margin: 0 0 clamp(2px, 0.8dvh, 6px); }
+.deck.deck-wide .tagline { margin: 0 auto clamp(10px, 2.5dvh, 30px); max-width: 420px; }
+.deck.deck-wide .tape-list { margin-top: clamp(8px, 2dvh, 20px); }
 
-/* Pantallas bajitas (celular en landscape, ventanas de escritorio chicas): la tarjeta central
-   se puede scrollear igual (vhs-scene usa min-height, no height fijo), pero se achica el padding
-   para que entre más contenido en el primer vistazo, sin depender tanto de scrollear. */
-@media (max-height: 500px) {
-  .vhs-scene { align-items: flex-start; padding: 16px; }
-  .deck { padding: 20px 24px 20px; }
-  .deck-corner { display: none; }
+/* Home (`.deck` sin `.deck-wide`, exclusivo de index.html): no hay lista scrolleable, así que la
+   meta acá es que TODO el contenido encoja lo necesario para entrar sin scroll de página. Se pasa de
+   padding fijo en `px` a `clamp()` con `dvh` — en ventanas altas se queda en el techo (34/28px, igual
+   que antes) y en ventanas bajas se va reduciendo proporcionalmente en vez de desbordar de golpe. */
+.deck:not(.deck-wide) {
+  padding: clamp(16px, 5dvh, 34px) clamp(18px, 5vw, 30px) clamp(12px, 3.5dvh, 28px);
 }
 
 /* ---------- Biblioteca de cintas: lista de videos ya subidos ---------- */
@@ -256,7 +280,10 @@ body::after {
 }
 
 @media (max-width: 480px) {
-  .deck.deck-wide { padding: 46px 16px 24px; }
+  /* El padding-top base (46px) deja lugar al contador REC (arriba a la derecha, position:absolute);
+     achicarlo con clamp() en vez de dejarlo fijo libera más alto en pantallas bajas sin llegar a
+     superponerse con el contador (que mide ~34px desde arriba). */
+  .deck.deck-wide { padding: clamp(32px, 8dvh, 46px) 16px clamp(14px, 3dvh, 24px); }
   .tape-item { flex-wrap: wrap; }
   .tape-item-info { flex-basis: 100%; order: 1; }
   .tape-item-actions { flex-basis: 100%; order: 2; justify-content: flex-end; margin-top: 4px; }
@@ -307,10 +334,34 @@ body::after {
   text-shadow: 0 0 8px rgba(255, 46, 154, 0.6);
 }
 
+/* Pantallas muy bajas (celular en landscape, ventanas de escritorio chicas): además del clamp() de
+   arriba, en estos extremos también conviene alinear la tarjeta arriba (no centrada) para que no
+   quede "flotando" a mitad de una escena más alta que el contenido, y ocultar las esquinas
+   decorativas y el contador REC (ambos puramente cosméticos, ver JS), que no aportan nada y sí
+   restan espacio útil / se superponen con el texto de arriba en este rango. Se mantiene como red de
+   seguridad puntual además de los clamp() — cubre el caso límite sin depender de un solo breakpoint.
+   IMPORTANTE: este bloque tiene que ir DESPUÉS de las reglas base de `.deck-corner` y `.rec-timer`
+   (ambas arriba en este archivo) — con la misma especificidad, gana la que aparece último en el
+   archivo, sin importar si está dentro de un @media o no. Antes de esta sesión estaba ubicado ANTES
+   de esas reglas base, así que nunca se aplicaba de verdad: las esquinas y el contador seguían
+   viéndose en pantallas bajas pese a la regla (bug preexistente, no introducido en esta sesión, pero
+   detectado al verificar el fix del solapamiento del contador REC — ver CHANGELOG). */
+@media (max-height: 500px) {
+  .vhs-scene { align-items: flex-start; }
+  .deck-corner { display: none; }
+  .rec-timer { display: none; }
+}
+
 .marquee-title {
   font-family: var(--font-display);
   font-weight: 400;
-  font-size: clamp(30px, 7vw, 42px);
+  /* min() combina el límite por ancho (7vw, para pantallas angostas) con uno nuevo por alto
+     (8dvh, para pantallas bajas) — el que sea más chico en cada caso es el que manda. Antes solo
+     achicaba en angosto; en una ventana ancha pero baja (ej. celular en landscape) el título se
+     quedaba grande y era de las primeras cosas en empujar el contenido fuera de pantalla.
+     `library.html` pisa este valor con su propio `style="font-size:..."` inline, así que este
+     cambio en la práctica solo afecta al home. */
+  font-size: clamp(22px, min(7vw, 8dvh), 42px);
   line-height: 1.25;
   letter-spacing: 0.03em;
   margin: 0 0 6px;
@@ -339,9 +390,12 @@ body::after {
   max-width: 300px;
   margin: 0 auto 30px;
 }
-/* Home: tagline y tape-slot un poco más compactos que en la biblioteca, para ganar altura total. */
-.deck:not(.deck-wide) .tagline { margin-bottom: 18px; }
-.deck:not(.deck-wide) .tape-slot { padding: 13px 18px; }
+/* Home: tagline y tape-slot un poco más compactos que en la biblioteca, para ganar altura total.
+   `clamp()` con `dvh` en vez de un solo valor fijo, para que sigan encogiendo en ventanas más bajas
+   en vez de quedarse en el mínimo ya achicado y volver a desbordar. */
+.deck:not(.deck-wide) .tagline { margin-bottom: clamp(8px, 2.2dvh, 18px); }
+.deck:not(.deck-wide) .tape-slot { padding: clamp(9px, 2dvh, 13px) 18px; }
+.deck:not(.deck-wide) .eyebrow-osd { margin-bottom: clamp(4px, 1dvh, 10px); }
 
 .tape-slot {
   position: relative;
@@ -394,11 +448,12 @@ body::after {
 
 .rec-btn {
   position: relative;
-  margin-top: 14px;
+  /* Exclusivo de index.html (home) — se puede achicar directo con clamp()/dvh sin scopear. */
+  margin-top: clamp(8px, 2dvh, 14px);
   width: 100%;
   border: none;
   cursor: pointer;
-  padding: 13px 0;
+  padding: clamp(9px, 2dvh, 13px) 0;
   border-radius: 999px;
   background: linear-gradient(90deg, var(--pink), var(--violet));
   color: #fff;
@@ -433,7 +488,7 @@ body::after {
 /* Home: #status (después de GRABAR SALA) y #joinStatus (después de ENTRAR) son ids únicos, solo
    existen en index.html — se achican para no dejar un hueco reservado tan grande mientras están
    vacíos (que era la mayor parte del "espacio que sobra" entre el botón y "O TAMBIÉN"). */
-#status.status-line, #joinStatus.status-line { margin-top: 8px; min-height: 0; }
+#status.status-line, #joinStatus.status-line { margin-top: clamp(4px, 1dvh, 8px); min-height: 0; }
 
 .reel-spinner {
   width: 14px;
@@ -473,11 +528,12 @@ body::after {
 }
 
 /* ---------- Sección: unirse a sala con código ---------- */
+/* Exclusivo de index.html — se puede achicar directo con clamp()/dvh sin scopear. */
 .divider-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 16px 0 14px;
+  margin: clamp(8px, 2dvh, 16px) 0 clamp(6px, 1.8dvh, 14px);
 }
 .divider-row::before, .divider-row::after {
   content: '';

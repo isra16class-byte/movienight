@@ -2,7 +2,9 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 20 de agosto de 2026 (ajuste de espaciado en el home: entra sin scroll en ventanas de altura normal y se achicó el hueco entre "GRABAR SALA" y "O TAMBIÉN"; ver sección 8vicies).
+Última actualización: 20 de agosto de 2026 (rediseño adaptativo de home y biblioteca con unidades
+relativas al viewport — `dvh`/`clamp()` — para eliminar el scroll de página por completo, no solo
+achicar valores fijos; ver sección 8unvicies).
 
 ---
 
@@ -647,6 +649,96 @@ varias clases usadas en el home (`.tagline`, `.tape-slot`, `.status-line`) tambi
 `library.html` (`.deck.deck-wide`) — que ya maneja su propio scroll interno en `.tape-list` y no
 necesitaba este ajuste. Se prefirió no tocar su espaciado para no arriesgar regresiones ahí. `.rec-btn`,
 `.divider-row` y `.password-input` sí se editaron directamente porque son exclusivas de `index.html`.
+
+## 8unvicies. Rediseño adaptativo: elimina el scroll de página en home y biblioteca
+
+La sesión anterior (8vicies) achicó valores fijos en `px` para que el home entrara sin scroll "en
+ventanas de altura normal" — un parche parcial. El usuario pidió el enfoque completo: unidades
+relativas al viewport (`dvh`, `vh`, `clamp()`, `min()`) en vez de seguir achicando `px`, y en
+biblioteca, que la página no scrollee nunca y **solo** `.tape-list` lo haga.
+
+**Causa raíz del bug reportado (captura en mobile, Chrome Android vía Cloudflare Tunnel):**
+`.vhs-scene` usaba `min-height: 100vh`. En mobile, `100vh` vale el alto "grande" de la pantalla (como
+si la barra de Chrome estuviera oculta) — más alto que el área que en verdad se ve al cargar la
+página (con la barra visible). Con `min-height`, la escena terminaba siendo más alta que lo
+realmente visible en pantalla, y el navegador agregaba scroll de PÁGINA para poder llegar a ese
+sobrante — eso es lo que arrastraba el título y la tagline junto con el resto en la captura del
+usuario. Encima, `.deck.deck-wide` limitaba su alto con `max-height: 82vh`, un porcentaje del mismo
+`100vh` ya inflado, que tampoco compensaba la barra.
+
+**Fix — `.vhs-scene`:** pasa de `min-height: 100vh` a `height: 100vh; height: 100dvh` (capa `100vh`
+de respaldo para navegadores sin soporte + capa `dvh` real que sí descuenta la barra del navegador —
+mismo patrón en capas que ya usa `.room-scene` para el problema del teclado, ver sección 7septies).
+`overflow` pasa de `hidden` a `overflow-y: auto` — no como scroll esperado, sino como red de
+seguridad: si algún caso extremo de verdad no entra ni encogiéndose al mínimo (ver clamp() abajo),
+preferimos un scroll ocasional y contenido a recortar y esconder un botón con `overflow: hidden`.
+
+**Fix — biblioteca (`.deck.deck-wide`):** `max-height` pasa de `82vh` a `100%` — como `.vhs-scene`
+ahora mide `dvh` de verdad y es quien limita el espacio disponible (con su propio padding alrededor),
+a la tarjeta le alcanza con no pasarse del 100% de ese espacio; el límite siempre coincide con lo
+visible en pantalla. `.tape-list` sigue siendo la única parte con `flex:1` + `overflow-y:auto` (eso
+no cambió), así que sigue siendo la única que scrollea — el resto de la tarjeta (volver, eyebrow,
+título, tagline) queda fijo, que era el pedido explícito. Se compactó también esa cabecera
+(`.deck.deck-wide .back-link/.eyebrow-osd/.marquee-title/.tagline`, y el margen de `.tape-list`) con
+`clamp(..., dvh, ...)`, porque en mobile es proporcionalmente más alta que en desktop y le restaba
+espacio real a la lista — antes, en una pantalla baja, la cabecera sola casi no dejaba lugar para ver
+ni un ítem.
+
+**Fix — home (`.deck:not(.deck-wide)`):** sin lista scrolleable, así que la meta es que todo el
+contenido encoja lo necesario para entrar sin scroll de ningún tipo. Todos los paddings/márgenes que
+la sesión anterior había fijado en `px` (padding de la tarjeta, tagline, tape-slot, `#status`/
+`#joinStatus`, `.rec-btn`, `.divider-row`) pasan a `clamp(mínimo, valor-en-dvh, techo)` — en ventanas
+altas se quedan en el mismo techo de antes (se ve idéntico), y en ventanas bajas siguen encogiendo en
+vez de tocar un piso fijo y volver a desbordar. `.marquee-title` (el `h1` "MOVIE NIGHT") ahora limita
+su tamaño también por alto (`font-size: clamp(22px, min(7vw, 8dvh), 42px)`), no solo por ancho como
+antes — una ventana ancha pero baja (celular en landscape) antes no lo achicaba y era de las primeras
+cosas en empujar contenido fuera de pantalla. (`library.html` pisa este valor con su propio
+`style="font-size:..."` inline en el `h1`, así que el cambio en la práctica solo afecta al home.)
+
+**Regresión propia detectada al probar, y corregida en la misma sesión:** al achicar el padding-top
+del home, el contador REC decorativo (`.rec-timer`, `position:absolute; top:14px`, puramente
+cosmético — no tiene efecto funcional, ver JS) empezó a superponerse con el texto "REWIND · PLAY ·
+REC" en viewports bajos (se notaba, por ejemplo, a 390×500 y a 1280×500). Se agregó `.rec-timer` a la
+lista de elementos ocultos en `@media (max-height: 500px)`, igual que ya pasaba con `.deck-corner`.
+
+**Bug preexistente encontrado de paso (no introducido en esta sesión, pero sí corregido):** ese mismo
+`@media (max-height: 500px)` estaba ubicado, en el archivo, ANTES de las reglas base de
+`.deck-corner` y de `.rec-timer`. En CSS, con la misma especificidad, gana la regla que aparece
+**último en el archivo** — no importa si está dentro de un `@media` o no. Es decir: la regla que
+"ocultaba" las esquinas decorativas en pantallas bajas en realidad nunca se aplicaba de verdad, desde
+antes de esta sesión (se puede confirmar comparando capturas de antes/después de mover el bloque). Se
+reubicó el `@media` a después de esas dos reglas base para que el override funcione en la práctica.
+
+**Cómo se verificó (no fue solo lectura de código):** se levantó un servidor estático local del
+directorio `public/` y se usó Chromium headless vía Playwright (ya disponible en el entorno, usado
+también por otros paquetes) para tomar capturas y medir programáticamente `document.documentElement.
+scrollHeight` vs `clientHeight` en 7 tamaños de viewport por página (desktop y mobile, alturas
+normal/baja/extrema, y landscape), antes y después del cambio — y en biblioteca, además, con una
+lista sintética de 15 cintas inyectada vía JS para reproducir el caso con contenido real (la lista
+vacía/con 1 ítem de carga no alcanza a desbordar y no reproduce el bug). Antes del fix, el home
+scrolleaba a nivel página en 1280×500, 1280×350 y 844×390 (landscape); después de todos los cambios
+(incluida la corrección del `rec-timer` y del bug de orden en el `@media`), cero scroll de página en
+los 14 casos probados (7 alturas × 2 páginas).
+
+**Límite honesto — esto no es magia sin límite:** no existe una forma puramente CSS de garantizar que
+absolutamente cualquier contenido entre en absolutamente cualquier alto de ventana sin nunca ni
+esconder texto ni scrollear en algún punto; se priorizó no esconder nunca contenido interactivo antes
+que forzar un ajuste perfecto. Midiendo en este entorno para el home: cero scroll (ni de página ni
+interno) desde ~560px de alto de viewport hacia arriba — cubre prácticamente cualquier laptop,
+monitor o celular en portrait real. Entre ~520px y ~560px puede faltar apenas 1–3px y activarse la red
+de seguridad (`overflow-y:auto` en `.vhs-scene`) de forma casi imperceptible. Por debajo de ~520px
+(ventanas de verdad extremas, tipo 350–450px de alto — un celular tendría que estar en landscape *y*
+la ventana del navegador de escritorio tendría que ser inusualmente chica) ese scroll interno se
+vuelve más notorio, cumpliendo su rol de red de seguridad en vez de romper el layout o esconder el
+botón "ENTRAR". La biblioteca no tiene esta limitación: como su propio contenido scrolleable
+(`.tape-list`) absorbe cualquier exceso, no depende de que todo entre encogiéndose.
+
+**Por qué se scopearon los cambios como se scopearon:** las reglas nuevas para biblioteca usan
+`.deck.deck-wide .selector` (no la clase compartida sola) por la misma razón que ya explica la sección
+8vicies — no arriesgar la spacing del home. Los cambios en `.rec-btn`, `.divider-row`,
+`#status`/`#joinStatus`, `.password-input` se hicieron directo sobre la clase compartida sin scopear
+porque, tras revisar los dos HTML, esas clases/ids son exclusivos de `index.html` (no los usa
+`library.html` ni `room.html`).
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

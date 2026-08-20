@@ -6,6 +6,70 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-20] Rediseño adaptativo — elimina el scroll de página en home y biblioteca (unidades relativas al viewport)
+
+**Motivo:** pedido del usuario, con una captura del bug en biblioteca en mobile (Chrome Android, vía
+Cloudflare Tunnel): la tarjeta entera era más alta que la pantalla y la PÁGINA COMPLETA scrolleaba
+(arrastrando título y tagline), mientras `.tape-list` tenía además su propio scroll interno — dos
+scrolls compitiendo. El ajuste anterior de home (ver entrada de más abajo) fue un parche parcial de
+valores en `px`; esta vez se pidió explícitamente el enfoque completo con unidades relativas.
+
+**Causa raíz:** `.vhs-scene` usaba `min-height: 100vh`. En mobile, `100vh` vale el alto "grande" de la
+pantalla (como si la barra de Chrome estuviera oculta) — más alto que el área que en verdad se ve al
+cargar la página (con la barra visible). Con `min-height`, la escena terminaba siendo más alta que lo
+realmente visible, y el navegador agregaba scroll de PÁGINA para llegar a ese sobrante — eso es lo que
+movía el título y la tagline en la captura. Además, `.deck.deck-wide` limitaba su alto con
+`max-height: 82vh`, un porcentaje fijo del mismo `100vh` inflado, que tampoco compensaba la barra.
+
+**Cambio** (`public/style.css`, sin tocar HTML/JS):
+- `.vhs-scene` pasa de `min-height: 100vh` a `height: 100vh; height: 100dvh` (capa de respaldo +
+  capa `dvh` real, mismo patrón que ya usa `.room-scene` para el teclado), con `overflow-y: auto`
+  como red de seguridad en vez de `overflow: hidden` — así, si algún caso extremo no llega a entrar
+  ni encogiéndose al mínimo, el resultado es un scroll ocasional y contenido en vez de recortar y
+  esconder un botón.
+- `.deck.deck-wide` (biblioteca) pasa de `max-height: 82vh` a `max-height: 100%` del `.vhs-scene`
+  ahora `dvh`-based — el límite real siempre coincide con lo visible en pantalla. `.tape-list` sigue
+  siendo la única parte con `flex:1` + `overflow-y:auto`, así que sigue siendo la única que scrollea;
+  el resto de la tarjeta (título, tagline, volver) queda fijo, que era el pedido explícito del
+  usuario. Se compactó además la cabecera de biblioteca (back-link, eyebrow, título, tagline, margen
+  de `.tape-list`) con `clamp(..., dvh, ...)`, porque en mobile es proporcionalmente más alta y le
+  restaba espacio a la lista.
+- `.deck:not(.deck-wide)` (home): todos los paddings/márgenes que en la sesión anterior se habían
+  fijado en `px` (padding de la tarjeta, tagline, tape-slot, rec-btn, status-line, divider-row) pasan
+  a `clamp()` con `dvh`, para seguir encogiendo proporcionalmente en ventanas bajas en vez de quedarse
+  en un piso fijo y volver a desbordar. `.marquee-title` ahora también limita su tamaño por alto
+  (`min(7vw, 8dvh)`), no solo por ancho — antes una ventana ancha pero baja (celular en landscape) no
+  lo achicaba.
+- Fix de regresión propia detectado al probar: al achicar el padding-top del home, el contador REC
+  decorativo (`.rec-timer`, position:absolute) empezó a superponerse con el texto "REWIND · PLAY ·
+  REC" en viewports bajos. Se agregó a la lista de elementos ocultos en `@media (max-height: 500px)`.
+- Bug preexistente encontrado de paso (no introducido en esta sesión): ese mismo
+  `@media (max-height: 500px)` estaba ubicado ANTES de las reglas base de `.deck-corner` y
+  `.rec-timer` en el archivo — con la misma especificidad, en CSS gana la regla que aparece último en
+  el archivo, sin importar si está dentro de un `@media` o no. Es decir, las esquinas decorativas
+  nunca se habían ocultado de verdad en pantallas bajas pese a que la regla "existía". Se movió el
+  bloque de media query a después de esas dos reglas base para que el override se aplique realmente.
+
+**Verificado con Chromium headless (Playwright) en este entorno**, sirviendo `public/` con un server
+estático local — no es una suposición de lectura de código: se midió `scrollHeight` vs `clientHeight`
+del documento en 7 tamaños de viewport por página (desktop/mobile, normal/bajo/extremo/landscape), y
+la biblioteca además con una lista sintética de 15 cintas para reproducir el caso real con contenido.
+Antes del fix, home scrolleaba a nivel página en 500px, 350px y en landscape mobile (844×390); después,
+cero scroll de página en todos los tamaños probados, incluyendo esos.
+
+**Límite honesto (no es magia sin límite):** no hay forma puramente CSS de garantizar que absolutamente
+cualquier contenido entre en absolutamente cualquier alto de ventana sin ni ocultar texto ni scrollear
+en algún punto — se optó por priorizar nunca esconder contenido interactivo. Para el home, midiendo en
+este entorno: sin ningún scroll (ni de página ni interno) desde ~560px de alto de viewport hacia arriba
+(cubre prácticamente cualquier laptop, monitor, o celular en portrait real); entre ~520px y ~560px puede
+faltar 1–3px y activarse un scroll interno mínimo y apenas perceptible dentro de `.vhs-scene`; por
+debajo de eso (ventanas realmente extremas, tipo 350–450px de alto) ese scroll interno se vuelve más
+notorio, como red de seguridad. La biblioteca no tiene este problema — su propio contenido scrolleable
+(`.tape-list`) absorbe cualquier exceso sin necesidad de la red de seguridad.
+
+Ver `MEMORIA.md`, sección 8unvicies, para el detalle completo.
+
+
 ## [2026-08-20] Ajuste visual — Home más compacto: entra sin scroll y sin hueco vacío antes de "O TAMBIÉN"
 
 **Motivo:** pedido del usuario, mostrando una captura del home — quería que la pantalla de crear sala
