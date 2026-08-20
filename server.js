@@ -68,6 +68,7 @@ function makeRoom(videoFile, password) {
     subtitleFile: null,
     viewers: 0,
     hostToken: crypto.randomBytes(16).toString('hex'),
+    hostSocketId: null, // socket.id del host actual (única fuente de verdad; ver setHost más abajo)
     passwordHash: password ? hashPassword(password) : null,
     mutedUserIds: new Set(),
     userNames: new Map(),
@@ -199,6 +200,24 @@ function broadcastViewerList(roomId) {
 
 const RECONNECT_GRACE_MS = 15000;
 
+// Único punto por donde una sala cambia de host. Garantiza que nunca haya más de un socket con
+// isHost=true a la vez: si ya había un host distinto (conectado), lo degrada primero (y se lo avisa,
+// para que su UI de host desaparezca) antes de promover al nuevo. Sin esto, un socket viejo con un
+// hostToken todavía válido en localStorage podía "recuperar" el host sin quitárselo a quien ya lo
+// tenía (traspaso automático o manual) — quedaban 2, o más, hosts simultáneos.
+function setHost(room, roomId, socket) {
+  if (room.hostSocketId && room.hostSocketId !== socket.id) {
+    const prevHost = io.sockets.sockets.get(room.hostSocketId);
+    if (prevHost) {
+      prevHost.isHost = false;
+      prevHost.emit('host-status', { isHost: false, hostToken: null });
+    }
+  }
+  room.hostSocketId = socket.id;
+  socket.isHost = true;
+  socket.emit('host-status', { isHost: true, hostToken: room.hostToken });
+}
+
 io.on('connection', (socket) => {
   let currentRoom = null;
 
@@ -214,7 +233,6 @@ io.on('connection', (socket) => {
     currentRoom = roomId;
     socket.username = (username || 'Anónimo').slice(0, 40);
     socket.userId = userId || socket.id;
-    socket.isHost = !!(hostToken && hostToken === room.hostToken);
     socket.join(roomId);
 
     room.userNames.set(socket.id, socket.username);
@@ -231,7 +249,12 @@ io.on('connection', (socket) => {
       socket.to(roomId).emit('chat-message', { system: true, text: `${socket.username} se unió a la sala 🎬` });
     }
 
-    socket.emit('host-status', { isHost: socket.isHost, hostToken: socket.isHost ? room.hostToken : null });
+    if (hostToken && hostToken === room.hostToken) {
+      setHost(room, roomId, socket); // emite su propio 'host-status'
+    } else {
+      socket.isHost = false;
+      socket.emit('host-status', { isHost: false, hostToken: null });
+    }
     socket.emit('room-data', { videoFile: room.videoFile, subtitleFile: room.subtitleFile });
     if (wasMuted) socket.emit('mute-status', { muted: true });
 
@@ -297,10 +320,11 @@ io.on('connection', (socket) => {
     const room = rooms[currentRoom];
     if (!socket.isHost || !room) return;
     const target = io.sockets.sockets.get(targetId);
-    if (!target) return;
-    target.isHost = true;
-    target.emit('host-status', { isHost: true, hostToken: room.hostToken });
-    io.to(currentRoom).emit('chat-message', { system: true, text: `🎛 ${socket.username} le pasó el control remoto a ${target.username}` });
+    if (!target || target.id === socket.id) return;
+    const fromName = socket.username;
+    const toName = target.username;
+    setHost(room, currentRoom, target); // degrada a `socket` (host actual) y promueve a `target`
+    io.to(currentRoom).emit('chat-message', { system: true, text: `🎛 ${fromName} le pasó el control remoto a ${toName}` });
     broadcastViewerList(currentRoom);
   });
 
@@ -324,15 +348,15 @@ io.on('connection', (socket) => {
     }, RECONNECT_GRACE_MS);
     room.recentDisconnects.set(userId, { timer, username });
 
-    // Traspaso automático: si el que se fue era el único host conectado, el siguiente en la sala toma el control
-    if (socket.isHost) {
+    // Traspaso automático: si el que se fue era el host actual de la sala (por hostSocketId, no por
+    // su flag isHost local — que puede haber quedado desactualizado), el siguiente en la sala toma el control
+    if (room.hostSocketId === socket.id) {
+      room.hostSocketId = null;
       const stillConnected = io.sockets.adapter.rooms.get(currentRoom);
-      const stillHasHost = stillConnected && [...stillConnected].some(id => io.sockets.sockets.get(id)?.isHost);
-      if (stillConnected && stillConnected.size > 0 && !stillHasHost) {
+      if (stillConnected && stillConnected.size > 0) {
         const next = io.sockets.sockets.get([...stillConnected][0]);
         if (next) {
-          next.isHost = true;
-          next.emit('host-status', { isHost: true, hostToken: room.hostToken });
+          setHost(room, currentRoom, next);
           io.to(currentRoom).emit('chat-message', { system: true, text: `🎛 ${next.username || 'Alguien'} ahora tiene el control remoto (el host anterior se desconectó)` });
           broadcastViewerList(currentRoom);
         }
