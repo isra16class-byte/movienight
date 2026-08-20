@@ -189,7 +189,7 @@ body::after {
 .deck.deck-wide .eyebrow-osd { margin: 0 0 clamp(4px, 1.2dvh, 10px); }
 .deck.deck-wide .marquee-title { margin: 0 0 clamp(2px, 0.8dvh, 6px); }
 .deck.deck-wide .tagline { margin: 0 auto clamp(10px, 2.5dvh, 30px); max-width: 420px; }
-.deck.deck-wide .tape-list { margin-top: clamp(8px, 2dvh, 20px); }
+.deck.deck-wide .tape-list { margin-top: clamp(4px, 1dvh, 10px); }
 
 /* Home (`.deck` sin `.deck-wide`, exclusivo de index.html): no hay lista scrolleable, así que la
    meta acá es que TODO el contenido encoja lo necesario para entrar sin scroll de página. Se pasa de
@@ -302,13 +302,6 @@ body::after {
      achicarlo con clamp() en vez de dejarlo fijo libera más alto en pantallas bajas sin llegar a
      superponerse con el contador (que mide ~34px desde arriba). */
   .deck.deck-wide { padding: clamp(32px, 8dvh, 46px) 16px clamp(14px, 3dvh, 24px); }
-
-  /* Antes: "O inserta una cinta nueva" (.new-upload) dejaba 18px de margen + 18px de padding antes
-     de su línea punteada, y la lista arrancaba con otros ~20px más de margen-top propio — casi 60px
-     de aire muerto entre la caja y la primera cinta, que además quedaba resaltado (más "gigante")
-     ahora que las tarjetas de abajo son compactas. Se aprieta ambos a la mitad en mobile. */
-  .new-upload { margin-bottom: 10px; padding-bottom: 10px; }
-  .deck.deck-wide .tape-list { margin-top: clamp(4px, 1dvh, 10px); }
 
   /* Antes las tarjetas quedaban muy grandes en mobile (captura del usuario): padding generoso,
      ícono grande, y encima las acciones (USAR/eliminar) se envolvían DEBAJO de toda la tarjeta en
@@ -1034,7 +1027,7 @@ video { width: 100%; height: 100%; display: block; background: black; }
 .password-input::placeholder { color: var(--text-muted); }
 
 /* ---------- Biblioteca embebida: subir cinta nueva directo a una sala activa ---------- */
-.new-upload { margin-bottom: 18px; padding-bottom: 18px; border-bottom: 1px dashed var(--line); }
+.new-upload { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--line); }
 
 /* ---------- Botón salir (sala) ----------
    Antes era un botón de outline genérico (borde rosa, texto rosa, se invertía en hover) que no
