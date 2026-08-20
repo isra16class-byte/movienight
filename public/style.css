@@ -517,6 +517,13 @@ body::after {
    existen en index.html — se achican para no dejar un hueco reservado tan grande mientras están
    vacíos (que era la mayor parte del "espacio que sobra" entre el botón y "O TAMBIÉN"). */
 #status.status-line, #joinStatus.status-line { margin-top: clamp(4px, 1dvh, 8px); min-height: 0; }
+/* Biblioteca: #newTapeStatus (dentro de .new-upload, arriba de la línea punteada) es el mismo
+   patrón que #status/#joinStatus de arriba — mientras no hay texto ("Subiendo cinta... X%" solo
+   aparece durante una subida) igual reservaba sus 16px de margin-top + 18px de min-height base,
+   34px muertos justo antes del borde punteado. Esto era la causa real del hueco "gigante" que
+   reportó el usuario entre la caja de insertar cinta y la lista — no la lista en sí (ver commits
+   anteriores, que ajustaron .new-upload/.tape-list pero no tocaban esto). */
+#newTapeStatus.status-line { margin-top: 6px; min-height: 0; }
 
 .reel-spinner {
   width: 14px;
