@@ -581,3 +581,11 @@ Ver `CHANGELOG.md` — ahí se registra cronológicamente cada cambio importante
    git commit -m "Descripción del cambio"
    git push
    ```
+
+**Nota sobre el flujo de trabajo (desde V8):** el usuario no le da a Claude push directo al repo. El
+flujo real es: Claude clona el repo en un entorno propio, hace el cambio, commitea localmente, y
+genera un patch con `git format-patch -1 HEAD` que entrega como archivo descargable. El usuario lo
+aplica de su lado con `git am nombre-del-patch.patch` (conserva autor y mensaje de commit) y hace el
+`git push` él mismo. Esto aplica también a los commits que actualizan `MEMORIA.md`/`CHANGELOG.md`:
+van en un patch aparte o en el mismo patch que el código, pero siempre pasan por este mismo mecanismo
+— nunca se asuma que Claude tiene (o debe pedir) acceso de escritura directo al repo remoto.
