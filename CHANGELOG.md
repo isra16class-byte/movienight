@@ -6,7 +6,55 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
-## [2026-08-20] Rediseño adaptativo — elimina el scroll de página en home y biblioteca (unidades relativas al viewport)
+## [2026-08-20] Biblioteca: scrollbar temático, botones alado en mobile, y fix del hueco antes de la lista
+
+**Motivo:** tres pedidos del usuario sobre `/library.html` (con capturas en cada paso), en la misma
+sesión de trabajo:
+1. En PC, el scroll interno de `.tape-list` mostraba el scrollbar nativo del navegador (riel blanco
+   sólido con flechas), que desentona con la estética VHS/neón del resto de la interfaz.
+2. En mobile, las tarjetas de `.tape-item` quedaban muy grandes (mucho padding, ícono grande, y los
+   botones USAR/eliminar se envolvían a su propia fila DEBAJO de toda la tarjeta), entrando pocas
+   cintas a la vista sin scrollear.
+3. Un hueco grande y "brusco" entre la caja "O inserta una cinta nueva" y la primera cinta de la
+   lista, tanto en mobile como en desktop — este tomó 3 iteraciones hasta dar con la causa real (ver
+   detalle abajo).
+
+**Cambio 1 — scrollbar (`public/style.css`, solo `.tape-list`):** se reemplaza el scrollbar nativo por
+uno temático (pulgar delgado color `var(--line)` que se enciende en `var(--cyan)` al hover), vía
+`scrollbar-color`/`scrollbar-width` (Firefox) y `::-webkit-scrollbar*` (Chrome/Edge/Safari). No afecta
+ningún otro elemento con scroll del proyecto (`.chat-messages` en room.html no se tocó).
+
+**Cambio 2 — tarjetas compactas + botones alado (mobile, `@media (max-width: 480px)`):** se compactan
+padding/ícono/tipografía de `.tape-item`, y se saca el `flex-wrap`/`order`/`flex-basis` que mandaba
+`.tape-item-actions` a su propia fila. Ahora ícono + nombre/meta + botones quedan siempre en una sola
+fila (igual que en desktop) — el nombre vuelve a truncar con `…` en una línea para no desbordar la fila
+en pantallas angostas.
+
+**Cambio 3 — el hueco antes de la lista, en 3 intentos:**
+- *Intento 1* (mobile-only): se bajó `margin-top` de `.deck.deck-wide .tape-list` y `margin-bottom`/
+  `padding-bottom` de `.new-upload`, pero solo dentro del `@media (max-width: 480px)` — insuficiente,
+  porque el usuario mandó una captura del mismo hueco en desktop (`.deck-wide` de 620px, muy por encima
+  del breakpoint), donde el fix no aplicaba.
+- *Intento 2*: los mismos valores se movieron a la regla base (afecta desktop y mobile por igual). El
+  usuario probó con hard refresh en `localhost:3000` (para descartar caché del navegador/Cloudflare
+  Tunnel) y el hueco seguía prácticamente igual de grande — se midió en píxeles sobre la captura y no
+  coincidía con los valores nuevos, más cercano a los viejos.
+- *Causa raíz real* (encontrada midiendo coordenadas de color en las capturas): `#newTapeStatus` (el
+  `<div class="status-line">` dentro de `.new-upload`, donde se muestra "Subiendo cinta... X%" durante
+  una subida) heredaba la regla base `.status-line { margin-top: 16px; min-height: 18px; ... }` — 34px
+  reservados **siempre**, esté vacío o no (que es la mayoría del tiempo, ya que solo se llena durante
+  una subida activa). Ese espacio invisible, sumado a los ajustes de los intentos 1 y 2, era el hueco
+  real. Mismo patrón que `index.html` ya había resuelto para `#status`/`#joinStatus` (ver sección
+  8vicies de `MEMORIA.md`), nunca aplicado a `#newTapeStatus` de `library.html`. Fix: mismo override
+  (`min-height: 0`), con `margin-top: 6px` (no 0, para que cuando sí haya texto de progreso no quede
+  pegado al selector de archivo).
+
+**Verificado:** el usuario confirmó tras el fix del `#newTapeStatus` que el hueco se ve correcto, en
+desktop (`localhost:3000` con hard refresh) y en mobile (Cloudflare Tunnel).
+
+---
+
+
 
 **Motivo:** pedido del usuario, con una captura del bug en biblioteca en mobile (Chrome Android, vía
 Cloudflare Tunnel): la tarjeta entera era más alta que la pantalla y la PÁGINA COMPLETA scrolleaba

@@ -2,9 +2,9 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 20 de agosto de 2026 (rediseño adaptativo de home y biblioteca con unidades
-relativas al viewport — `dvh`/`clamp()` — para eliminar el scroll de página por completo, no solo
-achicar valores fijos; ver sección 8unvicies).
+Última actualización: 20 de agosto de 2026 (biblioteca: scrollbar temático, tarjetas compactas con
+botones alado en mobile, y fix del hueco antes de la lista causado por `#newTapeStatus`; ver sección
+8duovicies).
 
 ---
 
@@ -739,6 +739,47 @@ botón "ENTRAR". La biblioteca no tiene esta limitación: como su propio conteni
 `#status`/`#joinStatus`, `.password-input` se hicieron directo sobre la clase compartida sin scopear
 porque, tras revisar los dos HTML, esas clases/ids son exclusivos de `index.html` (no los usa
 `library.html` ni `room.html`).
+
+## 8duovicies. Biblioteca: scrollbar temático, botones alado en mobile, y fix del hueco antes de la lista
+
+Tres pedidos del usuario sobre `/library.html`, con capturas en cada paso.
+
+**Scrollbar (`.tape-list`):** el scroll interno de la lista usaba el scrollbar nativo del navegador
+(riel blanco sólido con flechas en Chrome/Edge), que rompía la estética VHS/neón del resto de la
+interfaz. Se reemplaza por un pulgar delgado `var(--line)` que se enciende en `var(--cyan)` al hacer
+hover, vía `scrollbar-color`/`scrollbar-width` (Firefox) y `::-webkit-scrollbar*` (Chrome/Edge/Safari).
+Scopeado solo a `.tape-list` — no toca `.chat-messages` de `room.html`, que tiene su propio scroll.
+
+**Tarjetas compactas + botones alado (mobile, dentro de `@media (max-width: 480px)`):** las tarjetas de
+`.tape-item` (ícono + nombre/tamaño/fecha + botones USAR/eliminar) tenían mucho padding e ícono grande,
+y las acciones se envolvían a su propia fila DEBAJO de toda la tarjeta (`flex-wrap` + `order` +
+`flex-basis: 100%`) — el usuario pidió explícitamente que fueran "alado", no "abajado". Se compacta
+padding/ícono/tipografía y se saca ese wrap: ícono + info + botones quedan en una sola fila, igual que
+en desktop. El nombre vuelve a truncar con `…` (antes se dejaba envolver a varias líneas porque tenía
+toda la tarjeta para sí solo, algo que solo tenía sentido con las acciones debajo).
+
+**El hueco entre "insertar cinta" y la lista — causa real, encontrada en el tercer intento:**
+`#newTapeStatus` es el `<div class="status-line">` dentro de `.new-upload`, donde se muestra "Subiendo
+cinta... X%" **solo** durante una subida activa — el resto del tiempo está vacío. La regla base
+`.status-line` (compartida con otros usos del proyecto) reserva `margin-top: 16px` + `min-height: 18px`
+= 34px **siempre**, esté vacío o no. Ese espacio invisible, justo antes del borde punteado de
+`.new-upload`, era la causa real del hueco "brusco" que reportó el usuario — no `.new-upload` ni
+`.tape-list` en sí (dos intentos previos les bajaron `margin`/`padding` sin resolver el problema de
+fondo, porque no era ahí). Es exactamente el mismo patrón que `index.html` ya resolvía para `#status`/
+`#joinStatus` (ver sección 8vicies) pero que nunca se había aplicado a `#newTapeStatus` de
+`library.html`. Fix: mismo override, `min-height: 0` + `margin-top: 6px` (no 0, para que cuando sí haya
+texto de progreso no quede pegado al selector de archivo justo arriba).
+
+**Cómo se detectó de verdad (no fue solo releer el CSS):** ante dos intentos fallidos ya confirmados
+por el usuario con capturas + hard refresh (descartando caché), se midieron coordenadas de color píxel
+por píxel sobre las capturas que mandó (`PIL`/Python: se ubicó dónde terminaba el fondo `bg-elevated`
+de la caja de subida y dónde empezaba el de la primera tarjeta) para calcular el hueco real en CSS px y
+compararlo contra lo que las reglas nuevas deberían producir. La diferencia (~34px de más, no explicada
+por `.new-upload`/`.tape-list`) apuntó directo a un elemento intermedio con altura reservada — de ahí
+se encontró `#newTapeStatus`.
+
+**Verificado:** el usuario confirmó que tras este fix el hueco se ve correcto, en desktop
+(`localhost:3000` con hard refresh) y en mobile (vía Cloudflare Tunnel).
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 
