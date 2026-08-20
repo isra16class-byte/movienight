@@ -217,13 +217,31 @@ body::after {
 .tape-list {
   list-style: none;
   margin: 20px 0 0;
-  padding: 0;
+  padding: 0 8px 0 0;
   overflow-y: auto;
   flex: 1;
   min-height: 60px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  /* Firefox: pulgar cian tenue sobre el fondo del panel, sin flechas ni riel blanco */
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+/* Chrome/Edge/Safari: por defecto dibujan un riel blanco sólido que rompe el estilo VHS.
+   Se reemplaza por un pulgar delgado, color de línea del tema, que se enciende en cian al pasar
+   el mouse — mismo lenguaje visual que el resto de bordes interactivos (.tape-item:hover). */
+.tape-list::-webkit-scrollbar { width: 8px; }
+.tape-list::-webkit-scrollbar-track { background: transparent; }
+.tape-list::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: var(--radius-md);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.tape-list::-webkit-scrollbar-thumb:hover {
+  background: var(--cyan);
+  background-clip: padding-box;
 }
 .tape-item {
   display: flex;
@@ -284,10 +302,17 @@ body::after {
      achicarlo con clamp() en vez de dejarlo fijo libera más alto en pantallas bajas sin llegar a
      superponerse con el contador (que mide ~34px desde arriba). */
   .deck.deck-wide { padding: clamp(32px, 8dvh, 46px) 16px clamp(14px, 3dvh, 24px); }
-  .tape-item { flex-wrap: wrap; }
+  /* Antes las tarjetas quedaban muy grandes en mobile (captura del usuario): padding generoso +
+     ícono grande + fila de botones envuelta debajo, con harto aire entre cada bloque. Se compacta
+     todo (padding, ícono, tipografía, gap) sin tocar el layout en fila/columna que ya resolvía el
+     wrap de acciones. */
+  .tape-item { flex-wrap: wrap; padding: 9px 11px; gap: 8px; }
+  .tape-item-icon { font-size: 20px; }
   .tape-item-info { flex-basis: 100%; order: 1; }
-  .tape-item-actions { flex-basis: 100%; order: 2; justify-content: flex-end; margin-top: 4px; }
-  .tape-item-name { white-space: normal; }
+  .tape-item-name { white-space: normal; font-size: 14px; }
+  .tape-item-meta { font-size: 12px; }
+  .tape-item-actions { flex-basis: 100%; order: 2; justify-content: flex-end; margin-top: 2px; gap: 6px; }
+  .tape-item-actions button { padding: 5px 10px; font-size: 13px; }
 }
 
 /* Textura de estática/ruido sutil, tipo cinta vieja */
