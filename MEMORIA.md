@@ -2,7 +2,7 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 20 de agosto de 2026 (V9: se cerró el hallazgo más serio de la sección de riesgos — `GET /api/uploads` y `DELETE /api/uploads/:filename` no pedían ninguna autenticación, así que cualquiera con el link de una sala podía navegar a `/library.html` y ver o borrar todos los videos del servidor. Ahora requieren una contraseña de biblioteca, `LIBRARY_PASSWORD`, separada de las contraseñas de sala).
+Última actualización: 20 de agosto de 2026 (V10: se agregó soporte de archivo `.env` para fijar `LIBRARY_PASSWORD` sin tener que pasarla a mano en cada arranque — con un lector propio, sin sumar la librería `dotenv` como dependencia nueva).
 
 ---
 
@@ -26,6 +26,8 @@ Repo: `https://github.com/isra16class-byte/movienight`
 movienight/
   server.js              # Todo el backend: rutas HTTP + lógica de sockets
   package.json
+  .env.example             # Plantilla de variables de entorno (LIBRARY_PASSWORD, PORT) — sí se sube a git
+  .env                    # Copia de lo anterior con valores reales (NO se sube a git, ver .gitignore)
   public/
     index.html            # Pantalla para crear sala (subir video) o unirse por código
     library.html            # Biblioteca de cintas: lista videos ya subidos, permite usarlos o borrarlos (V6)
@@ -574,6 +576,29 @@ solo estaba en `room.html`) y reintenta, en un loop sin botón de cancelar (para
 biblioteca vacía como si no hubiera nada, que sería confuso). Una vez que la contraseña funciona una
 vez, queda guardada para las próximas visitas desde el mismo navegador — no se vuelve a pedir salvo que
 cambie (ej. el servidor se reinició sin `LIBRARY_PASSWORD` fija y generó una nueva).
+
+## 8octodecies. Soporte de archivo `.env` para fijar `LIBRARY_PASSWORD` sin repetirlo cada arranque (V10)
+
+Tras el fix de la sección anterior, el usuario preguntó si era normal ver el mensaje de "contraseña
+generada al azar" en consola cada vez que corre `npm start` — sí, es el comportamiento esperado sin
+`LIBRARY_PASSWORD` fija, pero abre la puerta a una mejora obvia: no depender de recordar pasar la
+variable de entorno a mano cada vez (más aún en Windows/PowerShell, donde la sintaxis es distinta a
+Mac/Linux: `$env:LIBRARY_PASSWORD="x"; npm start` en vez de `LIBRARY_PASSWORD=x npm start`).
+
+**Se agregó un lector de `.env` propio** (función `loadDotEnv()` al inicio de `server.js`), sin sumar
+la librería `dotenv` como dependencia — el proyecto se mantiene deliberadamente con solo 3 dependencias
+(`express`, `multer`, `socket.io`; ver sección 2), y el formato que hace falta soportar es mínimo
+(`CLAVE=valor`, una por línea, comillas opcionales, líneas vacías y que empiezan con `#` se ignoran).
+Si existe un archivo `.env` en la raíz del proyecto, sus variables se cargan a `process.env` **sin
+pisar** las que ya vinieran del entorno real — así, si en algún momento se quiere sobreescribir
+puntualmente sin tocar el `.env` (`LIBRARY_PASSWORD=x npm start`), esa forma sigue funcionando y tiene
+prioridad.
+
+Se agregó `.env.example` (sí versionado en git, es solo una plantilla) documentando las variables
+disponibles (`LIBRARY_PASSWORD`, `PORT`). El archivo real `.env` ya estaba en `.gitignore` desde antes
+de este cambio, así que nunca se sube por accidente. El flujo recomendado quedó: `cp .env.example .env`
+y completar ahí — el servidor lo carga solo en cada arranque, sin volver a pedir nada por consola ni
+tener que recordar la sintaxis de variables de entorno de cada sistema operativo.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

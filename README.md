@@ -44,14 +44,33 @@ El servidor queda escuchando en `http://localhost:3000`.
 `/library.html` (donde se ven y se pueden borrar todos los videos ya subidos, de cualquier sala) pide
 una contraseña propia, separada de la contraseña de cada sala — porque a diferencia de una sala, la
 biblioteca es compartida por todo el servidor. Si no configurás nada, el servidor genera una al azar
-en cada arranque y la imprime en la consola al iniciar. Para que sea siempre la misma, definila como
-variable de entorno antes de arrancar:
+en cada arranque y la imprime en la consola al iniciar.
+
+Para que sea siempre la misma, la forma más simple es crear un archivo `.env` (se carga solo, no hace
+falta repetir nada cada vez que arrancás el servidor):
 
 ```bash
-LIBRARY_PASSWORD=lo-que-quieras npm start
+cp .env.example .env
 ```
 
-Compartila con tu grupo por otro canal (no por el mismo link de la sala).
+Y editá `.env` con la contraseña que quieras:
+
+```
+LIBRARY_PASSWORD=lo-que-quieras
+```
+
+`.env` nunca se sube a git (ya está en `.gitignore`) — es solo para tu compu. Compartí la contraseña
+con tu grupo por otro canal (no por el mismo link de la sala).
+
+Alternativa sin `.env`, pasando la variable directo al arrancar:
+
+```bash
+# Mac/Linux
+LIBRARY_PASSWORD=lo-que-quieras npm start
+
+# Windows (PowerShell)
+$env:LIBRARY_PASSWORD="lo-que-quieras"; npm start
+```
 
 ## Cómo usarla en la misma red (WiFi de casa)
 

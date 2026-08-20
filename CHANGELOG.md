@@ -6,6 +6,16 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-20] Feature — Soporte de archivo `.env` para no pasar `LIBRARY_PASSWORD` a mano en cada arranque
+
+**Motivo:** el usuario preguntó si era normal ver el mensaje de "contraseña generada al azar" en consola en cada `npm start` sin `LIBRARY_PASSWORD` fija — sí lo es, pero abrió la puerta a resolver la fricción real: recordar pasar la variable a mano, con sintaxis distinta según el sistema operativo (en Windows/PowerShell es `$env:LIBRARY_PASSWORD="x"; npm start`, no `LIBRARY_PASSWORD=x npm start` como en Mac/Linux).
+
+**Cambio:** lector de `.env` propio (`loadDotEnv()` en `server.js`), sin agregar la librería `dotenv` como dependencia — el proyecto se mantiene con solo 3 (`express`, `multer`, `socket.io`) y el formato necesario es mínimo. Si existe un `.env` en la raíz, carga sus variables a `process.env` sin pisar las que ya vinieran del entorno real (una variable de entorno pasada a mano sigue ganándole al `.env`). Se agregó `.env.example` (versionado en git, plantilla) documentando `LIBRARY_PASSWORD` y `PORT`; `.env` ya estaba en `.gitignore` desde el fix anterior.
+
+Probado: con `.env` presente y sin variable de entorno real, arranca sin el warning de contraseña generada, y la contraseña del `.env` funciona contra `/api/uploads`. Con variable de entorno real *y* `.env` presentes a la vez, gana la real (confirmado con curl).
+
+Ver `MEMORIA.md`, sección 8octodecies, para el detalle completo.
+
 ## [2026-08-20] Security fix — Biblioteca (`/api/uploads`) accesible sin autenticación a cualquiera con el link de una sala
 
 **Motivo:** el usuario preguntó específicamente por seguridad pensando en el escenario "un amigo reenvía el link a alguien que no debería tenerlo". Al revisar el server bajo ese ángulo apareció el problema más serio detectado hasta ahora: `GET /api/uploads` (listar) y `DELETE /api/uploads/:filename` (borrar) no pedían absolutamente nada — ni `hostToken` de ninguna sala, ni ninguna contraseña. Bastaba con conocer el dominio del server (que se conoce apenas se tiene el link de una sala) y escribir `/library.html` para ver **todos** los videos subidos alguna vez, de cualquier sala, y borrar cualquiera de ellos — incluso mientras estaban en uso en otra sala activa, rompiéndola sin avisar.

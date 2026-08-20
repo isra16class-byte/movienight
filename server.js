@@ -6,6 +6,29 @@ const crypto = require('crypto');
 const multer = require('multer');
 const { Server } = require('socket.io');
 
+// --- Carga variables desde un .env en la raíz del proyecto, si existe (V10) --------------------
+// No se agregó la librería `dotenv` a propósito: el proyecto ya se mantiene con solo 3 dependencias
+// (express, multer, socket.io), y para el formato simple que necesitamos (KEY=valor, una por línea)
+// no vale la pena sumar una dependencia nueva. No pisa variables que ya vengan del entorno real
+// (ej. `LIBRARY_PASSWORD=x npm start` sigue ganándole a lo que diga el .env).
+function loadDotEnv() {
+  const envPath = path.join(__dirname, '.env');
+  if (!fs.existsSync(envPath)) return;
+  for (const rawLine of fs.readFileSync(envPath, 'utf8').split('\n')) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const eq = line.indexOf('=');
+    if (eq === -1) continue;
+    const key = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1); // comillas opcionales alrededor del valor
+    }
+    if (!(key in process.env)) process.env[key] = value;
+  }
+}
+loadDotEnv();
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
@@ -399,7 +422,8 @@ server.listen(PORT, () => {
     console.log(`   ${LIBRARY_PASSWORD}`);
     console.log('   Se generó al azar porque no definiste LIBRARY_PASSWORD como variable de entorno.');
     console.log('   Compártela con tu grupo por otro canal (no por el link de la sala) y va a cambiar');
-    console.log('   cada vez que reinicies el servidor. Para que sea fija: LIBRARY_PASSWORD=lo-que-sea npm start');
+    console.log('   cada vez que reinicies el servidor. Para que sea fija, copiá ".env.example" a ".env"');
+    console.log('   y completá LIBRARY_PASSWORD ahí (se carga solo, no hace falta escribirla cada vez).');
     console.log('');
   }
 });
