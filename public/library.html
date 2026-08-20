@@ -49,6 +49,20 @@
   </main>
 </div>
 
+<!-- Modal genérico: reemplaza prompt()/confirm()/alert() nativos (ver mnDialog en el script) -->
+<div class="mn-modal-overlay" id="mnModalOverlay" hidden>
+  <div class="mn-modal" role="dialog" aria-modal="true" aria-labelledby="mnModalTitle">
+    <p class="mn-modal-title" id="mnModalTitle"></p>
+    <p class="mn-modal-message" id="mnModalMessage" hidden></p>
+    <input class="mn-modal-input" id="mnModalInput" hidden autocomplete="off">
+    <p class="mn-modal-error" id="mnModalError" hidden></p>
+    <div class="mn-modal-actions">
+      <button class="mn-modal-btn mn-modal-cancel" id="mnModalCancel">Cancelar</button>
+      <button class="mn-modal-btn mn-modal-ok" id="mnModalOk">Aceptar</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const cassetteIcon = `<svg class="cassette-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="color:var(--cyan)">
   <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3"/>
@@ -90,6 +104,62 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+// --- Modal genérico: reemplaza prompt()/confirm()/alert() nativos del navegador ---
+// (mismo componente que en room.html — ver nota junto a .mn-modal-overlay en style.css)
+function mnDialog({ title, message = '', showInput = false, inputType = 'text', placeholder = '',
+                     defaultValue = '', okLabel = 'Aceptar', cancelLabel = 'Cancelar', showCancel = true }) {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById('mnModalOverlay');
+    const titleEl = document.getElementById('mnModalTitle');
+    const messageEl = document.getElementById('mnModalMessage');
+    const input = document.getElementById('mnModalInput');
+    const errorEl = document.getElementById('mnModalError');
+    const okBtn = document.getElementById('mnModalOk');
+    const cancelBtn = document.getElementById('mnModalCancel');
+
+    titleEl.textContent = title;
+    messageEl.textContent = message;
+    messageEl.hidden = !message;
+    input.hidden = !showInput;
+    input.type = inputType;
+    input.placeholder = placeholder;
+    input.value = defaultValue;
+    errorEl.hidden = true;
+    okBtn.textContent = okLabel;
+    cancelBtn.textContent = cancelLabel;
+    cancelBtn.hidden = !showCancel;
+
+    overlay.hidden = false;
+    requestAnimationFrame(() => overlay.classList.add('is-visible'));
+    setTimeout(() => (showInput ? input : okBtn).focus(), 30);
+
+    function close(result) {
+      overlay.classList.remove('is-visible');
+      setTimeout(() => { overlay.hidden = true; }, 150);
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      input.removeEventListener('keydown', onKeydown);
+      resolve(result);
+    }
+    function onOk() { close(showInput ? input.value : true); }
+    function onCancel() { close(showInput ? null : false); }
+    function onKeydown(e) {
+      if (e.key === 'Enter') { e.preventDefault(); onOk(); }
+      else if (e.key === 'Escape' && showCancel) onCancel();
+    }
+
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+    input.addEventListener('keydown', onKeydown);
+  });
+}
+function mnAlert(message, title = 'MovieNight') {
+  return mnDialog({ title, message, showCancel: false, okLabel: 'OK' });
+}
+function mnConfirm(message, title = '¿Estás seguro?') {
+  return mnDialog({ title, message, okLabel: 'Sí', cancelLabel: 'Cancelar' });
 }
 
 async function loadTapes() {
@@ -134,14 +204,14 @@ async function useTape(filename, li) {
   btn.innerHTML = cassetteIcon;
   try {
     if (fromRoom) {
-      if (!roomHostToken) { alert('No tienes permisos de host en esa sala desde este navegador.'); btn.disabled = false; btn.textContent = useLabel; return; }
+      if (!roomHostToken) { await mnAlert('No tienes permisos de host en esa sala desde este navegador.'); btn.disabled = false; btn.textContent = useLabel; return; }
       const res = await fetch(`/room/${fromRoom}/change-video-from-upload`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename, hostToken: roomHostToken })
       });
       const data = await res.json();
-      if (data.error) { alert('Error: ' + data.error); btn.disabled = false; btn.textContent = useLabel; return; }
+      if (data.error) { await mnAlert('Error: ' + data.error); btn.disabled = false; btn.textContent = useLabel; return; }
       window.location = `/room/${fromRoom}`;
       return;
     }
@@ -151,26 +221,26 @@ async function useTape(filename, li) {
       body: JSON.stringify({ filename })
     });
     const data = await res.json();
-    if (data.error) { alert('Error: ' + data.error); btn.disabled = false; btn.textContent = useLabel; return; }
+    if (data.error) { await mnAlert('Error: ' + data.error); btn.disabled = false; btn.textContent = useLabel; return; }
     localStorage.setItem('mn_host_' + data.roomId, data.hostToken);
     window.location = `/room/${data.roomId}`;
   } catch (err) {
-    alert('No se pudo completar la acción. Intenta de nuevo.');
+    await mnAlert('No se pudo completar la acción. Intenta de nuevo.');
     btn.disabled = false;
     btn.textContent = useLabel;
   }
 }
 
 async function deleteTape(filename, li) {
-  if (!confirm('¿Borrar esta cinta del servidor? No se puede deshacer.')) return;
+  if (!(await mnConfirm('¿Borrar esta cinta del servidor? No se puede deshacer.'))) return;
   try {
     const res = await fetch('/api/uploads/' + encodeURIComponent(filename), { method: 'DELETE' });
     const data = await res.json();
-    if (data.error) { alert('Error: ' + data.error); return; }
+    if (data.error) { await mnAlert('Error: ' + data.error); return; }
     li.remove();
     if (!tapeList.children.length) renderTapes([]);
   } catch (err) {
-    alert('No se pudo borrar el archivo. Intenta de nuevo.');
+    await mnAlert('No se pudo borrar el archivo. Intenta de nuevo.');
   }
 }
 

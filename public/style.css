@@ -1081,3 +1081,110 @@ video { width: 100%; height: 100%; display: block; background: black; }
 
 /* ---------- Botón "Hacer host" en la lista de espectadores ---------- */
 .viewer-item .actions button.make-host:hover { border-color: var(--violet); color: var(--violet); }
+
+/* ===================================================================
+   MODAL GENÉRICO (mn-modal) — reemplaza prompt()/confirm()/alert() nativos
+   Antes, pedir el nombre al entrar a una sala (o contraseñas, confirmaciones
+   de expulsar/salir, etc.) usaba los diálogos nativos del navegador: sin
+   estilo, con la URL del túnel de Cloudflare pegada arriba, y muy distintos
+   entre navegadores. Este componente los reemplaza con un panel propio, con
+   la misma estética "videoclub" del resto de la app. Es el mismo markup para
+   los 3 casos (prompt con input, confirm de sí/no, alert de un solo botón);
+   qué mostrar se decide en JS según qué elementos se ocultan (ver mnDialog
+   en room.html / library.html).
+   =================================================================== */
+.mn-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(10, 4, 20, 0.72);
+  backdrop-filter: blur(3px);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.mn-modal-overlay[hidden] { display: none; }
+.mn-modal-overlay.is-visible { opacity: 1; }
+
+.mn-modal {
+  width: 100%;
+  max-width: 360px;
+  background: var(--bg-panel);
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 22px 20px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.3), 0 18px 40px rgba(0,0,0,0.5), 0 0 24px rgba(123, 47, 247, 0.25);
+  transform: translateY(6px) scale(0.98);
+  transition: transform 0.15s ease;
+}
+.mn-modal-overlay.is-visible .mn-modal { transform: translateY(0) scale(1); }
+
+.mn-modal-title {
+  margin: 0 0 6px;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--text);
+}
+.mn-modal-message {
+  margin: 0 0 4px;
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.mn-modal-message[hidden] { display: none; }
+
+.mn-modal-input {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  background: var(--bg-elevated);
+  border: 1.5px solid var(--line);
+  color: var(--text);
+  padding: 11px 14px;
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: 14px;
+  transition: border-color 0.2s ease;
+}
+.mn-modal-input[hidden] { display: none; }
+.mn-modal-input:focus { outline: none; border-color: var(--cyan); }
+.mn-modal-input::placeholder { color: var(--text-muted); }
+
+.mn-modal-error {
+  margin: 10px 0 0;
+  font-family: var(--font-osd);
+  font-size: 13px;
+  color: var(--pink);
+}
+.mn-modal-error[hidden] { display: none; }
+
+.mn-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+.mn-modal-btn {
+  border: 1.5px solid var(--line);
+  background: transparent;
+  color: var(--text-muted);
+  padding: 9px 16px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.mn-modal-btn[hidden] { display: none; }
+.mn-modal-btn:hover { border-color: var(--text-muted); color: var(--text); }
+.mn-modal-btn.mn-modal-ok {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+.mn-modal-btn.mn-modal-ok:hover { background: var(--cyan); color: #0c1620; }
