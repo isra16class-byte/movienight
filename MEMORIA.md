@@ -2,9 +2,10 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 20 de agosto de 2026 (biblioteca: scrollbar temático, tarjetas compactas con
-botones alado en mobile, y fix del hueco antes de la lista causado por `#newTapeStatus`; ver sección
-8duovicies).
+Última actualización: 20 de agosto de 2026 (V11 — fix de dos bugs al cambiar de cinta: los invitados
+no veían el video nuevo por faltar el listener de `video-changed`, y el host aparecía duplicado en la
+lista de espectadores por no cerrar el socket antes de navegar a la biblioteca; ver sección
+8tervicies).
 
 ---
 
@@ -781,6 +782,53 @@ se encontró `#newTapeStatus`.
 **Verificado:** el usuario confirmó que tras este fix el hueco se ve correcto, en desktop
 (`localhost:3000` con hard refresh) y en mobile (vía Cloudflare Tunnel).
 
+## 8tervicies. Fix: "cambiar cinta" no llegaba a los invitados + host duplicado en la lista de espectadores (V11)
+
+Bug reportado por el usuario: al usar "📼 Cambiar cinta", la película nueva solo se veía en la pantalla
+del host — los invitados se quedaban con la vieja — y además aparecía en la pestaña "Espectadores" otro
+usuario con el mismo nombre del host, "como si se duplicara".
+
+**Causa raíz de ambos síntomas: cambiar de cinta implica que el host navega fuera de `room.html`.**
+"Cambiar cinta" no es una acción in-page — el link `#changeVideoLink` manda al host a
+`/library.html?fromRoom=<roomId>` a elegir el video, y al confirmar ("usar"), `library.html` hace
+`window.location = /room/<roomId>` para volver. Eso son dos navegaciones de página completa, con todo
+lo que implican para el socket del host: se cierra al salir de `room.html` y se abre de nuevo (con un
+`socket.id` nuevo) al volver.
+
+**Síntoma 1 — el cambio de video no llegaba a los invitados:** el servidor (`server.js`, rutas
+`change-video` y `change-video-from-upload`) sí emitía `io.to(roomId).emit('video-changed', ...)`
+correctamente a toda la sala — eso nunca estuvo roto. El bug estaba en `room.html`: **no existía
+ningún `socket.on('video-changed', ...)` del lado del cliente.** El host "veía" el cambio solo porque,
+al volver de `library.html`, la página se recarga entera y pide `room-data` de nuevo en el `join-room`
+— trae el video nuevo por ese camino, no por el evento. Los invitados, que nunca navegan a ningún
+lado, se quedan escuchando un evento que nadie procesa: su `<video>` sigue apuntando al archivo viejo
+indefinidamente. Fix: se agregó el listener que faltaba (junto al de `subtitle-changed`, mismo patrón),
+que pausa, limpia `src`, carga el archivo nuevo y resetea `lastKnownTime` a 0 para que el bloqueo de
+seek de los invitados (sección 5) no los deje "atados" a un tiempo del video anterior.
+
+**Síntoma 2 — entrada duplicada del host en la lista de espectadores:** al salir de `room.html` hacia
+`library.html`, el socket del host se cerraba dejando que el navegador lo hiciera solo al descargar la
+página (comportamiento por defecto de un `<a href>` normal), en vez de llamar a `socket.disconnect()`
+explícitamente como sí hace, desde siempre, el botón "Salir" (`leaveBtn`, ver su handler unas líneas
+arriba en `room.html`). La diferencia importa: un cierre "pasivo" del lado del navegador no le llega
+al servidor con la misma inmediatez que un `disconnect()` explícito — el margen exacto depende del
+transporte de Socket.io y de la red (p. ej. sobre Cloudflare Tunnel, ver README), pero mientras el
+servidor no haya procesado el `disconnect` del socket viejo, ese socket sigue contando como conectado:
+sigue en `io.sockets.adapter.rooms`, sigue con su entrada en `room.userNames` bajo el nombre del host.
+Si la nueva conexión (al volver de la biblioteca, con un `socket.id` distinto) hace `join-room` **antes**
+de que el servidor haya limpiado la vieja, `broadcastViewerList` arma la lista con ambos socket.id
+todavía presentes — dos entradas, mismo nombre de host, una "viva" y una "fantasma" que recién
+desaparece cuando el servidor por fin detecta el corte. Fix: se agregó un listener de `click` en
+`changeVideoLink` que llama a `socket.disconnect()` antes de dejar que la navegación siga su curso —
+mismo patrón que `leaveBtn` — para que el servidor se entere al instante y no quede ventana de
+superposición.
+
+**Nota:** el traspaso automático de host (sección 5bis) se sigue disparando igual que antes cuando el
+host sale a cambiar de cinta (si hay algún invitado, se lo asciende brevemente hasta que el host
+vuelve y `setHost()` lo recupera) — eso no es nuevo ni es lo que reportó el usuario, y de momento se
+deja así; ver sección 10 si en algún momento se quiere evitar ese parpadeo rediseñando "cambiar cinta"
+para que no implique salir de `room.html` en absoluto (ver también el ítem nuevo del roadmap).
+
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 
 - El `hostToken` viaja en texto plano por HTTP (a menos que Cloudflare Tunnel lo cifre en tránsito, que sí lo hace vía HTTPS). Si alguien lo obtiene (inspeccionando `localStorage` de la persona equivocada, por ejemplo), puede hacerse pasar por host.
@@ -799,6 +847,7 @@ se encontró `#newTapeStatus`.
 - [ ] Posible: avisar si se intenta borrar un video que está en uso por una sala activa.
 - [ ] Posible: contraseña también al reutilizar un video desde la biblioteca (`create-room-from-upload`), hoy solo existe al crear desde `index.html`.
 - [ ] Posible: rate-limiting real en `join-room` (intentos de contraseña) y en la subida de archivos.
+- [ ] Posible: rediseñar "cambiar cinta" para que no implique salir de `room.html` (hoy navega a `library.html` y vuelve, ver sección 8tervicies) — evitaría el parpadeo de traspaso automático de host mientras el host elige la cinta nueva.
 - [ ] Evaluado y descartado por ahora (no encaja con el caso de uso de grupo privado chico): video/voz en vivo integrado tipo Scener/Kast, soporte para reproducir desde plataformas externas (Netflix/YouTube/etc.).
 - [x] ~~Mostrar advertencia/loading mientras el video sube~~ — resuelto en V5 con barra de progreso real (ver sección 8ter).
 - [x] ~~Reutilizar videos ya subidos sin tener que resubirlos~~ — resuelto en V6 con la biblioteca de cintas (ver sección 8quater).

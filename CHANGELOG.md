@@ -6,6 +6,38 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-20] Fix: "cambiar cinta" no llegaba a los invitados + host duplicado en espectadores (V11)
+
+**Motivo:** el usuario reportó que al usar "📼 Cambiar cinta", el video nuevo solo se veía en la
+pantalla del host (los invitados se quedaban con el viejo), y que además aparecía otro "invitado" con
+el mismo nombre del host en la pestaña "Espectadores", como duplicado.
+
+**Causa raíz:** "cambiar cinta" implica que el host navega fuera de `room.html` (a
+`/library.html?fromRoom=...` y de vuelta), lo que cierra y reabre su socket.
+
+**Fix 1 (`public/room.html`):** faltaba el listener `socket.on('video-changed', ...)` del lado del
+cliente. El servidor (`server.js`) siempre emitió correctamente `video-changed` a toda la sala al
+cambiar de cinta — eso nunca estuvo roto — pero nadie lo escuchaba. El host "veía" el cambio solo
+porque, al volver de la biblioteca, la página se recarga entera y pide el video actualizado de nuevo
+vía `room-data`; los invitados, que nunca navegan a ningún lado, jamás recibían el video nuevo. Se
+agregó el listener (mismo patrón que `subtitle-changed`): pausa, limpia y recarga el `<video>`, y
+resetea `lastKnownTime` para no dejar a los invitados "atados" a un tiempo del video anterior.
+
+**Fix 2 (`public/room.html`):** el link `#changeVideoLink` no llamaba a `socket.disconnect()` antes de
+navegar a la biblioteca (a diferencia del botón "Salir", que sí lo hace desde siempre). Dejar que el
+navegador cierre el socket "pasivamente" al descargar la página no es tan inmediato como un
+`disconnect()` explícito — durante esa ventana, el servidor sigue considerando conectado al socket
+viejo del host, y si la nueva conexión hace `join-room` antes de que esa ventana se cierre, la lista de
+espectadores muestra dos entradas con el nombre del host (una viva, una fantasma) hasta que el servidor
+por fin detecta el corte. Se agregó un handler de `click` en el link que desconecta el socket a mano
+antes de dejar seguir la navegación, igual que "Salir".
+
+**Sin cambios en el servidor** — ambos fixes son puramente de cliente (`public/room.html`).
+
+Ver `MEMORIA.md` sección 8tervicies para el detalle completo.
+
+---
+
 ## [2026-08-20] Biblioteca: scrollbar temático, botones alado en mobile, y fix del hueco antes de la lista
 
 **Motivo:** tres pedidos del usuario sobre `/library.html` (con capturas en cada paso), en la misma

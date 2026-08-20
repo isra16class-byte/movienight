@@ -339,6 +339,19 @@ document.getElementById('leaveBtn').onclick = async () => {
   }
 };
 
+// "Cambiar cinta" también navega fuera de room.html (a la biblioteca) y de vuelta, igual que
+// leaveBtn arriba — pero a diferencia de leaveBtn, antes no llamaba a socket.disconnect() primero:
+// dejaba que el navegador cerrara la conexión sola al descargar la página. Eso deja un socket
+// "fantasma" del lado del servidor durante una ventana breve (hasta que Socket.io detecta el corte,
+// que no es instantáneo con todos los transportes/redes — p. ej. por Cloudflare Tunnel), y en esa
+// ventana: (a) el traspaso automático de host puede dispararse igual, y (b) al reconectar con la
+// nueva pestaña antes de que el servidor haya limpiado la vieja, la lista de espectadores muestra
+// dos entradas con el mismo nombre del host (una viva, una fantasma) hasta que expira. Cerrando el
+// socket a mano acá, igual que en "Salir", el servidor se entera al instante y no queda ventana.
+document.getElementById('changeVideoLink').addEventListener('click', () => {
+  socket.disconnect();
+});
+
 // --- Entrada a la sala: nombre (si no lo tenemos ya) → chequeo de existencia/contraseña → conectar socket ---
 async function enterRoom() {
   if (!username) {
@@ -383,6 +396,22 @@ socket.on('room-error', async (msg) => {
 socket.on('room-data', ({ videoFile, subtitleFile }) => {
   if (player.src.indexOf(videoFile) === -1) player.src = videoFile;
   updateSubtitleTrack(subtitleFile);
+});
+
+// El host cambió la cinta desde la biblioteca o subiendo un archivo nuevo (change-video /
+// change-video-from-upload en server.js). El host se entera porque esa acción lo manda y trae de
+// vuelta a /room/:id (recarga completa, ve el video nuevo vía 'room-data' al reconectar), pero
+// hasta V10 nadie más escuchaba este evento del lado del cliente: el servidor lo emitía a toda la
+// sala, pero los invitados, que nunca navegan a ningún lado, se quedaban con el <video> apuntando al
+// archivo viejo. Sin este listener, "cambiar cinta" solo cambiaba la película para el host.
+socket.on('video-changed', ({ videoFile }) => {
+  ignoreSync = true;
+  player.pause();
+  player.removeAttribute('src');
+  player.src = videoFile;
+  player.load();
+  lastKnownTime = 0;
+  setTimeout(() => ignoreSync = false, 300);
 });
 
 function updateSubtitleTrack(subtitleFile) {
