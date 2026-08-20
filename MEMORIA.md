@@ -2,7 +2,7 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 20 de agosto de 2026 (V10: se agregó soporte de archivo `.env` para fijar `LIBRARY_PASSWORD` sin tener que pasarla a mano en cada arranque — con un lector propio, sin sumar la librería `dotenv` como dependencia nueva).
+Última actualización: 20 de agosto de 2026 (fix: el modal de contraseña de biblioteca quedaba invisible en `localhost` al fallar la contraseña — carrera entre el `setTimeout` de ocultado del modal viejo y la apertura del modal nuevo; ver sección 8novodecies).
 
 ---
 
@@ -599,6 +599,30 @@ disponibles (`LIBRARY_PASSWORD`, `PORT`). El archivo real `.env` ya estaba en `.
 de este cambio, así que nunca se sube por accidente. El flujo recomendado quedó: `cp .env.example .env`
 y completar ahí — el servidor lo carga solo en cada arranque, sin volver a pedir nada por consola ni
 tener que recordar la sintaxis de variables de entorno de cada sistema operativo.
+
+## 8novodecies. Fix: el modal de contraseña de biblioteca quedaba invisible al fallar en localhost
+
+El usuario reportó: al poner la contraseña de biblioteca incorrecta, la pantalla se quedaba trabada
+en "Cargando cintas..." — pero **solo en `localhost`**, nunca a través de Cloudflare Tunnel.
+
+**Causa raíz:** el modal genérico (`mnDialog`, duplicado en `library.html` y `room.html`, ver sección
+8sedecies) oculta el overlay recién 150ms después de cerrarse (`setTimeout(() => overlay.hidden = true,
+150)`), para que se alcance a ver la animación de fade-out. Ese timeout nunca se cancelaba. Si se abría
+un `mnDialog` nuevo antes de que pasaran esos 150ms — exactamente lo que hace `mnLibraryFetch` al pedir
+la contraseña de nuevo apenas el `fetch` anterior vuelve con `401` —, el timeout viejo igual disparaba
+más tarde y ponía `overlay.hidden = true` **sobre el modal recién abierto**, dejándolo invisible con su
+`Promise` todavía sin resolver (nadie puede hacer click en algo que no se ve). De fondo quedaba visible
+lo que había debajo del overlay: el `<ul>` con el texto original "Cargando cintas...".
+
+Por qué pasaba solo en `localhost`: el `fetch` a sí mismo en la misma máquina tarda bien menos de
+150ms, así que la carrera se ganaba siempre. A través de Cloudflare Tunnel el viaje de ida y vuelta ya
+tarda más que eso, así que el timeout viejo ya había disparado (sin nada abierto que ocultar) antes de
+que se mostrara el modal nuevo — por eso ahí nunca se notaba.
+
+**Fix:** se guarda el id del `setTimeout` en una variable de módulo (`mnModalHideTimer`) y se cancela
+con `clearTimeout` al abrir cualquier modal nuevo, en los dos archivos donde vive el componente
+(`library.html` y `room.html`) — nunca puede quedar un timer viejo compitiendo con un modal recién
+abierto.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

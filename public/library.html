@@ -108,6 +108,17 @@ function escapeHtml(str) {
 
 // --- Modal genérico: reemplaza prompt()/confirm()/alert() nativos del navegador ---
 // (mismo componente que en room.html — ver nota junto a .mn-modal-overlay en style.css)
+//
+// Bug (V10): close() agenda `overlay.hidden = true` recién a los 150ms, para que se vea la
+// animación de fade-out. Si se abre un mnDialog() nuevo ANTES de que ese timeout dispare (ej.
+// mnLibraryFetch reabriendo el prompt de contraseña apenas el fetch anterior vuelve con 401), el
+// timer viejo igual dispara después y oculta el modal recién abierto (overlay.hidden = true le gana
+// a la clase is-visible) — queda invisible con su Promise sin resolver, y de fondo se ve lo que
+// hubiera debajo del overlay (ej. "Cargando cintas..."). Pasaba siempre en localhost, donde el
+// fetch a sí mismo tarda bien menos de 150ms, y casi nunca a través de Cloudflare Tunnel, donde el
+// viaje de ida y vuelta ya tarda más que eso. Se guarda el id del timeout en una variable de módulo
+// y se cancela al abrir un modal nuevo.
+let mnModalHideTimer = null;
 function mnDialog({ title, message = '', showInput = false, inputType = 'text', placeholder = '',
                      defaultValue = '', okLabel = 'Aceptar', cancelLabel = 'Cancelar', showCancel = true }) {
   return new Promise((resolve) => {
@@ -131,13 +142,14 @@ function mnDialog({ title, message = '', showInput = false, inputType = 'text', 
     cancelBtn.textContent = cancelLabel;
     cancelBtn.hidden = !showCancel;
 
+    if (mnModalHideTimer) { clearTimeout(mnModalHideTimer); mnModalHideTimer = null; }
     overlay.hidden = false;
     requestAnimationFrame(() => overlay.classList.add('is-visible'));
     setTimeout(() => (showInput ? input : okBtn).focus(), 30);
 
     function close(result) {
       overlay.classList.remove('is-visible');
-      setTimeout(() => { overlay.hidden = true; }, 150);
+      mnModalHideTimer = setTimeout(() => { overlay.hidden = true; mnModalHideTimer = null; }, 150);
       okBtn.removeEventListener('click', onOk);
       cancelBtn.removeEventListener('click', onCancel);
       input.removeEventListener('keydown', onKeydown);

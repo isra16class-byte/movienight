@@ -247,6 +247,12 @@ function escapeHtml(str) {
 // --- Modal genérico: reemplaza prompt()/confirm()/alert() nativos del navegador ---
 // (ver nota en style.css junto a .mn-modal-overlay sobre por qué existe). Un solo diálogo en el DOM,
 // reutilizado para los 3 casos (prompt/confirm/alert) mostrando u ocultando el input y el botón cancelar.
+// Bug (V10): close() agenda `overlay.hidden = true` recién a los 150ms, para que se vea la
+// animación de fade-out. Si se abre un mnDialog() nuevo ANTES de que ese timeout dispare, el timer
+// viejo igual dispara después y oculta el modal recién abierto (overlay.hidden = true le gana a la
+// clase is-visible) — queda invisible con su Promise sin resolver. Se guarda el id del timeout en
+// una variable de módulo y se cancela al abrir un modal nuevo (ver misma nota en library.html).
+let mnModalHideTimer = null;
 function mnDialog({ title, message = '', showInput = false, inputType = 'text', placeholder = '',
                      defaultValue = '', okLabel = 'Aceptar', cancelLabel = 'Cancelar', showCancel = true }) {
   return new Promise((resolve) => {
@@ -270,13 +276,14 @@ function mnDialog({ title, message = '', showInput = false, inputType = 'text', 
     cancelBtn.textContent = cancelLabel;
     cancelBtn.hidden = !showCancel;
 
+    if (mnModalHideTimer) { clearTimeout(mnModalHideTimer); mnModalHideTimer = null; }
     overlay.hidden = false;
     requestAnimationFrame(() => overlay.classList.add('is-visible'));
     setTimeout(() => (showInput ? input : okBtn).focus(), 30);
 
     function close(result) {
       overlay.classList.remove('is-visible');
-      setTimeout(() => { overlay.hidden = true; }, 150);
+      mnModalHideTimer = setTimeout(() => { overlay.hidden = true; mnModalHideTimer = null; }, 150);
       okBtn.removeEventListener('click', onOk);
       cancelBtn.removeEventListener('click', onCancel);
       input.removeEventListener('keydown', onKeydown);

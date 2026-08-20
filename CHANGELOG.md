@@ -6,6 +6,24 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-20] Fix — Modal de contraseña de biblioteca quedaba invisible al fallar, solo en `localhost`
+
+**Motivo:** reporte del usuario: al poner mal la contraseña de biblioteca, la pantalla se quedaba
+trabada en "Cargando cintas..." — pero solo en `localhost`, nunca a través de Cloudflare Tunnel.
+
+**Causa raíz** (`public/library.html`, `public/room.html`): el modal genérico (`mnDialog`) oculta el
+overlay recién 150ms después de cerrarse (para que se vea el fade-out), con un `setTimeout` que nunca
+se cancelaba. Si se abría un modal nuevo antes de esos 150ms — justo lo que hace `mnLibraryFetch` al
+volver a pedir la contraseña apenas el `fetch` anterior vuelve con `401` —, el timeout viejo disparaba
+igual más tarde y ocultaba el modal recién abierto, dejándolo invisible con su `Promise` sin resolver.
+En `localhost` el `fetch` a sí mismo tarda bien menos de 150ms (la carrera se ganaba siempre); a través
+de Cloudflare Tunnel el viaje de ida y vuelta ya tarda más que eso, por lo que nunca se notaba ahí.
+
+**Fix:** se guarda el id del `setTimeout` en una variable de módulo y se cancela con `clearTimeout` al
+abrir cualquier modal nuevo, en los dos archivos donde vive el componente.
+
+Ver `MEMORIA.md`, sección 8novodecies, para el detalle completo.
+
 ## [2026-08-20] Feature — Soporte de archivo `.env` para no pasar `LIBRARY_PASSWORD` a mano en cada arranque
 
 **Motivo:** el usuario preguntó si era normal ver el mensaje de "contraseña generada al azar" en consola en cada `npm start` sin `LIBRARY_PASSWORD` fija — sí lo es, pero abrió la puerta a resolver la fricción real: recordar pasar la variable a mano, con sintaxis distinta según el sistema operativo (en Windows/PowerShell es `$env:LIBRARY_PASSWORD="x"; npm start`, no `LIBRARY_PASSWORD=x npm start` como en Mac/Linux).
