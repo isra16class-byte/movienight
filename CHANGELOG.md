@@ -6,6 +6,25 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-20] Ajuste visual — Home más compacto: entra sin scroll y sin hueco vacío antes de "O TAMBIÉN"
+
+**Motivo:** pedido del usuario, mostrando una captura del home — quería que la pantalla de crear sala
+entrara completa sin scroll, y notó un espacio vacío de más entre el botón "GRABAR SALA" y el
+separador "O TAMBIÉN".
+
+**Causa del hueco:** `#status` reservaba `min-height: 18px` + `margin-top: 16px` aunque estuviera
+vacío (para no saltar el layout cuando aparece el texto de progreso), sumado al `margin: 26px 0 20px`
+de `.divider-row` — entre los dos, ~60px reservados sin nada visible casi todo el tiempo.
+
+**Cambio** (`public/style.css`, `public/index.html`): se achicó el padding/márgenes en varios puntos
+del home (tarjeta, tagline, tape-slot, input de contraseña, botón, separador, link a biblioteca) y se
+agregó una regla específica para `#status`/`#joinStatus` que reduce su hueco reservado en vacío. Se
+scopeó con `.deck:not(.deck-wide)` para no afectar `library.html`, que reutiliza varias de las mismas
+clases (`.tagline`, `.tape-slot`, `.status-line`) pero maneja su propio scroll interno y no lo
+necesitaba.
+
+Ver `MEMORIA.md`, sección 8vicies, para el detalle completo.
+
 ## [2026-08-20] Fix — Modal de contraseña de biblioteca quedaba invisible al fallar, solo en `localhost`
 
 **Motivo:** reporte del usuario: al poner mal la contraseña de biblioteca, la pantalla se quedaba

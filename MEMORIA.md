@@ -2,7 +2,7 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 20 de agosto de 2026 (fix: el modal de contraseña de biblioteca quedaba invisible en `localhost` al fallar la contraseña — carrera entre el `setTimeout` de ocultado del modal viejo y la apertura del modal nuevo; ver sección 8novodecies).
+Última actualización: 20 de agosto de 2026 (ajuste de espaciado en el home: entra sin scroll en ventanas de altura normal y se achicó el hueco entre "GRABAR SALA" y "O TAMBIÉN"; ver sección 8vicies).
 
 ---
 
@@ -623,6 +623,30 @@ que se mostrara el modal nuevo — por eso ahí nunca se notaba.
 con `clearTimeout` al abrir cualquier modal nuevo, en los dos archivos donde vive el componente
 (`library.html` y `room.html`) — nunca puede quedar un timer viejo compitiendo con un modal recién
 abierto.
+
+## 8vicies. Ajuste de espaciado del home para que entre sin scroll
+
+El usuario pidió dos cosas puntuales sobre `index.html` (la pantalla de crear sala, `.deck` sin
+`.deck-wide`): que entrara completa sin necesidad de scroll en ventanas de altura normal, y que se
+achicara el hueco vacío entre el botón "GRABAR SALA" y el separador "O TAMBIÉN".
+
+**La causa del hueco grande:** `#status` (el `<div>` de estado que aparece mientras se sube el video)
+reservaba `min-height: 18px` + `margin-top: 16px` incluso vacío (para no saltar el layout cuando
+aparece texto), y el separador `.divider-row` tenía `margin: 26px 0 20px` — entre los dos, ~60px de
+espacio siempre reservado ahí sin nada visible la mayoría del tiempo.
+
+**Fix:** se achicó el ritmo vertical del home en varios puntos (padding de `.deck`, margen de
+`.tagline`, padding de `.tape-slot`, margen de `.password-input`, margen/padding de `.rec-btn`, margen
+de `.divider-row`, y el margen del link a la biblioteca al final) y se agregó una regla específica para
+`#status`/`#joinStatus` (ids únicos, solo existen en `index.html`) que reduce su hueco reservado cuando
+están vacíos. En total suma a bastante menos de altura, sin necesidad de scroll en ventanas típicas de
+escritorio.
+
+**Por qué se scopeó con `.deck:not(.deck-wide)` en vez de tocar las clases compartidas directamente:**
+varias clases usadas en el home (`.tagline`, `.tape-slot`, `.status-line`) también las usa
+`library.html` (`.deck.deck-wide`) — que ya maneja su propio scroll interno en `.tape-list` y no
+necesitaba este ajuste. Se prefirió no tocar su espaciado para no arriesgar regresiones ahí. `.rec-btn`,
+`.divider-row` y `.password-input` sí se editaron directamente porque son exclusivas de `index.html`.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 
