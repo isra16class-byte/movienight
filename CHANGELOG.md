@@ -6,6 +6,28 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-20] Fix — Host duplicado: el traspaso de host (automático o manual) no degradaba al anterior
+
+**Motivo:** reporte del usuario: al irse el host, el control se transfería al siguiente conectado (correcto), pero si el host original regresaba, el servidor lo volvía a marcar como host **sin quitárselo** a quien ya lo tenía — quedaban 2 hosts a la vez, y repitiendo el ciclo se podían acumular más.
+
+**Causa raíz** (`server.js`): `room.hostToken` es un secreto estático que nunca se invalida, y cada socket decidía "soy host" comparándolo sin chequear si ya había *otro* host activo en la sala. Lo mismo pasaba con el traspaso manual (botón "Hacer host"): se promovía al nuevo pero nunca se degradaba a quien lo transfería.
+
+**Fix**: se agregó `room.hostSocketId`, el `socket.id` del host actual (única fuente de verdad), y una función `setHost(room, roomId, socket)` por la que ahora pasan los 3 casos que pueden cambiar el host de una sala — join con `hostToken` válido, traspaso automático al desconectarse, traspaso manual (`make-host`). Siempre degrada primero al host anterior (si hay uno distinto y sigue conectado, se le manda `host-status: { isHost: false }` para que su UI de host desaparezca al instante) antes de promover al nuevo. El traspaso automático además dejó de confiar en la bandera local `socket.isHost` (podía quedar desincronizada) y ahora compara contra `room.hostSocketId`.
+
+**Verificación**: probado con clientes `socket.io-client` reales simulando el escenario completo (host entra → invitado entra → host se desconecta → se transfiere al invitado → host original vuelve a entrar) — antes quedaban 2 hosts marcados en la lista de espectadores, ahora siempre queda exactamente 1.
+
+Ver `MEMORIA.md`, sección 5bis, para el detalle completo.
+
+## [2026-08-20] Fix — Diálogos nativos del navegador (prompt/confirm/alert) sin estilo propio
+
+**Motivo:** reporte del usuario con captura: al entrar a una sala desde el celular, el `prompt()` nativo que pide el nombre (`¿Cómo te llamas?`) aparecía sin ningún estilo, con la URL completa del túnel de Cloudflare pegada arriba. No tiene relación con que el link cambie de sesión a sesión (eso sigue igual) — es que `prompt()`/`confirm()`/`alert()` son diálogos del navegador, no HTML de la página, y Chrome les antepone el origen que los pidió.
+
+**Cambio**: se agregó un modal genérico (`.mn-modal-overlay` en `style.css`) con el mismo sistema de diseño "videoclub" del resto de la app, reutilizado para los 3 casos (prompt con input, confirm sí/no, alert de un botón) vía funciones async `mnPrompt()`/`mnConfirm()`/`mnAlert()` (devuelven `Promise`, ya que los diálogos nativos bloqueaban de forma síncrona y un modal HTML no puede). El flujo de entrada a la sala (`room.html`) que dependía del `prompt()` bloqueante se reescribió como `async/await` (`enterRoom()`).
+
+**Aplicado en `room.html`**: nombre al entrar, contraseña de sala, contraseña incorrecta (reintento), confirmar "Salir de la sala", confirmar "Expulsar", confirmar "Hacer host", aviso de "Te expulsaron". **Aplicado en `library.html`**: aviso de permisos de host, errores al usar/borrar una cinta, confirmar borrado.
+
+Ver `MEMORIA.md`, sección 8sedecies, para el detalle completo.
+
 ## [2026-08-19] Feature — Duración y progreso también para invitados (solo lectura)
 
 **Motivo:** pedido del usuario: los invitados no tenían forma de saber cuánto duraba la película ni por dónde iba, ya que la barra de progreso solo existía en `#hostControlsWrap` (exclusivo del host).

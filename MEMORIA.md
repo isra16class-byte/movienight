@@ -2,7 +2,7 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 19 de agosto de 2026 (quinto ajuste del mismo día: los invitados ahora ven la duración y el progreso de la película en `#localControls`, con una barra de solo lectura — sin poder tocarla — en paralelo a la del host).
+Última actualización: 20 de agosto de 2026 (V8: se corrigió un bug de host duplicado — el traspaso de host, automático o manual, no degradaba al host anterior, así que podían quedar 2 o más hosts a la vez en una sala — y se reemplazaron los diálogos nativos del navegador `prompt()`/`confirm()`/`alert()` por un modal propio con el estilo "videoclub" de la app).
 
 ---
 
@@ -45,6 +45,7 @@ rooms = {
     subtitleFile: '/uploads/xxxx.vtt' | null,
     viewers: number,
     hostToken: 'string secreta',
+    hostSocketId: socketId | null,                 // socket.id del host actual, única fuente de verdad (V8)
     passwordHash: 'sha256 hex' | null,           // null = sala sin contraseña
     mutedUserIds: Set<userId>,                     // por userId persistente, no por socket.id (V7)
     userNames: Map<socketId, username>,
@@ -55,7 +56,8 @@ rooms = {
 ```
 
 - `roomId`: 6 caracteres hex, generado con `crypto.randomBytes(3)`.
-- `hostToken`: 32 caracteres hex, generado al crear la sala. Se manda al cliente creador y se guarda en `localStorage` (`mn_host_<roomId>`). Es la única forma de identificar quién es host — no hay login ni cuentas de usuario. Desde V7 también se puede recibir en caliente vía socket (`host-status`) si alguien recibe el control remoto sin haber creado la sala (traspaso automático o manual, ver sección 5bis).
+- `hostToken`: 32 caracteres hex, generado al crear la sala. Se manda al cliente creador y se guarda en `localStorage` (`mn_host_<roomId>`). Sigue siendo la credencial que prueba "puedo ser host" — no hay login ni cuentas de usuario. Desde V7 también se puede recibir en caliente vía socket (`host-status`) si alguien recibe el control remoto sin haber creado la sala (traspaso automático o manual, ver sección 5bis).
+- `hostSocketId` (V8): a diferencia de `hostToken` (que es una credencial, no cambia), este campo dice quién es el host **ahora mismo** — el `socket.id` del único socket con `isHost = true` en la sala en un momento dado. Es la pieza que faltaba antes de V8: sin ella, presentar un `hostToken` válido alcanzaba para volverse host sin importar si ya había otro. Ver sección 5bis para el fix completo.
 - `passwordHash` (V7): opcional. Si está seteado, `join-room` exige que el cliente mande la contraseña en texto plano por socket; el servidor la hashea (`sha256`) y compara. No hay salt por usuario — es una protección básica pensada para un grupo de amigos, no para resistir ataques serios (ver sección 9).
 - `userId` (V7): identificador persistente generado en el cliente (`crypto.randomUUID()`, guardado en `localStorage` como `mn_uid`, uno solo por navegador — no por sala). Se manda en cada `join-room` y es lo que permite que el estado de "silenciado" y la supresión de mensajes de reconexión sobrevivan a un refresh o a una caída de wifi. Es distinto de `socket.id`, que cambia en cada conexión.
 
@@ -63,22 +65,30 @@ rooms = {
 
 Esto se agregó después de la primera versión, a pedido explícito: solo el host puede controlar el video, y necesita poder expulsar/silenciar gente.
 
-- Al hacer `join-room`, el cliente manda `{ roomId, username, hostToken }`. El servidor compara `hostToken` contra el guardado en la sala; si coincide, `socket.isHost = true`.
-- **Cualquier socket que presente el hostToken correcto se vuelve host** (no hay un solo "host socket" fijo) — esto es intencional para que el creador pueda abrir varias pestañas/dispositivos y seguir teniendo control, pero significa que si el hostToken se filtra, cualquiera puede volverse host. No hay protección adicional contra esto (ver sección de riesgos).
+- Al hacer `join-room`, el cliente manda `{ roomId, username, hostToken }`. El servidor compara `hostToken` contra el guardado en la sala; si coincide, pasa por `setHost()` (V8, ver sección 5bis) y ese socket se vuelve host.
+- **Solo puede haber un host a la vez por sala** (V8). Antes de V8, cualquier socket que presentara el `hostToken` correcto se volvía host sin más chequeo — lo cual causaba hosts duplicados en varios escenarios (ver 5bis). Ahora `room.hostSocketId` guarda quién es el host actual, y `setHost()` es el único lugar que puede cambiarlo: siempre degrada primero al host anterior (si hay uno distinto y sigue conectado) antes de promover al nuevo. Efecto secundario esperado: si el creador abre la sala en dos pestañas/dispositivos, solo la última en unirse queda como host activo (la otra pierde el control, avisada por `host-status`) — antes ambas quedaban como host a la vez, que era justamente la causa del bug. Si el `hostToken` se filtra, quien lo tenga puede seguir volviéndose host en cualquier momento — eso no cambió — pero ya no puede haber dos al mismo tiempo (ver sección de riesgos).
 - Eventos `sync` (play/pause/seek) del backend **solo se retransmiten si vienen de un socket con `isHost = true`**.
 - En el frontend (`room.html`), a los no-host se les quita el atributo `controls` del `<video>`, y se bloquea cualquier intento de mover el `currentTime` manualmente (evento `seeking` lo revierte a `lastKnownTime`). Esto se agregó porque un invitado logró adelantar el video sin querer desde el celular.
 - Se agregó un **heartbeat**: el host manda su posición cada 4 segundos (`type: 'heartbeat'`) para resincronizar a todos aunque no haya pausado/adelantado nada — corrige drift por buffering o lag.
 - El host puede **expulsar** (`kick-user`) y **silenciar el chat** (`toggle-mute`) a otros usuarios desde la pestaña "Espectadores" en `room.html`. El silencio es solo de chat, no de audio/video (cada quien controla su propio volumen localmente, no hay forma de silenciar el audio de otro ya que no comparten audio entre sí).
 - El host puede **cambiar la película** en cualquier momento sin cerrar la sala (`POST /room/:id/change-video`, protegido por `hostToken` en el body), o reutilizar un video ya subido desde la biblioteca (`POST /room/:id/change-video-from-upload`, ver sección 8quater).
 
-## 5bis. Traspaso de host (V7)
+## 5bis. Traspaso de host (V7, corregido en V8)
 
 Antes, si el host cerraba la pestaña o se le caía la conexión, nadie más podía controlar el video — la sala quedaba "congelada" salvo que el host volviera a entrar desde el mismo navegador (el único que tiene el `hostToken` en `localStorage`).
 
-- **Automático**: en el handler de `disconnect` del servidor, si el socket que se fue era host y no queda ningún otro socket host conectado en esa sala, se asciende automáticamente al espectador que lleva más tiempo conectado (primero en el `Set` de sockets de la sala, que en Socket.io conserva el orden de inserción). Al nuevo host se le manda el `hostToken` real por el evento `host-status`, así queda guardado en su `localStorage` y sigue siendo host aunque recargue la página.
-- **Manual**: el host puede darle el control a cualquier espectador desde el panel "Sala" → botón "Hacer host" (evento `make-host`). Esto **no le quita** el rol de host a quien lo dio — sigue existiendo la misma regla de V2: cualquier socket con el `hostToken` correcto es host, así que ahora simplemente hay dos.
+- **Automático**: en el handler de `disconnect` del servidor, si el socket que se fue era el host actual (`room.hostSocketId === socket.id`), se asciende automáticamente al espectador que lleva más tiempo conectado (primero en el `Set` de sockets de la sala, que en Socket.io conserva el orden de inserción), vía `setHost()`.
+- **Manual**: el host puede darle el control a cualquier espectador desde el panel "Sala" → botón "Hacer host" (evento `make-host`), también vía `setHost()`.
 - En ambos casos se manda un mensaje de sistema al chat avisando quién es el nuevo host.
-- Esto resuelve el primer ítem del roadmap ("traspasar el rol de host a otro espectador si el host se desconecta").
+
+**Bug de V7, corregido en V8 — "host duplicado":** en V7, ni el traspaso automático ni el manual le quitaban el rol de host a quien lo tenía antes — solo prendían `isHost = true` en el nuevo, sin apagarlo en el viejo. Combinado con que "cualquier socket con el `hostToken` correcto es host" (sección 5), esto generaba hosts duplicados en la práctica:
+- El host se iba → se transfería al siguiente → el host original volvía a entrar (su `hostToken` en `localStorage` seguía siendo válido) → quedaba marcado `isHost = true` **sin quitárselo** a quien ya lo tenía. Dos hosts a la vez, cada uno pudiendo mover el video del otro.
+- Traspaso manual: quien daba el control con "Hacer host" no se degradaba a sí mismo. Mismo resultado.
+- Repitiendo el primer caso varias veces se podían acumular 3 o más "hosts" simultáneos.
+
+**Fix (V8):** se agregó `room.hostSocketId` (ver sección 4) y una función única `setHost(room, roomId, socket)` por la que pasan los tres casos de arriba (join con token válido, traspaso automático, traspaso manual). Antes de promover a alguien, `setHost()` siempre revisa si `room.hostSocketId` ya apunta a otro socket conectado y, si es así, lo degrada primero (`isHost = false` + `host-status` avisándole, para que su UI de host desaparezca al instante). Así nunca puede haber más de un socket con `isHost = true` a la vez en una sala. El traspaso automático además dejó de confiar en la bandera local `socket.isHost` (que podía quedar desincronizada) y ahora compara directamente contra `room.hostSocketId`, que es la fuente de verdad.
+
+Esto resuelve el primer ítem del roadmap ("traspasar el rol de host a otro espectador si el host se desconecta") de forma completa — en V7 quedaba resuelto a medias por este bug.
 
 ## 6. Sincronización de video — cómo funciona
 
@@ -92,7 +102,7 @@ Eventos de socket relevantes (todos dentro del namespace default, agrupados por 
 | `reaction` | cualquier cliente | Se retransmite a toda la sala (emoji flotante) |
 | `kick-user` | solo host | Servidor fuerza `disconnect()` del socket objetivo |
 | `toggle-mute` | solo host | Agrega/quita del `Set` de silenciados (por `userId`), notifica al afectado |
-| `make-host` | solo host (V7) | Asciende a otro socket a host y le manda el `hostToken` |
+| `make-host` | solo host (V7) | Asciende a otro socket a host vía `setHost()` (V8), que además degrada al host anterior |
 | `buffering-status` | cualquier cliente (V7) | Marca/desmarca a ese socket como "buffereando" para la sala |
 | `typing` | cualquier cliente (V7) | Se retransmite a los demás para el indicador "X está escribiendo..." |
 | `room-data` | servidor, tras un `join-room` válido (V7) | Manda `videoFile` y `subtitleFile` — reemplaza al fetch a `/api/room/:id` que existía antes de V7 |
@@ -106,7 +116,7 @@ En el cliente, hay una variable `ignoreSync` que evita loops infinitos: cuando e
 ## 7. Decisiones de diseño relevantes (por qué se hizo así)
 
 - **Sin base de datos ni persistencia**: el proyecto es para uso personal/casual, no vale la pena la complejidad de Postgres/SQLite para algo que se usa unas horas y se apaga.
-- **Sin sistema de cuentas**: entrar a la sala solo pide un nombre (prompt de JS), no hay registro. El "host" se identifica solo por posesión del token, no por login.
+- **Sin sistema de cuentas**: entrar a la sala solo pide un nombre (modal propio, ver sección 8sedecies), no hay registro. El "host" se identifica solo por posesión del token, no por login.
 - **Video servido desde el propio servidor** (no WebRTC / P2P): se consideró pero se descartó por complejidad — sincronizar streams P2P de video pesado entre navegadores es mucho más difícil que simplemente servir el archivo por HTTP y sincronizar solo los eventos de control (play/pause/seek) por WebSocket. La contra es que el ancho de banda de subida del host limita cuántos amigos pueden ver fluido a la vez.
 - **Cloudflare Tunnel en vez de deploy real (Railway/Render/VPS)**: los videos pueden pesar varios GB; subirlos a un servicio de hosting pago sale caro y lento cada vez que cambias de película. Tunear el localhost es gratis y usa el disco/ancho de banda del propio usuario.
 
@@ -178,7 +188,7 @@ Antes, cada video subido quedaba "atrapado" dentro de la sala que lo creó: no h
   - `DELETE /api/uploads/:filename` — borra el archivo del disco con `fs.unlink`.
   - Las tres rutas comparten `isValidUploadFilename()`, que valida que el nombre no tenga separadores de ruta ni `..` y que el archivo exista dentro de `UPLOAD_DIR` — evita path traversal (ej. `../../server.js`). Probado explícitamente con Playwright antes de entregar.
 - **Nombres de archivo más amigables**: el `filename` que genera Multer cambió de `<hash>.mp4` a `<hash-corto>__<nombre original sanitizado>.mp4` (ej. `b0db5e9e__Mi Pelicula Favorita.mp4`). La biblioteca separa el hash del nombre original (`displayNameFor()`) para mostrar solo el nombre reconocible. **Los videos subidos antes de este cambio no tienen el separador `__`**, así que en la biblioteca se muestran con su nombre-hash tal cual (ej. `ce1e9f8848137671.mp4`) — es cosmético, siguen funcionando igual.
-- **Frontend (`public/library.html`)**: pantalla nueva con el mismo sistema de diseño VHS (`.deck.deck-wide`, esquinas, contador REC, horizonte). Lista cada video con ícono, nombre, tamaño formateado (KB/MB/GB) y fecha, más dos botones: "▶ USAR" (llama a `create-room-from-upload`, guarda el `hostToken` en `localStorage` igual que el flujo normal, y redirige a `/room/<id>`) y "🗑" (con `confirm()` antes de borrar). Estados de carga/vacío incluidos. Responsive: en pantallas angostas (`≤480px`) los botones bajan a una segunda fila para no apretar el nombre del archivo.
+- **Frontend (`public/library.html`)**: pantalla nueva con el mismo sistema de diseño VHS (`.deck.deck-wide`, esquinas, contador REC, horizonte). Lista cada video con ícono, nombre, tamaño formateado (KB/MB/GB) y fecha, más dos botones: "▶ USAR" (llama a `create-room-from-upload`, guarda el `hostToken` en `localStorage` igual que el flujo normal, y redirige a `/room/<id>`) y "🗑" (con confirmación antes de borrar — desde V8 es el modal propio `mnConfirm()`, ver sección 8sedecies; antes era `confirm()` nativo). Estados de carga/vacío incluidos. Responsive: en pantallas angostas (`≤480px`) los botones bajan a una segunda fila para no apretar el nombre del archivo.
 - **Nueva clase compartida en `style.css`**: `.deck.deck-wide` (620px en vez de 380px) para que la lista tenga espacio; `.tape-list`, `.tape-item` y variantes para los botones de acción.
 - **Riesgo conocido, ya anotado en la sección 9**: borrar un video que está siendo usado por una sala activa rompe el reproductor de esa sala (el archivo deja de existir en `/uploads/`). No hay ninguna advertencia de "este video está en uso" — queda pendiente si se vuelve un problema real.
 - Verificado end-to-end con Playwright: subida con nombre real → aparece en la biblioteca con ese nombre → botón "USAR" crea la sala y redirige → botón "🗑" borra el archivo del disco (confirmado con `ls`) → intento de path traversal rechazado con 400.
@@ -189,7 +199,7 @@ Al crear una sala (desde `index.html`) hay un campo opcional "Contraseña de la 
 
 - El servidor guarda `sha256(password)` en `room.passwordHash` — nunca la contraseña en texto plano, y sin salt por sala (protección básica, ver riesgos).
 - `GET /api/room/:id` ahora solo devuelve `{ passwordProtected: true|false }`. Antes de V7 devolvía también `videoFile`, lo cual exponía la ruta real del video sin verificar nada — se movió esa información a después de un `join-room` válido (evento `room-data`).
-- En `room.html`, si `passwordProtected` es `true`, se pide la contraseña con un `prompt()` antes de conectar el socket. Si es incorrecta, el servidor manda `room-error: 'Contraseña incorrecta.'` y el cliente vuelve a preguntar (no expulsa a la primera).
+- En `room.html`, si `passwordProtected` es `true`, se pide la contraseña con un modal propio (desde V8, `mnPrompt()`; antes `prompt()` nativo — ver sección 8sedecies) antes de conectar el socket. Si es incorrecta, el servidor manda `room-error: 'Contraseña incorrecta.'` y el cliente vuelve a preguntar (no expulsa a la primera).
 - La biblioteca (`create-room-from-upload`) no tiene campo de contraseña en esta versión — quedó fuera de alcance por simplicidad; si se necesita, es un cambio chico (agregar el mismo input en `library.html`).
 
 ## 8sexies. Subtítulos .srt/.vtt (V7)
@@ -495,6 +505,36 @@ caracteres de texto plano, no emoji, así que nunca salen a color) y el "10" deb
 rosa (línea visual de todo lo relacionado a host: `.host-badge` ya usaba ese gradiente) y pasan a
 cian al tocarlos, como el resto de los controles interactivos de la sala.
 
+## 8sedecies. Modal propio reemplaza los diálogos nativos del navegador (V8)
+
+El usuario reportó con captura que, al entrar a una sala desde el celular, el `prompt()` nativo que
+pide el nombre (`¿Cómo te llamas?`) aparecía sin ningún estilo y con la URL completa del túnel de
+Cloudflare pegada arriba (ej. `definition-utc-college-specials.trycloudflare.com dice`) — algo que no
+tiene que ver con que el link cambie cada vez que se reinicia el túnel (eso siempre pasó y seguirá
+pasando), sino con que `prompt()`/`confirm()`/`alert()` son diálogos del propio navegador, no HTML de
+la página, así que Chrome les antepone el origen de la página que los pidió.
+
+**Fix:** se agregó un componente de modal genérico (`.mn-modal-overlay` en `style.css`), con el mismo
+sistema de diseño "videoclub" del resto de la app, reutilizado para los 3 casos (mostrando u
+ocultando el input y el botón cancelar según corresponda):
+- `mnPrompt({ title, placeholder, type, ... })` — reemplaza `prompt()`.
+- `mnConfirm(message)` — reemplaza `confirm()`.
+- `mnAlert(message)` — reemplaza `alert()`.
+
+Los tres devuelven una `Promise` (los diálogos nativos bloqueaban de forma síncrona; un modal HTML no
+puede hacer eso), así que todo el flujo de entrada a la sala (`room.html`) que dependía del `prompt()`
+del nombre y la contraseña se convirtió a `async/await` (`enterRoom()`).
+
+Aplicado en **`room.html`**: nombre al entrar, contraseña de sala, contraseña incorrecta (reintento),
+confirmar "Salir de la sala", confirmar "Expulsar", confirmar "Hacer host", aviso de "Te expulsaron".
+Aplicado en **`library.html`**: aviso de permisos de host, errores al usar/borrar una cinta,
+confirmar borrado. El markup del modal y las funciones `mnDialog`/`mnPrompt`/`mnConfirm`/`mnAlert`
+están duplicados en ambos archivos (mismo patrón que ya usa `escapeHtml`, cada página HTML es
+autocontenida, no hay un JS compartido entre páginas).
+
+Es puramente de UI/estética — no tiene relación con Cloudflare Tunnel ni con que el link cambie de
+sesión a sesión; eso sigue siendo así y no tiene solución sin un dominio fijo (ver roadmap, sección 10).
+
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 
 - El `hostToken` viaja en texto plano por HTTP (a menos que Cloudflare Tunnel lo cifre en tránsito, que sí lo hace vía HTTPS). Si alguien lo obtiene (inspeccionando `localStorage` de la persona equivocada, por ejemplo), puede hacerse pasar por host.
@@ -515,12 +555,14 @@ cian al tocarlos, como el resto de los controles interactivos de la sala.
 - [ ] Evaluado y descartado por ahora (no encaja con el caso de uso de grupo privado chico): video/voz en vivo integrado tipo Scener/Kast, soporte para reproducir desde plataformas externas (Netflix/YouTube/etc.).
 - [x] ~~Mostrar advertencia/loading mientras el video sube~~ — resuelto en V5 con barra de progreso real (ver sección 8ter).
 - [x] ~~Reutilizar videos ya subidos sin tener que resubirlos~~ — resuelto en V6 con la biblioteca de cintas (ver sección 8quater).
-- [x] ~~Traspasar el rol de host a otro espectador~~ — resuelto en V7, automático y manual (ver sección 5bis).
+- [x] ~~Traspasar el rol de host a otro espectador~~ — resuelto en V7 (automático y manual), con un bug de host duplicado corregido en V8 (ver sección 5bis).
 - [x] ~~Subtítulos (.srt) sincronizados~~ — resuelto en V7 (ver sección 8sexies).
 - [x] ~~Contraseña de sala además del link~~ — resuelto en V7 (ver sección 8quinquies).
 - [x] ~~El botón de "Cambiar cinta" debería llevar a la biblioteca~~ — resuelto en V7: ahora enlaza a `/library.html?fromRoom=<roomId>`, que además permite subir una cinta completamente nueva sin perder esa opción.
 - [x] ~~Botón de "Salir" para volver al inicio y unirse a otra sala~~ — resuelto en V7.
 - [x] ~~El teclado móvil empuja el video fuera de pantalla al escribir en el chat~~ — resuelto (ver sección 8septies).
+- [x] ~~Diálogos nativos del navegador (prompt/confirm/alert) sin estilo propio~~ — resuelto en V8 con un modal propio (ver sección 8sedecies).
+- [x] ~~Bug: podía haber más de un host a la vez en una sala~~ — resuelto en V8 (ver sección 5bis).
 
 ## 11. Historial de cambios
 
