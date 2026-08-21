@@ -6,6 +6,36 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-21] Cloudflare R2 — Fase 2: la subida de video (crear sala / cambiar cinta) ya va directo al bucket
+
+**Motivo:** seguía de la Fase 1 (ver entrada de abajo) — ahí solo se había montado `lib/r2.js` sin que
+nada lo usara. Esta sesión conecta esa infraestructura a `POST /create-room` y
+`POST /room/:id/change-video`, que son las dos rutas que reciben un archivo de video.
+
+**Decisión de arquitectura:** el navegador sigue subiendo al servidor exactamente igual que antes
+(mismo `FormData`/XHR, misma barra de progreso) — es el servidor quien, en vez de escribir a disco,
+reenvía ese stream directo a R2 sin tocarlo en ningún momento (ni disco, ni memoria completa). Se
+eligió esto en vez de que el navegador suba directo a R2 con una URL prefirmada porque el problema
+real (ver Fase 1 más abajo) era de reproducción para espectadores remotos, no de subida — y esta forma
+no requiere tocar ningún HTML/JS del cliente ni configurar CORS en el bucket.
+
+**Qué se agregó/cambió en `server.js`:** un motor de storage de Multer nuevo (`r2VideoStorage`) que
+usa `r2.uploadStream()` (ya existía desde la Fase 1) en vez de `multer.diskStorage`; se elige uno u
+otro una sola vez al arrancar según `r2.isR2Enabled()`; `videoUrlForUploadedFile()` arma la URL final
+(local o de R2) para `room.videoFile`; middleware de errores que devuelve JSON (no HTML) si Multer
+corta por tamaño o si falla la subida a R2; chequeo de `r2.testConnection()` al arrancar el server,
+con aviso claro por consola si R2 está mal configurado.
+
+**Qué NO se tocó (a propósito, queda para la Fase 3):** `/create-room-from-upload`,
+`/room/:id/change-video-from-upload` y `/api/uploads` (la biblioteca) siguen funcionando solo contra
+disco local. Efecto esperado: con R2 activo, un video subido ahora no aparece todavía en
+`library.html` para reutilizarlo después — hay que volver a subirlo. Ver `MEMORIA.md` sección
+8tricies para el detalle completo y cómo se probó (sin credenciales reales de R2, con un stub).
+
+**Documentación:** README actualizado (sección Cloudflare R2 ahora dice que la subida ya está
+conectada, y qué falta); `MEMORIA.md` con la sección 8tricies nueva y el roadmap (sección 10)
+actualizado.
+
 ## [2026-08-21] Cloudflare R2 — Fase 1: infraestructura aislada, sin conectar todavía
 
 **Motivo:** sesión real con 3 personas (host en localhost + 2 amigas remotas por Cloudflare Tunnel)

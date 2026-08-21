@@ -1116,6 +1116,99 @@ resumido) y la guía paso a paso para crear el bucket, activar acceso público, 
 API, y completar el `.env` — para que alguien pueda dejar todo listo del lado de Cloudflare *antes* de
 que Fase 2 conecte el código.
 
+## 8tricies. Cloudflare R2 — Fase 2: la subida de video ya sube directo al bucket
+
+**Motivo:** seguía de la sección anterior (8novovicies) — ahí solo se había montado `lib/r2.js` como
+pieza aislada, sin que ningún endpoint la usara todavía. Esta sesión conecta esa infraestructura a las
+dos rutas que reciben un archivo de video: `POST /create-room` y `POST /room/:id/change-video`.
+
+**Decisión de arquitectura (server-proxy-stream, no presigned URL):** se evaluaron dos formas de
+conectar R2 acá — (a) que el navegador suba directo a R2 con una URL prefirmada, sin pasar en absoluto
+por el servidor/túnel, o (b) que el navegador siga subiendo al servidor exactamente igual que hoy, y
+sea el servidor quien reenvíe ese stream a R2 sin tocar disco. Se eligió (b) porque el problema real
+que motivó todo esto (ver 8novovicies) fue de **reproducción** para espectadores remotos, no de
+subida — la persona que sube el video lo hace una sola vez, no es tráfico simultáneo de varios
+espectadores pidiendo partes distintas de un archivo a la vez, que es lo que saturaba el túnel. Con
+(b) se resuelve el cuello de botella real con bastante menos superficie de cambio: no hace falta tocar
+`index.html`/`room.html`/`library.html` (la barra de progreso de subida sigue midiendo lo mismo que
+antes — bytes del navegador al servidor — y sigue funcionando igual), y no hace falta configurar CORS
+en el bucket. Queda anotado como posible mejora futura si algún día un invitado remoto (no el host) es
+quien sube seguido videos pesados desde su propia conexión (ver sección 10).
+
+**`server.js` — motor de storage de Multer para R2 (`r2VideoStorage`):** Multer ya se usaba para
+recibir el archivo (antes solo con `multer.diskStorage`, que lo escribe en disco). Se agregó un
+segundo motor que implementa la misma interfaz (`_handleFile`/`_removeFile`) pero, en vez de escribir
+a disco, toma `file.stream` — el stream crudo de esa parte del multipart, mientras todavía está
+llegando por HTTP — y lo empalma directo a `r2.uploadStream()` (la función que ya existía desde la
+Fase 1, sube en partes/multipart). El archivo nunca toca el disco del servidor ni se carga entero en
+memoria en ningún punto: entra por un lado (request HTTP) y sale por el otro (subida a R2) al mismo
+tiempo. Se intercala un `PassThrough` en el medio solo para contar bytes que pasan (no retiene ni
+altera los datos) y así poder devolver `size`, igual que ya hace el motor de disco.
+
+**Selección de motor una sola vez, al arrancar (no por request):** `const videoStorage = r2.isR2Enabled() ? r2VideoStorage : storage`.
+Como `isR2Enabled()` depende de variables de entorno que ya están cargadas por `loadDotEnv()` antes de
+que se ejecute esta línea, el modo queda fijo para toda la vida del proceso — no hay mezcla de "esta
+subida sí, esta otra no" dentro de una misma corrida del servidor.
+
+**`videoUrlForUploadedFile(file)`:** función que arma la URL final a partir del `req.file` que deja
+Multer (con cualquiera de los dos motores) — `r2.getPublicUrl(file.key)` si R2 está activo, o
+`/uploads/' + file.filename` en modo local, igual que antes. Se usa en `/create-room` y
+`/room/:id/change-video`, reemplazando el armado manual de la ruta que había antes en ambos. El
+cliente (`room.html`) no necesita saber cuál de las dos es: sigue haciendo `player.src = videoFile`
+tal cual, sea una ruta local o una URL absoluta de R2 (confirmado con pruebas, ver más abajo).
+
+**`videoDisplayName()` (ya existía) sigue funcionando sin cambios con URLs de R2:** separa por nombre
+de archivo con `path.basename()` y por el separador `__` que ya usa el nombre. Como
+`r2.makeObjectKey()` arma la key del objeto con el mismo criterio que Multer usa en disco (prefijo
+random + `__` + nombre original saneado, ver Fase 1), `path.basename('https://pub-x.r2.dev/ab12cd34__Mi Pelicula.mp4')`
+devuelve `ab12cd34__Mi Pelicula.mp4` igual que con una ruta local, así que los mensajes de chat de
+"cinta cargada"/"cambiaron la cinta" muestran el nombre legible sin ningún cambio adicional.
+
+**Manejo de errores como JSON (nuevo middleware de errores en `server.js`):** antes, un archivo que
+supera el límite de Multer, o ahora un fallo de R2 a mitad de subida (credenciales mal puestas, bucket
+inexistente, conexión caída), tiraba un error sin manejar que Express devolvía como su página HTML de
+error por defecto — rompía el `xhr.onload`/`JSON.parse()` del cliente en `index.html`/`library.html`,
+que siempre espera JSON de estas rutas. Se agregó un middleware de errores de Express (al final de
+todas las rutas que usan `upload.single('video')`, como exige Express para que pueda atraparlos) que
+devuelve `{ error: '...' }` con status apropiado: 400 si es un `MulterError` (ej. archivo demasiado
+grande), 502 si es un fallo de R2.
+
+**Chequeo de conexión a R2 al arrancar el server:** si `isR2Enabled()` es `true`, se llama a
+`r2.testConnection()` (ya existía desde la Fase 1, no se usaba en ningún lado todavía) apenas arranca
+el servidor, y se imprime por consola si la conexión es válida o si algo está mal configurado — para
+detectarlo ahí, no recién cuando alguien intente crear una sala. A propósito **no hay ningún modo de
+emergencia que caiga a disco local si esto falla**: si `R2_ACCOUNT_ID` etc. están seteadas pero mal
+(typo, bucket borrado, credencial revocada), crear sala o cambiar de cinta va a fallar con el error
+JSON de arriba en vez de guardar en disco por sorpresa — se prefirió un fallo explícito y ruidoso a
+una mezcla silenciosa de "algunos videos en disco, otros en el bucket" según qué tan bien haya andado
+R2 en ese momento puntual.
+
+**Qué NO se tocó en esta sesión (a propósito):**
+- `POST /create-room-from-upload` y `POST /room/:id/change-video-from-upload` (reutilizar un video ya
+  subido, sin resubir nada) — estas rutas siguen validando y sirviendo **solo** contra disco local
+  (`isValidUploadFilename`), sin ningún cambio. La razón: el único lugar de donde sale el `filename`
+  que estas rutas reciben es `library.html`, que a su vez lista `GET /api/uploads` — y esa ruta sigue
+  leyendo solo disco local hasta la Fase 3 (ver sección 10). Conectar estas dos rutas a R2 sin que la
+  biblioteca sepa listar objetos de R2 no serviría de nada todavía (nadie podría llegar a mandar la key
+  de un objeto de R2 desde la UI); por eso se dejó explícitamente para la Fase 3, junto con
+  `/api/uploads`.
+- **Efecto colateral esperado de lo anterior:** con R2 activo, un video subido a partir de ahora (por
+  `/create-room` o `/room/:id/change-video`) **no aparece** en `library.html` para reutilizarlo más
+  tarde — solo se puede volver a subir. Es una limitación conocida y documentada (README, sección
+  Cloudflare R2), no un bug; se cierra en la Fase 3.
+- `subtitleUpload` (subtítulos .srt/.vtt) sigue guardándose en disco local sin cambios — son archivos
+  de texto chicos, no aportan nada al problema de ancho de banda que motivó todo esto.
+
+**Cómo se probó (sin credenciales reales de R2 en este entorno):** se armó un `lib/r2.js` de prueba
+(stub, no forma parte de este commit) que simula `isR2Enabled() = true` y cuenta bytes en vez de
+hablar por red de verdad, para validar: (1) un video de 5MB subido a `/create-room` en "modo R2" nunca
+toca `public/uploads/` y el stub reporta haber recibido exactamente esos 5MB en streaming; (2) por
+socket, `room-data` llega con `videoFile` en formato URL de R2 (`https://pub-.../hash__nombre.mp4`);
+(3) si `uploadStream()` o `testConnection()` fallan, el servidor avisa por consola al arrancar y
+responde `502` con JSON al intentar crear sala (no HTML); (4) si Multer corta por límite de tamaño,
+responde `400` con JSON. En modo local (sin R2 configurado) se repitió la prueba de subida real de un
+archivo y se confirmó que el comportamiento no cambió en nada respecto de antes de esta sesión.
+
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 
 - El `hostToken` viaja en texto plano por HTTP (a menos que Cloudflare Tunnel lo cifre en tránsito, que sí lo hace vía HTTPS). Si alguien lo obtiene (inspeccionando `localStorage` de la persona equivocada, por ejemplo), puede hacerse pasar por host.
@@ -1129,15 +1222,12 @@ que Fase 2 conecte el código.
 
 ## 10. Ideas pendientes / roadmap
 
-- [ ] **Cloudflare R2 — Fase 2:** conectar `lib/r2.js` (ver sección 8novovicies) a `/create-room`,
-      `/create-room-from-upload` y `/room/:id/change-video` — el video se sube directo desde el
-      navegador de quien lo comparte hacia R2 (streaming), sin guardarse en disco local del host ni
-      pasar por el túnel. Debe seguir funcionando en modo local si no hay R2 configurado (modo dual).
-- [ ] **Cloudflare R2 — Fase 3:** `/api/uploads` (listar) y el borrado de la biblioteca pasan a leer
-      del bucket cuando R2 está activo (usando `listObjects`/`deleteObject` de `lib/r2.js`). Agregar
-      mensaje por consola al arrancar el server avisando en qué modo quedó (local o R2), usando
-      `testConnection()` para detectar configuración mal hecha. Cerrar la documentación de
-      README/MEMORIA/CHANGELOG con la guía completa de punta a punta.
+- [ ] **Cloudflare R2 — Fase 3:** `/api/uploads` (listar) y el borrado de la biblioteca
+      (`library.html`) pasan a leer del bucket cuando R2 está activo (usando
+      `listObjects`/`deleteObject` de `lib/r2.js`, ya existen desde la Fase 1). Con eso, también se
+      puede conectar `POST /create-room-from-upload` y `POST /room/:id/change-video-from-upload` a R2
+      (hoy siguen validando solo contra disco local — ver 8tricies para el porqué). Cerrar la
+      documentación de README/MEMORIA/CHANGELOG con la guía completa de punta a punta.
 - [ ] Borrado automático de salas/archivos viejos (ej. después de X horas sin actividad).
 - [ ] Dominio fijo con Cloudflare Tunnel nombrado (requiere cuenta de Cloudflare + dominio propio) para no tener que compartir un link nuevo cada sesión.
 - [ ] Posible: avisar si se intenta borrar un video que está en uso por una sala activa.
@@ -1156,6 +1246,7 @@ que Fase 2 conecte el código.
 - [x] ~~Diálogos nativos del navegador (prompt/confirm/alert) sin estilo propio~~ — resuelto en V8 con un modal propio (ver sección 8sedecies).
 - [x] ~~Bug: podía haber más de un host a la vez en una sala~~ — resuelto en V8 (ver sección 5bis).
 - [x] ~~/api/uploads (listar/borrar cintas) sin ninguna autenticación~~ — resuelto en V9 con contraseña de biblioteca (ver sección 8septendecies).
+- [x] ~~Cloudflare R2 — Fase 2: conectar la subida de video (crear sala / cambiar cinta) al bucket~~ — resuelto (ver sección 8tricies). Falta la Fase 3 (biblioteca), ver arriba.
 
 ## 11. Historial de cambios
 
