@@ -131,22 +131,22 @@ local (disco), exactamente igual que siempre.
    R2_PUBLIC_URL=https://pub-xxxxxxxx.r2.dev
    ```
 
-**Estado actual:** ya está conectado a la subida de video. Si completás las 4 variables obligatorias
-del `.env`, cualquier video que subas (al crear una sala o al cambiar de cinta) se transmite directo
-al bucket de R2 en vez de guardarse en disco local — el servidor lo verifica al arrancar y te avisa
-por consola en qué modo quedó. Si **no** completás esas variables, todo sigue funcionando en modo
-local (disco), exactamente igual que siempre — es un modo dual, no hace falta elegir de antemano.
+**Estado actual: completo.** Si completás las 4 variables obligatorias del `.env`, todo el ciclo de
+vida de un video pasa por el bucket en vez de disco local:
+
+- Subir un video (al crear una sala o al cambiar de cinta) se transmite directo a R2.
+- La biblioteca (`library.html`) lista, reutiliza y borra videos directo del bucket — funciona
+  exactamente igual que en modo disco, sin ningún cambio visible para quien la usa.
+
+El servidor verifica la conexión a R2 al arrancar y te avisa por consola en qué modo quedó. Si **no**
+completás esas variables, todo sigue funcionando en modo local (disco), exactamente igual que
+siempre — es un modo dual, no hace falta elegir de antemano.
 
 Si algo de la configuración de R2 está mal (credenciales, nombre de bucket, etc.), el servidor te
-avisa claro por consola al arrancar, y crear sala o cambiar de cinta va a fallar con un mensaje de
-error legible en vez de romperse en silencio — a propósito no hay "modo de emergencia" que caiga
-solo a disco si R2 falla, para no terminar con videos mezclados entre disco y bucket sin darte cuenta.
-
-**Lo que todavía falta (biblioteca — pendiente, próxima sesión):** la pantalla de "reutilizar una
-cinta ya subida" (`library.html`) todavía lista y borra solo lo que hay en disco local. Si tenés R2
-activado, los videos nuevos van al bucket y por ahora **no aparecen** en esa lista — solo podés
-reusarlos por ahora si volvés a subirlos. Conectar la biblioteca a R2 es la Fase 3, ver "Próximas
-ideas" más abajo.
+avisa claro por consola al arrancar, y cualquier operación contra R2 (subir, listar la biblioteca,
+reutilizar un video, borrar) va a fallar con un mensaje de error legible en vez de romperse en
+silencio — a propósito no hay "modo de emergencia" que caiga solo a disco si R2 falla, para no
+terminar con videos mezclados entre disco y bucket sin darte cuenta.
 
 ## Estructura del proyecto
 
@@ -180,5 +180,3 @@ movienight/
 
 - Historial de salas / salas persistentes en disco o base de datos.
 - Dominio fijo con Cloudflare Tunnel para no compartir un link distinto cada vez.
-- **Cloudflare R2 — Fase 3:** conectar la biblioteca (`library.html`, listar/borrar) a R2 cuando está
-  activo, para poder reutilizar videos ya subidos al bucket sin volver a subirlos.

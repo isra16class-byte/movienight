@@ -2,8 +2,9 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 21 de agosto de 2026 (V16 — fix: el nombre citado en una respuesta no reflejaba
-si esa persona era host, aunque su propio mensaje sí; ver sección 8octovicies).
+Última actualización: 21 de agosto de 2026 (Cloudflare R2 — Fase 3: la biblioteca ya lista, reutiliza
+y borra directo del bucket cuando R2 está activo; ver sección 8quatricies. Con esto se cierran las 3
+fases de R2 del roadmap).
 
 ---
 
@@ -186,11 +187,17 @@ Antes, mientras se subía el video, solo se mostraba un texto genérico ("Subien
 
 Antes, cada video subido quedaba "atrapado" dentro de la sala que lo creó: no había forma de reutilizarlo para una sala nueva sin volver a subir el archivo entero (lento con archivos de varios GB). Se agregó una pantalla nueva, `public/library.html`, accesible desde un link en `index.html` ("📼 Ver biblioteca de cintas subidas").
 
+> **Nota (Fase 3 de R2, ver sección 8quatricies):** lo que sigue describe la implementación original
+> V6, que asumía disco local siempre. Desde la Fase 3, si R2 está activo, estas mismas rutas leen y
+> escriben contra el bucket en vez de disco — `isValidUploadFilename()` ya no existe (se reemplazó por
+> `isValidUploadReference()`, async y consciente de R2). El comportamiento en modo disco (sin R2) no
+> cambió en nada.
+
 - **Backend (`server.js`), 3 rutas nuevas**:
   - `GET /api/uploads` — lee `public/uploads/` con `fs.readdir` y devuelve un JSON con cada video (`filename`, `displayName`, `size`, `mtime`), filtrado por extensión (`.mp4 .mkv .mov .webm .avi .m4v`) y ordenado por fecha descendente. No depende de las salas en memoria — lee directo del disco, así que sobrevive a reinicios del servidor.
   - `POST /create-room-from-upload` (body JSON `{ filename }`) — crea una sala igual que `POST /create-room`, pero reutilizando un archivo que ya existe en vez de recibir uno por `multer`. Devuelve `{ roomId, hostToken }` igual que siempre.
   - `DELETE /api/uploads/:filename` — borra el archivo del disco con `fs.unlink`.
-  - Las tres rutas comparten `isValidUploadFilename()`, que valida que el nombre no tenga separadores de ruta ni `..` y que el archivo exista dentro de `UPLOAD_DIR` — evita path traversal (ej. `../../server.js`). Probado explícitamente con Playwright antes de entregar.
+  - Las tres rutas comparten `isValidUploadFilename()` (en modo disco; ver nota arriba para R2), que valida que el nombre no tenga separadores de ruta ni `..` y que el archivo exista dentro de `UPLOAD_DIR` — evita path traversal (ej. `../../server.js`). Probado explícitamente con Playwright antes de entregar.
 - **Nombres de archivo más amigables**: el `filename` que genera Multer cambió de `<hash>.mp4` a `<hash-corto>__<nombre original sanitizado>.mp4` (ej. `b0db5e9e__Mi Pelicula Favorita.mp4`). La biblioteca separa el hash del nombre original (`displayNameFor()`) para mostrar solo el nombre reconocible. **Los videos subidos antes de este cambio no tienen el separador `__`**, así que en la biblioteca se muestran con su nombre-hash tal cual (ej. `ce1e9f8848137671.mp4`) — es cosmético, siguen funcionando igual.
 - **Frontend (`public/library.html`)**: pantalla nueva con el mismo sistema de diseño VHS (`.deck.deck-wide`, esquinas, contador REC, horizonte). Lista cada video con ícono, nombre, tamaño formateado (KB/MB/GB) y fecha, más dos botones: "▶ USAR" (llama a `create-room-from-upload`, guarda el `hostToken` en `localStorage` igual que el flujo normal, y redirige a `/room/<id>`) y "🗑" (con confirmación antes de borrar — desde V8 es el modal propio `mnConfirm()`, ver sección 8sedecies; antes era `confirm()` nativo). Estados de carga/vacío incluidos. Responsive: en pantallas angostas (`≤480px`) los botones bajan a una segunda fila para no apretar el nombre del archivo.
 - **Nueva clase compartida en `style.css`**: `.deck.deck-wide` (620px en vez de 380px) para que la lista tenga espacio; `.tape-list`, `.tape-item` y variantes para los botones de acción.
@@ -1192,10 +1199,9 @@ R2 en ese momento puntual.
   biblioteca sepa listar objetos de R2 no serviría de nada todavía (nadie podría llegar a mandar la key
   de un objeto de R2 desde la UI); por eso se dejó explícitamente para la Fase 3, junto con
   `/api/uploads`.
-- **Efecto colateral esperado de lo anterior:** con R2 activo, un video subido a partir de ahora (por
+- ~~**Efecto colateral esperado de lo anterior:** con R2 activo, un video subido a partir de ahora (por
   `/create-room` o `/room/:id/change-video`) **no aparece** en `library.html` para reutilizarlo más
-  tarde — solo se puede volver a subir. Es una limitación conocida y documentada (README, sección
-  Cloudflare R2), no un bug; se cierra en la Fase 3.
+  tarde — solo se puede volver a subir.~~ Resuelto en la Fase 3 (ver sección 8quatricies).
 - `subtitleUpload` (subtítulos .srt/.vtt) sigue guardándose en disco local sin cambios — son archivos
   de texto chicos, no aportan nada al problema de ancho de banda que motivó todo esto.
 
@@ -1208,6 +1214,60 @@ socket, `room-data` llega con `videoFile` en formato URL de R2 (`https://pub-...
 responde `502` con JSON al intentar crear sala (no HTML); (4) si Multer corta por límite de tamaño,
 responde `400` con JSON. En modo local (sin R2 configurado) se repitió la prueba de subida real de un
 archivo y se confirmó que el comportamiento no cambió en nada respecto de antes de esta sesión.
+
+## 8quatricies. Cloudflare R2 — Fase 3: la biblioteca lista, reutiliza y borra directo del bucket
+
+Cierra lo que había quedado pendiente en la Fase 2 (sección 8tricies): con R2 activo, la biblioteca
+(`library.html`) ahora lee y escribe contra el bucket, no contra disco local.
+
+- **`isValidUploadReference(filename)` (async)** reemplaza a la vieja `isValidUploadFilename`
+  (síncrona, solo disco) que existía desde antes de la Fase 1. Mismo chequeo de path traversal en los
+  dos modos (`filename !== path.basename(filename)`, sin `..`); la diferencia es cómo confirma que el
+  archivo/objeto existe de verdad: `fs.existsSync` en modo disco, `r2.objectExists(filename)` (HEAD
+  puntual, no lista todo el bucket) en modo R2. La usan las 4 rutas de abajo — todas pasaron de
+  callbacks síncronos a `async`/`await` por este cambio.
+- **`GET /api/uploads`**: en modo R2 llama a `r2.listObjects()` (ya existía desde la Fase 1) en vez de
+  `fs.readdir`, filtra por `VIDEO_EXTENSIONS` igual que en disco, y arma el mismo shape de respuesta
+  (`filename`, `displayName`, `size`, `mtime`) — `displayNameFor()` no cambió, sigue separando por el
+  `__` que tanto `multer.diskStorage` como `r2.makeObjectKey()` usan como separador entre el hash
+  random y el nombre original.
+- **`DELETE /api/uploads/:filename`**: valida con `isValidUploadReference` y, en modo R2, borra con
+  `r2.deleteObject()` (ya existía desde la Fase 1) en vez de `fs.unlink`.
+- **`POST /create-room-from-upload` y `POST /room/:id/change-video-from-upload`**: mismo cambio —
+  validan con `isValidUploadReference` y arman `room.videoFile` con `videoUrlForExistingFile()`
+  (nueva; mismo criterio que `videoUrlForUploadedFile()` de la Fase 2, pero para un archivo que ya
+  existe en vez de uno que se está subiendo ahora): `r2.getPublicUrl(filename)` en modo R2, o
+  `'/uploads/' + filename` en modo disco.
+- **Por qué `filename` sigue llamándose así en el body/params** aunque en modo R2 es en realidad una
+  key de objeto: no hizo falta cambiar el nombre ni tocar `public/library.html` — el cliente nunca
+  interpreta ese valor, solo lo recibe de `GET /api/uploads` y lo reenvía tal cual a las otras 3 rutas
+  (ver `useTape`/`deleteTape` en `library.html`). Es un identificador opaco de punta a punta.
+- **Manejo de errores**: las 4 rutas devuelven `502` con JSON si R2 falla a mitad de la operación
+  (credenciales mal puestas, bucket borrado, conexión caída) — mismo criterio de "fallo explícito, sin
+  respaldo silencioso a disco" que ya usaba la Fase 2 para las subidas (ver sección 8tricies). Antes de
+  esta sesión, un error de R2 en estas 4 rutas no estaba contemplado en absoluto (las funciones de
+  `lib/r2.js` que llamaban simplemente no se llamaban todavía).
+
+**Qué NO cambió:** `subtitleUpload` (.srt/.vtt) sigue en disco local sin cambios, por la misma razón
+que en la Fase 2 (archivos de texto chicos, no aportan al problema de ancho de banda). El límite de
+tamaño de Multer (8GB) y el middleware de errores JSON de la Fase 2 tampoco se tocaron — esta sesión
+no agregó ninguna subida nueva, solo listar/reutilizar/borrar de algo que ya está en el bucket.
+
+**Cómo se probó (sin credenciales reales de R2 en este entorno):** en modo disco local (R2
+desactivado) se corrió el flujo completo end-to-end contra el server real (no un stub): subir un video
+a `/create-room`, listar con `GET /api/uploads`, reutilizarlo con `/create-room-from-upload`, y
+borrarlo con `DELETE /api/uploads/:filename` — incluyendo el caso de pedir borrar un `filename`
+inexistente (debe responder `400`, no `500` ni colgarse) — para confirmar que pasar las 4 rutas a
+`async`/`await` no cambió nada del comportamiento ya existente. Aparte, se arrancó el server con las 4
+variables de entorno de R2 seteadas pero apuntando a credenciales inventadas (no hay bucket real
+detrás) para confirmar que `GET /api/uploads` responde `502` con JSON en vez de tirar un error sin
+manejar o colgar la request — coherente con el aviso por consola que ya imprime `testConnection()` al
+arrancar desde la Fase 2.
+
+**Con esto se cierran las 3 fases de R2 del roadmap.** Con las 4 variables de entorno completas, todo
+el ciclo de vida de un video (subir, listar en la biblioteca, reutilizar sin resubir, cambiar de cinta
+en una sala activa, borrar) pasa por el bucket sin tocar el disco del servidor — y `library.html`
+funciona exactamente igual para quien la usa, sin ningún cambio de UI, sea que R2 esté activo o no.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 
@@ -1222,12 +1282,6 @@ archivo y se confirmó que el comportamiento no cambió en nada respecto de ante
 
 ## 10. Ideas pendientes / roadmap
 
-- [ ] **Cloudflare R2 — Fase 3:** `/api/uploads` (listar) y el borrado de la biblioteca
-      (`library.html`) pasan a leer del bucket cuando R2 está activo (usando
-      `listObjects`/`deleteObject` de `lib/r2.js`, ya existen desde la Fase 1). Con eso, también se
-      puede conectar `POST /create-room-from-upload` y `POST /room/:id/change-video-from-upload` a R2
-      (hoy siguen validando solo contra disco local — ver 8tricies para el porqué). Cerrar la
-      documentación de README/MEMORIA/CHANGELOG con la guía completa de punta a punta.
 - [ ] Borrado automático de salas/archivos viejos (ej. después de X horas sin actividad).
 - [ ] Dominio fijo con Cloudflare Tunnel nombrado (requiere cuenta de Cloudflare + dominio propio) para no tener que compartir un link nuevo cada sesión.
 - [ ] Posible: avisar si se intenta borrar un video que está en uso por una sala activa.
@@ -1246,7 +1300,8 @@ archivo y se confirmó que el comportamiento no cambió en nada respecto de ante
 - [x] ~~Diálogos nativos del navegador (prompt/confirm/alert) sin estilo propio~~ — resuelto en V8 con un modal propio (ver sección 8sedecies).
 - [x] ~~Bug: podía haber más de un host a la vez en una sala~~ — resuelto en V8 (ver sección 5bis).
 - [x] ~~/api/uploads (listar/borrar cintas) sin ninguna autenticación~~ — resuelto en V9 con contraseña de biblioteca (ver sección 8septendecies).
-- [x] ~~Cloudflare R2 — Fase 2: conectar la subida de video (crear sala / cambiar cinta) al bucket~~ — resuelto (ver sección 8tricies). Falta la Fase 3 (biblioteca), ver arriba.
+- [x] ~~Cloudflare R2 — Fase 2: conectar la subida de video (crear sala / cambiar cinta) al bucket~~ — resuelto (ver sección 8tricies).
+- [x] ~~Cloudflare R2 — Fase 3: conectar la biblioteca (`library.html`, listar/reutilizar/borrar) al bucket~~ — resuelto (ver sección 8quatricies). Con esto se cierran las 3 fases planeadas de R2.
 
 ## 11. Historial de cambios
 

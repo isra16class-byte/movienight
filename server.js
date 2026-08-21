@@ -158,12 +158,27 @@ function videoDisplayName(videoFile) {
   return displayNameFor(path.basename(videoFile));
 }
 
-// Evita path traversal: el nombre no puede contener separadores de ruta y debe existir tal cual dentro de UPLOAD_DIR.
-function isValidUploadFilename(filename) {
+// --- Cloudflare R2 — Fase 3: validar un filename/key que llega del cliente ----------------------
+// Antes (`isValidUploadFilename`, hasta V16) esto era síncrono y solo miraba disco local
+// (`fs.existsSync`). Ahora, en modo R2, el "filename" que manda `library.html` es en realidad la key
+// del objeto en el bucket (ver `r2.makeObjectKey`), así que hace falta una versión async que
+// pregunte a R2 en vez de al filesystem — de ahí el `await` en las 4 rutas que la usan.
+// El chequeo de path traversal (basename + sin "..") se mantiene en los dos modos: en disco evita
+// escapar de UPLOAD_DIR; en R2 el bucket no tiene "carpetas" reales, pero una key con "../" en el
+// medio seguiría siendo una key válida y confusa (ej. en un listado), así que se rechaza igual.
+async function isValidUploadReference(filename) {
   if (!filename || typeof filename !== 'string') return false;
   if (filename !== path.basename(filename)) return false;
   if (filename.includes('..')) return false;
+  if (r2.isR2Enabled()) return r2.objectExists(filename);
   return fs.existsSync(path.join(UPLOAD_DIR, filename));
+}
+
+// Arma la URL que se guarda en room.videoFile a partir de un filename/key ya validado por
+// isValidUploadReference — mismo criterio que videoUrlForUploadedFile (arriba) pero para el caso de
+// "reutilizar una cinta ya subida" en vez de "subida nueva".
+function videoUrlForExistingFile(filename) {
+  return r2.isR2Enabled() ? r2.getPublicUrl(filename) : '/uploads/' + filename;
 }
 
 // Conversión mínima SRT -> WebVTT: agrega cabecera y cambia el separador decimal de coma a punto en los timestamps.
@@ -197,13 +212,18 @@ app.post('/create-room', upload.single('video'), (req, res) => {
   res.json({ roomId, hostToken: room.hostToken });
 });
 
-app.post('/create-room-from-upload', (req, res) => {
-  const { filename, password } = req.body || {};
-  if (!isValidUploadFilename(filename)) return res.status(400).json({ error: 'Ese archivo no existe' });
-  const roomId = makeRoomId();
-  const room = makeRoom('/uploads/' + filename, (password || '').trim());
-  rooms[roomId] = room;
-  res.json({ roomId, hostToken: room.hostToken });
+app.post('/create-room-from-upload', async (req, res) => {
+  try {
+    const { filename, password } = req.body || {};
+    if (!(await isValidUploadReference(filename))) return res.status(400).json({ error: 'Ese archivo no existe' });
+    const roomId = makeRoomId();
+    const room = makeRoom(videoUrlForExistingFile(filename), (password || '').trim());
+    rooms[roomId] = room;
+    res.json({ roomId, hostToken: room.hostToken });
+  } catch (err) {
+    console.error('Error creando sala desde biblioteca (R2):', err.message);
+    res.status(502).json({ error: 'No se pudo consultar Cloudflare R2 (revisa credenciales/conexión).' });
+  }
 });
 
 app.post('/room/:id/change-video', upload.single('video'), (req, res) => {
@@ -220,13 +240,18 @@ app.post('/room/:id/change-video', upload.single('video'), (req, res) => {
 });
 
 // Cambiar la cinta de una sala ya existente reutilizando un video de la biblioteca (sin resubir nada)
-app.post('/room/:id/change-video-from-upload', (req, res) => {
+app.post('/room/:id/change-video-from-upload', async (req, res) => {
   const room = rooms[req.params.id];
   if (!room) return res.status(404).json({ error: 'Sala no existe' });
   const { filename, hostToken } = req.body || {};
   if (hostToken !== room.hostToken) return res.status(403).json({ error: 'No autorizado' });
-  if (!isValidUploadFilename(filename)) return res.status(400).json({ error: 'Ese archivo no existe' });
-  room.videoFile = '/uploads/' + filename;
+  try {
+    if (!(await isValidUploadReference(filename))) return res.status(400).json({ error: 'Ese archivo no existe' });
+  } catch (err) {
+    console.error('Error validando cinta de biblioteca (R2):', err.message);
+    return res.status(502).json({ error: 'No se pudo consultar Cloudflare R2 (revisa credenciales/conexión).' });
+  }
+  room.videoFile = videoUrlForExistingFile(filename);
   const changedMsg = { system: true, text: `📼 Cambiaron la cinta: ${videoDisplayName(room.videoFile)}` };
   pushChatHistory(room, changedMsg);
   io.to(req.params.id).emit('chat-message', changedMsg);
@@ -275,7 +300,25 @@ app.get('/api/room/:id', (req, res) => {
 
 // --- Biblioteca de cintas: videos ya subidos en public/uploads ---
 
-app.get('/api/uploads', requireLibraryAuth, (req, res) => {
+// --- Cloudflare R2 — Fase 3: la biblioteca lista/borra del bucket cuando R2 está activo ---------
+// Mismo shape de respuesta en los dos modos (filename, displayName, size, mtime) — ver el comentario
+// de listObjects() en lib/r2.js — por eso no hace falta tocar nada de public/library.html: para el
+// cliente es indistinguible si el `filename` que recibe es un nombre de archivo en disco o una key
+// de R2, lo trata como un identificador opaco que después reenvía tal cual a las otras rutas.
+app.get('/api/uploads', requireLibraryAuth, async (req, res) => {
+  if (r2.isR2Enabled()) {
+    try {
+      const objects = await r2.listObjects();
+      const list = objects
+        .filter(o => VIDEO_EXTENSIONS.includes(path.extname(o.filename).toLowerCase()))
+        .map(o => ({ filename: o.filename, displayName: displayNameFor(o.filename), size: o.size, mtime: o.mtime }))
+        .sort((a, b) => b.mtime - a.mtime);
+      return res.json(list);
+    } catch (err) {
+      console.error('Error listando la biblioteca en Cloudflare R2:', err.message);
+      return res.status(502).json({ error: 'No se pudo listar la biblioteca de Cloudflare R2 (revisa credenciales/conexión).' });
+    }
+  }
   fs.readdir(UPLOAD_DIR, (err, files) => {
     if (err) return res.status(500).json({ error: 'No se pudo leer la carpeta de uploads' });
     const list = files
@@ -289,9 +332,23 @@ app.get('/api/uploads', requireLibraryAuth, (req, res) => {
   });
 });
 
-app.delete('/api/uploads/:filename', requireLibraryAuth, (req, res) => {
+app.delete('/api/uploads/:filename', requireLibraryAuth, async (req, res) => {
   const { filename } = req.params;
-  if (!isValidUploadFilename(filename)) return res.status(400).json({ error: 'Ese archivo no existe' });
+  try {
+    if (!(await isValidUploadReference(filename))) return res.status(400).json({ error: 'Ese archivo no existe' });
+  } catch (err) {
+    console.error('Error validando cinta antes de borrar (R2):', err.message);
+    return res.status(502).json({ error: 'No se pudo consultar Cloudflare R2 (revisa credenciales/conexión).' });
+  }
+  if (r2.isR2Enabled()) {
+    try {
+      await r2.deleteObject(filename);
+      return res.json({ ok: true });
+    } catch (err) {
+      console.error('Error borrando de Cloudflare R2:', err.message);
+      return res.status(502).json({ error: 'No se pudo borrar el archivo de Cloudflare R2.' });
+    }
+  }
   fs.unlink(path.join(UPLOAD_DIR, filename), (err) => {
     if (err) return res.status(500).json({ error: 'No se pudo borrar el archivo' });
     res.json({ ok: true });

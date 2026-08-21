@@ -6,6 +6,50 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-21] Cloudflare R2 — Fase 3: la biblioteca (`library.html`) lista, reutiliza y borra directo del bucket
+
+**Motivo:** cerraba la última pieza pendiente de R2. Desde la Fase 2, un video subido con R2 activo
+quedaba en el bucket pero invisible para `library.html` (que solo leía `public/uploads/` en disco) —
+solo se podía reutilizar volviendo a subirlo entero. Esta sesión conecta las 4 rutas que faltaban:
+`GET /api/uploads`, `DELETE /api/uploads/:filename`, `POST /create-room-from-upload` y
+`POST /room/:id/change-video-from-upload`.
+
+**Qué se agregó en `lib/r2.js`:** `objectExists(key)`, un HEAD puntual contra un objeto del bucket
+(en vez de listar todo con `listObjects()` y buscar adentro) — cumple el mismo rol que
+`fs.existsSync` en modo disco, para validar un `filename` que llega del cliente antes de reutilizarlo
+o borrarlo.
+
+**Qué cambió en `server.js`:** `isValidUploadFilename` (síncrona, solo disco) se reemplazó por
+`isValidUploadReference` (async, revisa disco o R2 según `r2.isR2Enabled()`), usada por las 4 rutas
+de arriba, todas convertidas a `async`/`await`. `GET /api/uploads` en modo R2 llama a
+`r2.listObjects()` y devuelve el mismo shape (`filename`, `displayName`, `size`, `mtime`) que en modo
+disco — por eso no hizo falta tocar nada de `public/library.html`, que trata `filename` como un
+identificador opaco. `videoUrlForExistingFile()` nueva arma la URL final (ruta local o link público de
+R2) para `room.videoFile` al reutilizar una cinta, igual que ya hacía `videoUrlForUploadedFile()` para
+una subida nueva (Fase 2).
+
+**Manejo de errores:** si R2 falla a mitad de un listado/borrado/HEAD (credenciales mal puestas,
+bucket borrado, conexión caída), las 4 rutas devuelven `502` con JSON y loguean el error por consola
+— mismo criterio que ya usaba la Fase 2 para las subidas: fallo explícito, nunca una mezcla silenciosa
+de "biblioteca a medio listar" o un archivo que se cree borrado sin estarlo.
+
+**Cómo se probó (sin credenciales reales de R2):** en modo disco local (R2 desactivado) se repitió el
+flujo completo — crear sala subiendo un archivo, listar biblioteca, reutilizar el video con
+`create-room-from-upload`, borrar con `DELETE /api/uploads/:filename` (incluyendo el caso de borrar un
+filename inexistente, que debe devolver 400) — para confirmar que el paso a rutas `async` no cambió en
+nada el comportamiento de siempre. Aparte, se arrancó el server con las 4 variables de R2 seteadas
+pero con credenciales inventadas (no apuntan a un bucket real) para confirmar que `GET /api/uploads`
+responde `502` con JSON en vez de colgarse o tirar un error sin manejar — igual al aviso por consola
+que ya existía desde la Fase 2 al arrancar (`testConnection()`).
+
+**Con esto se cierran las 3 fases de Cloudflare R2** planeadas en el roadmap: con las 4 variables de
+entorno configuradas, todo el ciclo de vida de un video (subir, listar, reutilizar, cambiar de cinta,
+borrar) pasa por el bucket sin tocar el disco del host, y `library.html` funciona exactamente igual
+para quien la usa, sea que R2 esté activo o no.
+
+**Documentación:** README (sección Cloudflare R2 actualizada — ya no dice "pendiente", roadmap sin ese
+ítem), `MEMORIA.md` con la sección de R2 actualizada de punta a punta y el roadmap (sección 10) al día.
+
 ## [2026-08-21] Cloudflare R2 — Fase 2: la subida de video (crear sala / cambiar cinta) ya va directo al bucket
 
 **Motivo:** seguía de la Fase 1 (ver entrada de abajo) — ahí solo se había montado `lib/r2.js` sin que
