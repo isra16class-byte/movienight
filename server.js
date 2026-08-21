@@ -96,6 +96,12 @@ function displayNameFor(filename) {
   return idx >= 0 ? filename.slice(idx + 2) : filename;
 }
 
+// Igual que displayNameFor pero a partir de room.videoFile ('/uploads/archivo.mp4' -> 'archivo.mp4' ->
+// nombre legible). Se usa para los mensajes de chat de "cinta cargada"/"cambiaron la cinta".
+function videoDisplayName(videoFile) {
+  return displayNameFor(path.basename(videoFile));
+}
+
 // Evita path traversal: el nombre no puede contener separadores de ruta y debe existir tal cual dentro de UPLOAD_DIR.
 function isValidUploadFilename(filename) {
   if (!filename || typeof filename !== 'string') return false;
@@ -121,7 +127,8 @@ function makeRoom(videoFile, password) {
     mutedUserIds: new Set(),
     userNames: new Map(),
     bufferingSockets: new Set(),
-    recentDisconnects: new Map()
+    recentDisconnects: new Map(),
+    initialVideoAnnounced: false // ver join-room: anuncia la cinta con la que se creó la sala una sola vez
   };
 }
 
@@ -148,6 +155,7 @@ app.post('/room/:id/change-video', upload.single('video'), (req, res) => {
   if (req.body.hostToken !== room.hostToken) return res.status(403).json({ error: 'No autorizado' });
   if (!req.file) return res.status(400).json({ error: 'No llegó ningún video' });
   room.videoFile = '/uploads/' + req.file.filename;
+  io.to(req.params.id).emit('chat-message', { system: true, text: `📼 Cambiaron la cinta: ${videoDisplayName(room.videoFile)}` });
   io.to(req.params.id).emit('video-changed', { videoFile: room.videoFile });
   res.json({ ok: true });
 });
@@ -160,6 +168,7 @@ app.post('/room/:id/change-video-from-upload', (req, res) => {
   if (hostToken !== room.hostToken) return res.status(403).json({ error: 'No autorizado' });
   if (!isValidUploadFilename(filename)) return res.status(400).json({ error: 'Ese archivo no existe' });
   room.videoFile = '/uploads/' + filename;
+  io.to(req.params.id).emit('chat-message', { system: true, text: `📼 Cambiaron la cinta: ${videoDisplayName(room.videoFile)}` });
   io.to(req.params.id).emit('video-changed', { videoFile: room.videoFile });
   res.json({ ok: true });
 });
@@ -287,6 +296,14 @@ io.on('connection', (socket) => {
     room.viewers++;
 
     const wasMuted = room.mutedUserIds.has(socket.userId);
+
+    // Anuncia la cinta con la que se creó la sala, una sola vez (al primer join, normalmente el host
+    // recién llegado de crear la sala). Los cambios posteriores de cinta ya avisan por su cuenta desde
+    // change-video/change-video-from-upload.
+    if (!room.initialVideoAnnounced) {
+      room.initialVideoAnnounced = true;
+      io.to(roomId).emit('chat-message', { system: true, text: `🎬 Cinta cargada: ${videoDisplayName(room.videoFile)}` });
+    }
 
     // Reconexión rápida (ej. wifi que se cae un segundo): no repetir "se unió a la sala"
     const recent = room.recentDisconnects.get(socket.userId);

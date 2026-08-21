@@ -2,10 +2,9 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 20 de agosto de 2026 (V11 — fix de dos bugs al cambiar de cinta: los invitados
-no veían el video nuevo por faltar el listener de `video-changed`, y el host aparecía duplicado en la
-lista de espectadores por no cerrar el socket antes de navegar a la biblioteca; ver sección
-8tervicies).
+Última actualización: 20 de agosto de 2026 (V12 — mensajes de chat automáticos: al crear la sala se
+avisa con qué video se creó, y cada cambio de cinta anuncia el nombre del video nuevo; ver sección
+8quatervicies).
 
 ---
 
@@ -828,6 +827,31 @@ host sale a cambiar de cinta (si hay algún invitado, se lo asciende brevemente 
 vuelve y `setHost()` lo recupera) — eso no es nuevo ni es lo que reportó el usuario, y de momento se
 deja así; ver sección 10 si en algún momento se quiere evitar ese parpadeo rediseñando "cambiar cinta"
 para que no implique salir de `room.html` en absoluto (ver también el ítem nuevo del roadmap).
+
+## 8quatervicies. Mensajes de chat al crear la sala y al cambiar de cinta
+
+Pedido del usuario: que aparezca un mensaje en el chat con el nombre del video cada vez que se cambia
+de cinta, y también cuando se crea la sala (mostrando con qué video se creó).
+
+**Cambio de cinta (`change-video` y `change-video-from-upload`, `server.js`):** justo antes de emitir
+`video-changed` (ver sección 8tervicies), ahora también se emite `io.to(roomId).emit('chat-message',
+{ system: true, text: '📼 Cambiaron la cinta: <nombre>' })`. El nombre sale de la nueva función
+`videoDisplayName(videoFile)`, que hace `path.basename` sobre `room.videoFile` (`/uploads/archivo.mp4`
+→ `archivo.mp4`) y le aplica `displayNameFor` (la misma función que ya limpiaba el prefijo hash `__`
+para mostrar los nombres en la biblioteca, sección 8quater) — así el mensaje muestra el nombre legible
+del archivo original, no el hash aleatorio con el que se guarda en disco.
+
+**Cinta con la que se crea la sala (`create-room` y `create-room-from-upload`):** a diferencia de un
+cambio de cinta, la creación de sala ocurre por HTTP, sin ningún socket todavía conectado a esa sala
+— no hay a quién emitirle un `chat-message` en ese momento (el chat vive enteramente en sockets, nunca
+se persiste ni hay historial). Se resolvió agregando un flag `initialVideoAnnounced` a `makeRoom()`
+(arranca en `false`) y anunciando la cinta la primera vez que alguien hace `join-room` en esa sala —
+en la práctica, el host, que entra a `/room/:id` justo después de crearla. El mensaje (`🎬 Cinta
+cargada: <nombre>`) se emite una sola vez por sala (se apaga el flag al primer uso) para no repetirse
+en cada join de invitados posteriores.
+
+**Sin cambios en el cliente** — el chat ya sabía renderizar mensajes de sistema (`{ system: true,
+text }`) desde antes; estos son mensajes más de ese mismo tipo, no un formato nuevo.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

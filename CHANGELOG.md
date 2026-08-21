@@ -6,6 +6,28 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-20] Mensajes de chat al crear la sala y al cambiar de cinta (V12)
+
+**Motivo:** pedido del usuario — que el chat avise el nombre del video cada vez que se cambia de
+cinta, y también al crear la sala, mostrando con qué video se creó.
+
+**Cambio 1 (`server.js`, rutas `change-video`/`change-video-from-upload`):** se agrega un
+`chat-message` de sistema (`📼 Cambiaron la cinta: <nombre>`) justo antes del `video-changed` que ya
+se emitía. Se agrega `videoDisplayName(videoFile)`, que resuelve el nombre legible del archivo
+(reutiliza `displayNameFor`, la misma función de la biblioteca que limpia el prefijo hash).
+
+**Cambio 2 (`server.js`, `join-room`):** como crear una sala es un POST HTTP sin ningún socket
+conectado todavía, no hay a quién avisarle en el momento de crearla. Se agrega un flag
+`initialVideoAnnounced` a `makeRoom()` y se anuncia la cinta (`🎬 Cinta cargada: <nombre>`) la primera
+vez que alguien hace `join-room` en la sala (en la práctica, el host recién llegado de crearla),
+apagando el flag para que no se repita en joins posteriores de invitados.
+
+**Sin cambios en el cliente** — el chat ya renderizaba mensajes de sistema desde antes.
+
+Ver `MEMORIA.md` sección 8quatervicies para el detalle completo.
+
+---
+
 ## [2026-08-20] Fix: "cambiar cinta" no llegaba a los invitados + host duplicado en espectadores (V11)
 
 **Motivo:** el usuario reportó que al usar "📼 Cambiar cinta", el video nuevo solo se veía en la
