@@ -90,7 +90,56 @@ Necesitas exponer tu servidor local a internet. La forma recomendada es **Cloudf
 3. Copia el link público que te da (algo como `https://palabras-random.trycloudflare.com`).
 4. Entra a ese link (no a `localhost`), crea tu sala, y comparte la URL completa con `/room/codigo` a tus amigos.
 
-**Importante:** necesitas 2 procesos corriendo al mismo tiempo — el servidor (`npm start`) y el túnel (`cloudflared`). Si cierras cualquiera de las dos terminales, o tu compu se suspende, el link deja de funcionar para todos. El link también cambia cada vez que reinicias `cloudflared`, a menos que configures un túnel con nombre y dominio propio.
+**Importante:** necesitas 2 procesos corriendo al mismo tiempo — el servidor (`npm start`) y el túnel (`cloudflared`). Si cierras cualquiera de las dos terminales, o tu compu se suspende, el link deja de funcionar para todos. El link también cambia cada vez que reinicias `cloudflared`, a menos que configures un túnel con nombre y dominio propio (ver siguiente sección).
+
+## Dominio fijo (túnel con nombre)
+
+Lo de arriba es un **Quick Tunnel**: gratis, sin configuración previa, pero te da un link random
+distinto (`https://palabras-random.trycloudflare.com`) cada vez que reiniciás `cloudflared` — hay que
+volver a compartirlo con tus amigos cada sesión.
+
+Un **túnel con nombre** resuelve eso: mismo link siempre (ej. `https://movienight.tudominio.com`), a
+costa de un poco de configuración única. Sigue siendo gratis, pero necesitás tener un dominio propio
+ya agregado a tu cuenta de Cloudflare (podés comprar uno barato en cualquier registrador y cambiarle
+los nameservers a Cloudflare — Cloudflare no vende dominios `.com`/`.net` directo, pero agregar uno
+existente a tu cuenta sí es gratis).
+
+### Cómo activarlo
+
+1. Instalá `cloudflared` si todavía no lo hiciste (ver sección anterior).
+2. Autenticá `cloudflared` con tu cuenta (una sola vez por compu, abre el navegador):
+   ```bash
+   cloudflared tunnel login
+   ```
+3. Creá el túnel con nombre (podés usar `movienight` o el nombre que quieras):
+   ```bash
+   cloudflared tunnel create movienight
+   ```
+   Esto imprime un `UUID` y guarda un archivo de credenciales en `~/.cloudflared/<UUID>.json` — es lo
+   único que necesitás de este paso, no hace falta anotar nada más.
+4. Conectá un subdominio de tu dominio (ya agregado a Cloudflare) a ese túnel:
+   ```bash
+   cloudflared tunnel route dns movienight movienight.tudominio.com
+   ```
+   Esto crea el registro DNS automáticamente — no hace falta tocar nada a mano en el dashboard.
+5. Copiá `cloudflared-config.example.yml` a `cloudflared-config.yml` (en la raíz del proyecto) y
+   completá los 3 valores marcados adentro: el nombre/UUID del túnel, la ruta completa al archivo de
+   credenciales del paso 3, y el subdominio que elegiste en el paso 4.
+6. Con el servidor corriendo (`npm start`), en otra terminal:
+   ```bash
+   npm run tunnel
+   ```
+   (equivale a `cloudflared tunnel --config cloudflared-config.yml run`)
+7. Entrá a `https://movienight.tudominio.com` (el mismo link, siempre, en cada sesión futura) y creá
+   tu sala desde ahí.
+
+**Notas:**
+- `cloudflared-config.yml` (el archivo real, con tus valores) no se sube a git — está en `.gitignore`,
+  igual que `.env`. Solo se versiona la plantilla `cloudflared-config.example.yml`.
+- Seguís necesitando 2 procesos corriendo (`npm start` + `npm run tunnel`), igual que con el Quick
+  Tunnel — lo único que cambia es que el link ya no varía entre sesiones.
+- Los pasos 2 a 5 son **de una sola vez**: una vez armado el túnel con nombre, en cada sesión futura
+  alcanza con repetir el paso 6 (`npm run tunnel`).
 
 ## Cloudflare R2 (opcional — para cuando el link de Cloudflare Tunnel se traba)
 
@@ -154,6 +203,7 @@ terminar con videos mezclados entre disco y bucket sin darte cuenta.
 movienight/
   server.js              # Servidor Express + Socket.io
   package.json
+  cloudflared-config.example.yml  # Plantilla para túnel con nombre / dominio fijo (opcional, ver README)
   lib/
     r2.js                 # Cloudflare R2 (opcional, ver sección arriba) — subir/listar/borrar videos en R2
   public/
@@ -179,4 +229,3 @@ movienight/
 ## Próximas ideas (no implementadas)
 
 - Historial de salas / salas persistentes en disco o base de datos.
-- Dominio fijo con Cloudflare Tunnel para no compartir un link distinto cada vez.

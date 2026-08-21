@@ -4,7 +4,8 @@
   "description": "Watch party privado para ver pelis con amigos",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "tunnel": "cloudflared tunnel --config cloudflared-config.yml run"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1115.0",

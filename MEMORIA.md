@@ -2,9 +2,8 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 21 de agosto de 2026 (Cloudflare R2 — Fase 3: la biblioteca ya lista, reutiliza
-y borra directo del bucket cuando R2 está activo; ver sección 8quatricies. Con esto se cierran las 3
-fases de R2 del roadmap).
+Última actualización: 21 de agosto de 2026 (Dominio fijo — túnel con nombre de Cloudflare, opcional;
+ver sección 8quinquicies. Guía completa en README + `cloudflared-config.example.yml` + `npm run tunnel`).
 
 ---
 
@@ -28,14 +27,18 @@ Repo: `https://github.com/isra16class-byte/movienight`
 movienight/
   server.js              # Todo el backend: rutas HTTP + lógica de sockets
   package.json
-  .env.example             # Plantilla de variables de entorno (LIBRARY_PASSWORD, PORT) — sí se sube a git
+  .env.example             # Plantilla de variables de entorno (LIBRARY_PASSWORD, PORT, R2_*) — sí se sube a git
   .env                    # Copia de lo anterior con valores reales (NO se sube a git, ver .gitignore)
+  cloudflared-config.example.yml  # Plantilla para túnel con nombre / dominio fijo (opcional, ver README)
+  cloudflared-config.yml   # Copia con valores reales (NO se sube a git, ver .gitignore)
+  lib/
+    r2.js                  # Cloudflare R2 (opcional): subir/listar/borrar videos en R2 en vez de disco
   public/
     index.html            # Pantalla para crear sala (subir video) o unirse por código
     library.html            # Biblioteca de cintas: lista videos ya subidos, permite usarlos o borrarlos (V6)
     room.html              # Pantalla de la sala: reproductor, chat, controles
     style.css                # Estilos compartidos por las 3 pantallas
-    uploads/                # Videos subidos (NO se sube a git, se genera solo)
+    uploads/                # Videos subidos (NO se sube a git, se genera solo; sin uso si R2 está activo)
   README.md               # Documentación de uso/instalación
   MEMORIA.md              # Este archivo
 ```
@@ -1269,6 +1272,37 @@ el ciclo de vida de un video (subir, listar en la biblioteca, reutilizar sin res
 en una sala activa, borrar) pasa por el bucket sin tocar el disco del servidor — y `library.html`
 funciona exactamente igual para quien la usa, sin ningún cambio de UI, sea que R2 esté activo o no.
 
+## 8quinquicies. Dominio fijo — túnel con nombre de Cloudflare (opcional)
+
+Hasta ahora, la sección de README "Cómo usarla con amigos fuera de tu red" solo documentaba el
+**Quick Tunnel** (`cloudflared tunnel --url ...`): gratis y sin configuración previa, pero da un link
+random nuevo (`https://palabras-random.trycloudflare.com`) cada vez que se reinicia `cloudflared` — el
+host tiene que volver a compartirlo con el grupo en cada sesión. Esta sesión agrega la alternativa de
+**túnel con nombre**, que da el mismo link siempre, a costa de configuración única.
+
+- **No es código de la app**: `cloudflared` es un binario externo, no una dependencia de `server.js` —
+  esto es 100% configuración/documentación, `server.js` sigue sin saber nada de cómo se expone a
+  internet (mismo `localhost:3000` de siempre).
+- **Requisito**: un dominio propio ya agregado como zona en la cuenta de Cloudflare (no hace falta
+  comprarlo ahí — Cloudflare no vende dominios directo — alcanza con comprarlo en cualquier
+  registrador y apuntar los nameservers a Cloudflare, que es gratis).
+- **`cloudflared-config.example.yml` (nuevo, se sube a git)**: plantilla con los 3 valores que hace
+  falta completar (nombre/UUID del túnel, ruta al archivo de credenciales que genera
+  `cloudflared tunnel create`, y el subdominio elegido). Mismo patrón que `.env.example`: se copia a
+  `cloudflared-config.yml` (sin `.example`) y ese archivo real **no** se sube a git — se agregó a
+  `.gitignore` junto a `.env`.
+- **`package.json`**: nuevo script `"tunnel": "cloudflared tunnel --config cloudflared-config.yml run"`
+  — así el comando para levantar el túnel con nombre es `npm run tunnel`, simétrico a `npm start` para
+  el servidor. No reemplaza al Quick Tunnel (`cloudflared tunnel --url ...` sigue documentado igual,
+  sigue siendo la opción más simple si no importa que el link cambie).
+- **README**: sección nueva "Dominio fijo (túnel con nombre)" con la guía paso a paso completa (login,
+  `tunnel create`, `tunnel route dns`, completar la plantilla, `npm run tunnel`) — los primeros 4 pasos
+  son de una sola vez, después alcanza con repetir `npm run tunnel` en cada sesión.
+
+**Qué NO se tocó:** nada de `server.js`, `lib/r2.js` ni el frontend — el server sigue escuchando en
+`localhost:PORT` sin ningún cambio, sea que se exponga con Quick Tunnel, túnel con nombre, o ninguno de
+los dos (uso solo en LAN).
+
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 
 - El `hostToken` viaja en texto plano por HTTP (a menos que Cloudflare Tunnel lo cifre en tránsito, que sí lo hace vía HTTPS). Si alguien lo obtiene (inspeccionando `localStorage` de la persona equivocada, por ejemplo), puede hacerse pasar por host.
@@ -1283,7 +1317,7 @@ funciona exactamente igual para quien la usa, sin ningún cambio de UI, sea que 
 ## 10. Ideas pendientes / roadmap
 
 - [ ] Borrado automático de salas/archivos viejos (ej. después de X horas sin actividad).
-- [ ] Dominio fijo con Cloudflare Tunnel nombrado (requiere cuenta de Cloudflare + dominio propio) para no tener que compartir un link nuevo cada sesión.
+- [x] ~~Dominio fijo con Cloudflare Tunnel nombrado (requiere cuenta de Cloudflare + dominio propio) para no tener que compartir un link nuevo cada sesión~~ — resuelto (ver sección 8quinquicies): guía completa en README + `cloudflared-config.example.yml` + `npm run tunnel`.
 - [ ] Posible: avisar si se intenta borrar un video que está en uso por una sala activa.
 - [ ] Posible: contraseña también al reutilizar un video desde la biblioteca (`create-room-from-upload`), hoy solo existe al crear desde `index.html`.
 - [ ] Posible: rate-limiting real en `join-room` (intentos de contraseña) y en la subida de archivos.

@@ -6,6 +6,30 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-21] Dominio fijo — túnel con nombre de Cloudflare (opcional)
+
+**Motivo:** el Quick Tunnel (`cloudflared tunnel --url ...`, ya documentado desde antes) da un link
+random distinto cada vez que se reinicia `cloudflared` — el host tiene que reenviarlo a sus amigos en
+cada sesión. Un túnel con nombre de Cloudflare da el mismo link siempre (dominio propio), a costa de
+una configuración única.
+
+**No toca código de la app:** `server.js` sigue escuchando en `localhost:PORT` exactamente igual,
+sea que se exponga con Quick Tunnel, túnel con nombre, o nada (uso solo en LAN). Es 100%
+configuración/documentación nueva:
+
+- `cloudflared-config.example.yml` — plantilla nueva (se sube a git), mismo patrón que `.env.example`:
+  se copia a `cloudflared-config.yml` (que sí se agregó a `.gitignore`, no se sube) y se completan 3
+  valores (nombre/UUID del túnel, ruta a las credenciales, subdominio).
+- `package.json` — script nuevo `npm run tunnel` (`cloudflared tunnel --config cloudflared-config.yml run`).
+- `README.md` — sección nueva "Dominio fijo (túnel con nombre)" con la guía paso a paso completa:
+  `cloudflared tunnel login` → `tunnel create` → `tunnel route dns` → completar la plantilla →
+  `npm run tunnel`. Los primeros 4 pasos son de una sola vez; después alcanza con `npm run tunnel` en
+  cada sesión futura.
+
+**Documentación:** `MEMORIA.md` con la sección 8quinquicies nueva y el roadmap (sección 10)
+actualizado — este era el único ítem de infraestructura que quedaba pendiente en el roadmap además de
+las 3 fases de R2 (ya cerradas).
+
 ## [2026-08-21] Cloudflare R2 — Fase 3: la biblioteca (`library.html`) lista, reutiliza y borra directo del bucket
 
 **Motivo:** cerraba la última pieza pendiente de R2. Desde la Fase 2, un video subido con R2 activo

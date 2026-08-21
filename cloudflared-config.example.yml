@@ -1,0 +1,20 @@
+# Plantilla de configuración para un Cloudflare Tunnel CON NOMBRE (dominio fijo, no cambia cada vez
+# que reinicias cloudflared). Ver README, sección "Dominio fijo (túnel con nombre)", para la guía
+# completa paso a paso de cómo generar los valores de abajo.
+#
+# Copiá este archivo a "cloudflared-config.yml" (sin el .example) y completá los 3 valores marcados.
+# El archivo real NUNCA se sube a git (está en .gitignore) — es solo para tu compu, igual que .env.
+
+# Nombre o UUID del túnel (te lo muestra "cloudflared tunnel create movienight" al crearlo).
+tunnel: movienight
+
+# Ruta al archivo de credenciales que generó "cloudflared tunnel create" — cloudflared lo deja en
+# ~/.cloudflared/<UUID>.json por defecto. Usá la ruta completa, no relativa.
+credentials-file: /ruta/completa/a/.cloudflared/TU-UUID-ACA.json
+
+ingress:
+  # Reemplazá por el subdominio que elegiste al correr "cloudflared tunnel route dns" (ver README).
+  - hostname: movienight.tudominio.com
+    service: http://localhost:3000
+  # Regla obligatoria al final: cualquier hostname no listado arriba responde 404 en vez de colgarse.
+  - service: http_status:404
