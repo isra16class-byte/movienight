@@ -1042,6 +1042,80 @@ Igual que con el `isHost` del mensaje raíz (sección 8septvicies), el de la cit
 momento de responder — si el control de host cambia de mano después, las citas viejas no cambian de
 color retroactivamente.
 
+## 8novovicies. Cloudflare R2 — Fase 1: infraestructura aislada (sin conectar todavía)
+
+**Motivo:** el usuario probó una sesión real con 3 personas (él en localhost + dos amigas por celular
+conectadas vía el link de Cloudflare Tunnel), con un video de 3GB / 1:50:00. El video andaba perfecto
+del lado de quien está en localhost, pero se trababa constantemente para las dos conectadas por el
+link del túnel — por igual en ambos celulares, con buena banda ancha residencial de por medio (500/460
+Mbps). Se descartó que fuera el internet de las invitadas o del usuario: el patrón (localhost bien,
+túnel mal, igual en dos redes distintas) apunta a un cuello de botella del lado del "Quick Tunnel"
+gratis de `cloudflared` — abre una única conexión saliente desde la compu del host, y todo el tráfico
+de video hacia todos los espectadores remotos se multiplexa por ese mismo canal. Con un archivo pesado
+y más de un espectador remoto pidiendo distintas partes del archivo (buffering, seeks), ese canal
+único se satura.
+
+**Por qué R2 en vez de otras alternativas** (bajar bitrate, túnel nombrado, ngrok): de todas las
+opciones evaluadas, R2 es la única que resuelve el problema de raíz — si el video vive en el bucket,
+ya no sale de la compu del host en absoluto, lo sirve directo la red de borde de Cloudflare a cada
+espectador. Tier gratis real: 10GB de storage + 1M operaciones Clase A (escritura/listado) + 10M
+operaciones Clase B (lectura) al mes, **y egress siempre gratis, sin tier** — que es justo el recurso
+que se agotaba. Lo único no 100% gratis: Cloudflare pide un método de pago cargado en la cuenta para
+habilitar R2 la primera vez (no cobra nada mientras se esté dentro del límite gratis).
+
+**Alcance de esta fase (deliberadamente acotado):** esta sesión solo monta la infraestructura de R2
+como una pieza aislada, sin tocar en absoluto el flujo que ya funciona hoy (disco local vía Multer).
+Conectar R2 a la creación de salas, cambio de cinta y biblioteca es Fase 2 y 3 (pendientes, ver
+sección 10). Se decidió así a propósito para poder revisar/probar la conexión a R2 por separado antes
+de tocar código que ya está en uso.
+
+**`lib/r2.js` (nuevo archivo):** módulo con toda la lógica de R2, aislado de `server.js`:
+- `isR2Enabled()`: `true` solo si las 4 variables de entorno obligatorias están seteadas
+  (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`). Si falta cualquiera,
+  el resto de las funciones del módulo tiran un error claro al llamarse — pensado para que sea
+  imposible "olvidarse" de chequear el modo antes de usar R2 en el código que lo consuma más adelante.
+- `getClient()`: arma (lazy, una sola vez) un `S3Client` del SDK oficial de AWS
+  (`@aws-sdk/client-s3`) apuntando al endpoint S3-compatible de Cloudflare
+  (`https://<ACCOUNT_ID>.r2.cloudflarestorage.com`) con `region: 'auto'` — R2 no tiene regiones tipo
+  AWS, ese es el valor que el SDK espera para este caso. No hizo falta ningún SDK propio de
+  Cloudflare: R2 es compatible con la API de S3.
+- `testConnection()`: hace un `HeadBucketCommand` (no sube ni lista nada pesado) para validar
+  credenciales/nombre de bucket. Pensada para usarse al arrancar el server en Fase 3, para avisar por
+  consola si algo está mal configurado antes de que alguien intente subir un video.
+- `makeObjectKey(originalName)`: arma la key del objeto con el mismo criterio que ya usa Multer en
+  disco (`server.js`, `storage.filename`) — prefijo random de 4 bytes + `__` + nombre original
+  saneado — para que la biblioteca (Fase 3) pueda seguir mostrando nombres legibles reusando
+  `displayNameFor` tal cual está, sin tener que tocarlo.
+- `uploadStream(key, bodyStream, contentType)`: sube un stream directo a R2 usando
+  `@aws-sdk/lib-storage` (`Upload`, no `PutObject` simple) porque maneja multipart upload — necesario
+  para videos de varios GB, que es el caso de uso central de este proyecto. No pasa por disco ni se
+  carga entero en memoria.
+- `listObjects()` / `deleteObject(key)`: paginan (de a 1000, el máximo de la API S3) y devuelven el
+  mismo shape que ya usa `GET /api/uploads` en modo local (`filename`, `size`, `mtime`), para que
+  Fase 3 pueda enchufar esto en la biblioteca sin tocar el HTML/JS del cliente.
+- `getPublicUrl(key)`: arma el link servible por el navegador a partir de `R2_PUBLIC_URL` (el
+  subdominio gratis `*.r2.dev` que da Cloudflare al activar acceso público en el bucket, o un dominio
+  propio). Tira error si `R2_PUBLIC_URL` no está seteada.
+
+**Dependencias nuevas:** `@aws-sdk/client-s3` y `@aws-sdk/lib-storage` (ambas open source, del SDK
+oficial de AWS — no hay forma de hablar con la API S3-compatible de R2 sin algo así). Se agregaron a
+`package.json`/`package-lock.json` con `npm install --save`, sin tocar ninguna dependencia existente.
+
+**`.env.example`:** se agregaron las 5 variables de R2 (las 4 obligatorias + `R2_PUBLIC_URL`),
+comentadas por default y documentadas — dejarlas sin completar no cambia nada del comportamiento
+actual del server.
+
+**Modo dual, explícito desde el día 1:** todavía no hay ningún lugar del código que llame a
+`lib/r2.js` — `server.js` sigue exactamente igual que antes de esta sesión. `isR2Enabled()` da
+`false` en cualquier instalación existente (nadie tiene esas variables seteadas todavía), así que esta
+sesión no cambia el comportamiento observable de la app en absoluto; es solo la pieza de
+infraestructura sobre la que se va a construir Fase 2.
+
+**README:** nueva sección "Cloudflare R2 (opcional...)" con el contexto del problema (mismo que arriba,
+resumido) y la guía paso a paso para crear el bucket, activar acceso público, generar credenciales de
+API, y completar el `.env` — para que alguien pueda dejar todo listo del lado de Cloudflare *antes* de
+que Fase 2 conecte el código.
+
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 
 - El `hostToken` viaja en texto plano por HTTP (a menos que Cloudflare Tunnel lo cifre en tránsito, que sí lo hace vía HTTPS). Si alguien lo obtiene (inspeccionando `localStorage` de la persona equivocada, por ejemplo), puede hacerse pasar por host.
@@ -1055,6 +1129,15 @@ color retroactivamente.
 
 ## 10. Ideas pendientes / roadmap
 
+- [ ] **Cloudflare R2 — Fase 2:** conectar `lib/r2.js` (ver sección 8novovicies) a `/create-room`,
+      `/create-room-from-upload` y `/room/:id/change-video` — el video se sube directo desde el
+      navegador de quien lo comparte hacia R2 (streaming), sin guardarse en disco local del host ni
+      pasar por el túnel. Debe seguir funcionando en modo local si no hay R2 configurado (modo dual).
+- [ ] **Cloudflare R2 — Fase 3:** `/api/uploads` (listar) y el borrado de la biblioteca pasan a leer
+      del bucket cuando R2 está activo (usando `listObjects`/`deleteObject` de `lib/r2.js`). Agregar
+      mensaje por consola al arrancar el server avisando en qué modo quedó (local o R2), usando
+      `testConnection()` para detectar configuración mal hecha. Cerrar la documentación de
+      README/MEMORIA/CHANGELOG con la guía completa de punta a punta.
 - [ ] Borrado automático de salas/archivos viejos (ej. después de X horas sin actividad).
 - [ ] Dominio fijo con Cloudflare Tunnel nombrado (requiere cuenta de Cloudflare + dominio propio) para no tener que compartir un link nuevo cada sesión.
 - [ ] Posible: avisar si se intenta borrar un video que está en uso por una sala activa.

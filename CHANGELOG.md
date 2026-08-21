@@ -6,6 +6,33 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-21] Cloudflare R2 — Fase 1: infraestructura aislada, sin conectar todavía
+
+**Motivo:** sesión real con 3 personas (host en localhost + 2 amigas remotas por Cloudflare Tunnel)
+con un video de 3GB: se trababa solo del lado del túnel, por igual en ambos celulares, con buena banda
+ancha de por medio — señal clara de que el "Quick Tunnel" gratis de `cloudflared` (una sola conexión
+saliente compartida entre todos los espectadores remotos) es el cuello de botella, no el internet de
+nadie. De las alternativas evaluadas (bajar bitrate, túnel nombrado, ngrok, R2), R2 es la única que
+saca el video de la conexión del host por completo: lo sirve directo la red de Cloudflare, con egress
+(ancho de banda de salida) gratis siempre, sin tier.
+
+**Qué se agregó:** módulo nuevo `lib/r2.js` con las funciones para hablar con un bucket de R2 vía el
+SDK S3-compatible (`@aws-sdk/client-s3` + `@aws-sdk/lib-storage`, nuevas dependencias): `isR2Enabled`,
+`testConnection`, `makeObjectKey`, `uploadStream` (multipart, para videos de varios GB),
+`listObjects`, `deleteObject`, `getPublicUrl`. `.env.example` con las 5 variables nuevas de R2
+(comentadas por default). Nueva sección en README con la guía paso a paso para crear el bucket,
+activar acceso público y generar credenciales.
+
+**Importante — todavía no cambia nada del comportamiento de la app:** `server.js` no se tocó, y nada
+llama todavía a `lib/r2.js`. Es solo la infraestructura aislada sobre la que se va a construir la
+Fase 2 (subida de video directo a R2 desde `/create-room` y compañía) y la Fase 3 (biblioteca leyendo
+del bucket). Cualquier instalación existente sigue funcionando en modo local exactamente igual que
+antes de este cambio.
+
+Ver `MEMORIA.md` sección 8novovicies para el detalle completo.
+
+---
+
 ## [2026-08-21] Fix: el nombre citado en una respuesta no usaba el color de host (V16)
 
 **Motivo:** el usuario notó (con captura) que un mensaje citado dentro de una respuesta aparecía en

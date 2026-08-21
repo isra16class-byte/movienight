@@ -92,12 +92,58 @@ Necesitas exponer tu servidor local a internet. La forma recomendada es **Cloudf
 
 **Importante:** necesitas 2 procesos corriendo al mismo tiempo — el servidor (`npm start`) y el túnel (`cloudflared`). Si cierras cualquiera de las dos terminales, o tu compu se suspende, el link deja de funcionar para todos. El link también cambia cada vez que reinicias `cloudflared`, a menos que configures un túnel con nombre y dominio propio.
 
+## Cloudflare R2 (opcional — para cuando el link de Cloudflare Tunnel se traba)
+
+Si compartís la sala por internet con **Cloudflare Tunnel** (ver sección anterior) y varios amigos
+remotos ven el video trabado o con buffering constante, aunque tu conexión de subida sea buena, el
+problema casi siempre es el "Quick Tunnel" gratis: todo el tráfico de video sale de tu compu por una
+sola conexión, compartida entre todos los espectadores remotos a la vez. Con un video de varios GB y
+más de un espectador remoto, esa conexión se satura.
+
+**Cloudflare R2** es el storage tipo S3 de Cloudflare. Si el video vive ahí en vez de en tu disco, ya
+no sale de tu compu en absoluto: lo sirve directo la red de Cloudflare a cada espectador, y el egress
+(ancho de banda de salida) es **gratis siempre**, sin límite — a diferencia de la mayoría de storages
+S3-compatibles. El tier gratis de R2 incluye 10 GB de storage y 1 millón de operaciones al mes,
+suficiente para tener guardada una película pesada sin pagar nada.
+
+Esto es **totalmente opcional**: si no configurás nada de esto, el server sigue funcionando en modo
+local (disco), exactamente igual que siempre.
+
+### Cómo activarlo
+
+1. Creá una cuenta gratis en [Cloudflare](https://dash.cloudflare.com/sign-up) si no tenés una.
+2. En el dashboard, andá a **R2 Object Storage** y creá un bucket (ej. `movienight`). La primera vez
+   te va a pedir agregar un método de pago (tarjeta o PayPal) para habilitar R2 — no te cobra nada
+   mientras te mantengas dentro del tier gratis, pero Cloudflare igual lo exige como requisito para
+   activar el servicio.
+3. Dentro del bucket, en su configuración, activá **acceso público** (public access) usando el
+   subdominio gratis que te ofrece Cloudflare (`https://pub-xxxxxxxx.r2.dev`) — no hace falta un
+   dominio propio para esto.
+4. Generá credenciales de API: en R2 → **Manage R2 API Tokens** → creá un token con permisos de
+   lectura y escritura sobre tu bucket. Te va a dar un `Access Key ID` y un `Secret Access Key`.
+5. Tu `Account ID` de Cloudflare aparece en la URL del dashboard o en la barra lateral de la cuenta.
+6. Completá estas variables en tu `.env` (ver `.env.example`):
+   ```
+   R2_ACCOUNT_ID=tu-account-id
+   R2_ACCESS_KEY_ID=tu-access-key-id
+   R2_SECRET_ACCESS_KEY=tu-secret-access-key
+   R2_BUCKET_NAME=movienight
+   R2_PUBLIC_URL=https://pub-xxxxxxxx.r2.dev
+   ```
+
+**Estado actual:** por ahora esto solo monta la infraestructura (`lib/r2.js`) — subir/listar/borrar
+videos todavía se sigue haciendo en disco local (`public/uploads`) mientras se termina de conectar R2
+al flujo de crear sala, cambiar cinta y la biblioteca. Esta sección se va a ir actualizando a medida
+que eso avance.
+
 ## Estructura del proyecto
 
 ```
 movienight/
   server.js              # Servidor Express + Socket.io
   package.json
+  lib/
+    r2.js                 # Cloudflare R2 (opcional, ver sección arriba) — subir/listar/borrar videos en R2
   public/
     index.html            # Página para crear sala
     room.html              # Página de la sala (reproductor, chat, controles)
