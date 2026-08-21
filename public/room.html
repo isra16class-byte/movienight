@@ -934,13 +934,14 @@ function renderChatMessage(data) {
   if (data.system) { addMessage(escapeHtml(data.text), 'system'); return; }
   const color = usernameColor(data.user, data.isHost);
   const quoteHtml = data.replyTo
-    ? `<div class="reply-quote"><span class="reply-quote-user" style="color:${usernameColor(data.replyTo.user, false)}">${escapeHtml(data.replyTo.user)}</span>${escapeHtml(data.replyTo.text)}</div>`
+    ? `<div class="reply-quote"><span class="reply-quote-user" style="color:${usernameColor(data.replyTo.user, data.replyTo.isHost)}">${escapeHtml(data.replyTo.user)}</span>${escapeHtml(data.replyTo.text)}</div>`
     : '';
   const html = `${quoteHtml}<span class="msg-text"><b style="color:${color}">${escapeHtml(data.user)}:</b> ${escapeHtml(data.text)}</span>` +
     `<button class="reply-icon" title="Responder" aria-label="Responder a este mensaje">↩</button>`;
-  // data-user/data-text quedan en el div para poder armar la respuesta (click en el ícono o swipe,
-  // ver más abajo) sin tener que volver a parsear el HTML ya escapado.
-  addMessage(html, 'msg', { user: data.user, text: data.text });
+  // data-user/data-text/data-ishost quedan en el div para poder armar la respuesta (click en el
+  // ícono o swipe, ver más abajo) sin tener que volver a parsear el HTML ya escapado. isHost viaja
+  // como string ('true'/'false') porque los dataset del DOM solo guardan strings.
+  addMessage(html, 'msg', { user: data.user, text: data.text, ishost: !!data.isHost });
 }
 socket.on('chat-message', (data) => {
   renderChatMessage(data);
@@ -969,9 +970,9 @@ socket.on('chat-history', (history) => {
 let replyingTo = null;
 const replyPreview = document.getElementById('replyPreview');
 const replyPreviewText = document.getElementById('replyPreviewText');
-function startReply(user, text) {
+function startReply(user, text, isHost) {
   if (!user || !text) return;
-  replyingTo = { user, text };
+  replyingTo = { user, text, isHost: !!isHost };
   replyPreviewText.innerHTML = `<b>${escapeHtml(user)}</b>: ${escapeHtml(text)}`;
   replyPreview.style.display = 'flex';
   chatInput.focus();
@@ -989,7 +990,7 @@ messages.addEventListener('click', (e) => {
   if (!btn) return;
   const row = btn.closest('.msg');
   if (!row) return;
-  startReply(row.dataset.user, row.dataset.text);
+  startReply(row.dataset.user, row.dataset.text, row.dataset.ishost === 'true');
 });
 
 // Gesto de swipe hacia la derecha sobre un mensaje = responderlo. Umbral chico de "zona muerta" al
@@ -1045,7 +1046,7 @@ function endSwipe(triggerReply) {
       setTimeout(() => iconEl.remove(), 200);
     }
     if (triggerReply && dx >= SWIPE_REPLY_THRESHOLD) {
-      startReply(row.dataset.user, row.dataset.text);
+      startReply(row.dataset.user, row.dataset.text, row.dataset.ishost === 'true');
       if (navigator.vibrate) navigator.vibrate(12);
     }
   }

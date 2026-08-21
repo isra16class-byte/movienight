@@ -2,9 +2,8 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 20 de agosto de 2026 (V15 — colores fijos por nombre de usuario en chat/lista/
-danmaku, y confirmación al salir con el botón "atrás" del navegador, no solo con el botón "Salir"; ver
-sección 8septvicies).
+Última actualización: 21 de agosto de 2026 (V16 — fix: el nombre citado en una respuesta no reflejaba
+si esa persona era host, aunque su propio mensaje sí; ver sección 8octovicies).
 
 ---
 
@@ -1008,6 +1007,40 @@ los muestra) y además dispararían un aviso confuso durante la navegación inte
 (que también navega fuera de `room.html` a propósito, sección 8tervicies) si no se excluía
 cuidadosamente — el guardia de `popstate` no tiene ese problema porque solo reacciona a "atrás", nunca
 a una navegación hacia adelante como la de `changeVideoLink` o `leaveBtn`.
+
+## 8octovicies. Fix: el nombre citado en una respuesta no usaba el color de host (V16)
+
+El usuario reportó (con captura) un mensaje donde el nombre citado dentro de una respuesta aparecía en
+un color (rosa) distinto al que ese mismo nombre tenía como autor de su propio mensaje (cyan, el color
+de host) — dos colores para la misma persona en la misma conversación.
+
+Causa: `usernameColor(name, isHost)` (sección 8septvicies) sí recibía el `isHost` correcto para pintar
+al autor de cada mensaje, pero la línea que pinta el nombre **citado** dentro de `reply-quote` llamaba
+a esa misma función pasándole `false` a mano, en vez del `isHost` real de la persona citada — un
+descuido del momento en que se armó el sistema de "responder" (V14, sección 8sexvicies), que nunca
+había necesitado saber si el citado era host porque los colores de nombre no existían todavía.
+
+El dato de `isHost` de la persona citada nunca llegaba tan lejos como para poder usarse ahí, así que
+hubo que hacerlo viajar por las tres vías que pueden iniciar una respuesta:
+
+- **`renderChatMessage`** ahora guarda `isHost` también en el `dataset` de cada mensaje (`data-ishost`,
+  como string `'true'`/`'false'` porque el `dataset` del DOM solo admite strings), no solo `user` y
+  `text` como antes.
+- **`startReply(user, text, isHost)`** suma un tercer parámetro y lo guarda en `replyingTo.isHost`,
+  que ya viajaba como parte de `{ text, replyTo }` al emitir `chat-message` (sección 8sexvicies) — no
+  hizo falta tocar ese envío, solo lo que se le carga adentro.
+- Los dos lugares que llaman a `startReply` — el click en el ícono ↩ y el gesto de swipe (ambos en
+  `public/room.html`) — ahora leen `row.dataset.ishost === 'true'` y se lo pasan.
+- **`server.js`**, handler `chat-message`: al sanitizar `rawReply` (el objeto `replyTo` que llega del
+  cliente) ahora también copia `isHost: !!rawReply.isHost` al objeto `replyTo` final que se guarda en
+  el historial y se reenvía a todos — antes solo copiaba `user` y `text`, así que aunque el cliente
+  hubiera mandado el dato bien, el servidor lo tiraba.
+- Con todo eso ya viajando de punta a punta, el bug de fondo se arregla con un solo cambio real en
+  `renderChatMessage`: `usernameColor(data.replyTo.user, data.replyTo.isHost)` en vez del `false` fijo.
+
+Igual que con el `isHost` del mensaje raíz (sección 8septvicies), el de la cita queda "congelado" en el
+momento de responder — si el control de host cambia de mano después, las citas viejas no cambian de
+color retroactivamente.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

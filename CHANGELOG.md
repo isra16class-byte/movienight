@@ -6,6 +6,29 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-21] Fix: el nombre citado en una respuesta no usaba el color de host (V16)
+
+**Motivo:** el usuario notó (con captura) que un mensaje citado dentro de una respuesta aparecía en
+rosa aunque esa misma persona era host y su nombre se veía cyan como autor de sus propios mensajes —
+dos colores para el mismo nombre en la misma sala.
+
+**Causa:** `renderChatMessage` (`public/room.html`) pintaba el nombre citado en `.reply-quote` llamando
+a `usernameColor(data.replyTo.user, false)` — el `isHost` estaba **hardcodeado a `false`** en vez de
+usar el dato real de la persona citada, un descuido de cuando se armó el sistema de respuestas (V14) y
+todavía no existían los colores por nombre (esos llegaron recién en V15).
+
+**Fix:** se hizo viajar `isHost` de punta a punta para la persona citada, no solo para el autor del
+mensaje: `renderChatMessage` ahora guarda `isHost` en el `dataset` de cada mensaje del DOM;
+`startReply(user, text, isHost)` suma ese tercer parámetro; los dos disparadores de responder (click en
+el ícono ↩ y el gesto de swipe) se lo pasan leyendo `dataset.ishost`; y `server.js` (handler
+`chat-message`) ahora también sanitiza y reenvía `isHost` dentro del objeto `replyTo`, cosa que antes
+no hacía aunque el cliente ya lo mandara. Con el dato llegando bien, el cambio real es reemplazar el
+`false` fijo por `data.replyTo.isHost` en la línea que arma el HTML de la cita.
+
+Ver `MEMORIA.md` sección 8octovicies para el detalle completo.
+
+---
+
 ## [2026-08-20] Colores por nombre de usuario + confirmación al salir con "atrás" (V15)
 
 **Motivo:** dos pedidos separados. (1) Colores para los nombres de invitados en el chat, sin romper la

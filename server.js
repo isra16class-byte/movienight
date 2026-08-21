@@ -373,7 +373,10 @@ io.on('connection', (socket) => {
     let replyTo = null;
     const rawReply = payload && typeof payload === 'object' ? payload.replyTo : null;
     if (rawReply && typeof rawReply === 'object' && typeof rawReply.user === 'string' && typeof rawReply.text === 'string' && rawReply.user.trim() && rawReply.text.trim()) {
-      replyTo = { user: rawReply.user.slice(0, 40), text: rawReply.text.slice(0, 200) };
+      // isHost viaja también en la cita (no solo en el mensaje raíz) para que el nombre citado se
+      // pinte del color correcto del lado del cliente — ver nota en room.html sobre por qué esto
+      // se guarda "congelado" en el momento de responder y no se recalcula contra el host actual.
+      replyTo = { user: rawReply.user.slice(0, 40), text: rawReply.text.slice(0, 200), isHost: !!rawReply.isHost };
     }
     // isHost va pegado al mensaje (no solo al socket) para que el color del nombre en el chat (V15,
     // ver room.html) refleje si esa persona ERA el host en el momento de escribirlo — el control
