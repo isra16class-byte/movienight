@@ -87,10 +87,22 @@
         <div class="typing-indicator" id="typingIndicator"></div>
         <div class="reactions">
           <button data-e="😂">😂</button>
-          <button data-e="🔥">🔥</button>
+          <button data-e="😭">😭</button>
+          <button data-e="😍">😍</button>
           <button data-e="😱">😱</button>
+          <button data-e="🔥">🔥</button>
           <button data-e="❤️">❤️</button>
+          <button data-e="👍">👍</button>
           <button data-e="👏">👏</button>
+          <button data-e="🙌">🙌</button>
+          <button data-e="💀">💀</button>
+          <button data-e="🎉">🎉</button>
+          <button data-e="😅">😅</button>
+        </div>
+        <div id="replyPreview">
+          <span class="reply-preview-bar"></span>
+          <span class="reply-preview-text" id="replyPreviewText"></span>
+          <button class="reply-preview-cancel" id="replyPreviewCancel" title="Cancelar respuesta" aria-label="Cancelar respuesta">✕</button>
         </div>
         <div class="chat-input">
           <div id="chatInput" class="chat-input-field" contenteditable="true" data-placeholder="Escribe algo..." role="textbox" aria-multiline="false" enterkeyhint="send"></div>
@@ -860,16 +872,24 @@ document.getElementById('subtitleFile').addEventListener('change', async (e) => 
 
 // --- Chat ---
 const messages = document.getElementById('messages');
-function addMessage(html, cls) {
+function addMessage(html, cls, dataset) {
   const div = document.createElement('div');
   div.className = cls;
   div.innerHTML = html;
+  if (dataset) Object.entries(dataset).forEach(([k, v]) => { div.dataset[k] = v; });
   messages.appendChild(div);
   messages.scrollTop = messages.scrollHeight;
 }
 function renderChatMessage(data) {
   if (data.system) { addMessage(escapeHtml(data.text), 'system'); return; }
-  addMessage(`<span class="msg"><b>${escapeHtml(data.user)}:</b> ${escapeHtml(data.text)}</span>`, 'msg');
+  const quoteHtml = data.replyTo
+    ? `<div class="reply-quote"><span class="reply-quote-user">${escapeHtml(data.replyTo.user)}</span>${escapeHtml(data.replyTo.text)}</div>`
+    : '';
+  const html = `${quoteHtml}<span class="msg-text"><b>${escapeHtml(data.user)}:</b> ${escapeHtml(data.text)}</span>` +
+    `<button class="reply-icon" title="Responder" aria-label="Responder a este mensaje">↩</button>`;
+  // data-user/data-text quedan en el div para poder armar la respuesta (click en el ícono o swipe,
+  // ver más abajo) sin tener que volver a parsear el HTML ya escapado.
+  addMessage(html, 'msg', { user: data.user, text: data.text });
 }
 socket.on('chat-message', (data) => {
   renderChatMessage(data);
@@ -887,6 +907,101 @@ socket.on('chat-history', (history) => {
   messages.innerHTML = '';
   (history || []).forEach(renderChatMessage);
 });
+
+// --- Responder a un mensaje ---
+// Dos formas de armar una respuesta: tocar/clickear el ícono ↩ de un mensaje, o deslizarlo hacia la
+// derecha (gesto típico de apps de mensajería tipo WhatsApp). Ambas terminan en startReply(), que
+// arma el banner de "respondiendo a…" arriba de la caja de texto; el texto citado viaja junto al
+// mensaje al enviarlo (ver sendChatMessage) y el servidor lo adjunta tal cual en el chat-message que
+// reenvía a todos, sin necesitar IDs de mensaje ni tabla de referencias — es una cita de texto plano,
+// no un link al mensaje original.
+let replyingTo = null;
+const replyPreview = document.getElementById('replyPreview');
+const replyPreviewText = document.getElementById('replyPreviewText');
+function startReply(user, text) {
+  if (!user || !text) return;
+  replyingTo = { user, text };
+  replyPreviewText.innerHTML = `<b>${escapeHtml(user)}</b>: ${escapeHtml(text)}`;
+  replyPreview.style.display = 'flex';
+  chatInput.focus();
+}
+function cancelReply() {
+  replyingTo = null;
+  replyPreview.style.display = 'none';
+}
+document.getElementById('replyPreviewCancel').addEventListener('click', cancelReply);
+
+// Click en el ícono ↩ de cualquier mensaje (delegado en #messages porque los mensajes se van
+// agregando dinámicamente, no existen todavía cuando se cargó la página).
+messages.addEventListener('click', (e) => {
+  const btn = e.target.closest('.reply-icon');
+  if (!btn) return;
+  const row = btn.closest('.msg');
+  if (!row) return;
+  startReply(row.dataset.user, row.dataset.text);
+});
+
+// Gesto de swipe hacia la derecha sobre un mensaje = responderlo. Umbral chico de "zona muerta" al
+// principio del gesto para no interferir con un tap normal ni con el scroll vertical del chat: recién
+// se decide si es un swipe horizontal (y se bloquea) una vez que el dedo se movió lo suficiente Y en
+// dirección más horizontal que vertical; si no, se suelta el gesto (swipeState = null) y el navegador
+// sigue haciendo scroll normal solo, gracias a `touch-action: pan-y` en CSS (evita pelear a mano con
+// preventDefault, que además tendría que declarar los listeners como no-pasivos).
+let swipeState = null;
+const SWIPE_DEAD_ZONE = 8;
+const SWIPE_MAX_PULL = 70;
+const SWIPE_REPLY_THRESHOLD = 46;
+
+messages.addEventListener('touchstart', (e) => {
+  const row = e.target.closest('.msg');
+  if (!row) return;
+  const t = e.touches[0];
+  swipeState = { row, startX: t.clientX, startY: t.clientY, dx: 0, locked: null, iconEl: null };
+}, { passive: true });
+
+messages.addEventListener('touchmove', (e) => {
+  if (!swipeState) return;
+  const t = e.touches[0];
+  const dx = t.clientX - swipeState.startX;
+  const dy = t.clientY - swipeState.startY;
+  if (swipeState.locked === null) {
+    if (Math.abs(dx) < SWIPE_DEAD_ZONE && Math.abs(dy) < SWIPE_DEAD_ZONE) return;
+    swipeState.locked = Math.abs(dx) > Math.abs(dy) && dx > 0;
+    if (!swipeState.locked) { swipeState = null; return; } // vertical o hacia la izquierda: no es swipe de responder
+    const icon = document.createElement('span');
+    icon.className = 'swipe-reply-icon';
+    icon.textContent = '↩';
+    swipeState.row.style.transition = 'none';
+    swipeState.row.appendChild(icon);
+    swipeState.iconEl = icon;
+  }
+  if (!swipeState.locked) return;
+  const clamped = Math.max(0, Math.min(dx, SWIPE_MAX_PULL));
+  swipeState.dx = clamped;
+  swipeState.row.style.transform = `translateX(${clamped}px)`;
+  if (swipeState.iconEl) swipeState.iconEl.style.opacity = Math.min(1, clamped / SWIPE_REPLY_THRESHOLD);
+}, { passive: true });
+
+function endSwipe(triggerReply) {
+  if (!swipeState) return;
+  const { row, dx, iconEl, locked } = swipeState;
+  if (locked) {
+    row.style.transition = 'transform .18s ease';
+    row.style.transform = '';
+    if (iconEl) {
+      iconEl.style.transition = 'opacity .15s ease';
+      iconEl.style.opacity = '0';
+      setTimeout(() => iconEl.remove(), 200);
+    }
+    if (triggerReply && dx >= SWIPE_REPLY_THRESHOLD) {
+      startReply(row.dataset.user, row.dataset.text);
+      if (navigator.vibrate) navigator.vibrate(12);
+    }
+  }
+  swipeState = null;
+}
+messages.addEventListener('touchend', () => endSwipe(true), { passive: true });
+messages.addEventListener('touchcancel', () => endSwipe(false), { passive: true });
 
 // --- Comentarios flotantes del chat sobre el video (estilo "danmaku"), solo en pantalla completa ---
 // Los mensajes de sistema (alguien entró/salió) se quedan afuera a propósito: solo interesa lo
@@ -940,8 +1055,9 @@ const chatInput = document.getElementById('chatInput');
 function sendChatMessage() {
   const text = chatInput.textContent.trim();
   if (text) {
-    socket.emit('chat-message', text);
+    socket.emit('chat-message', { text, replyTo: replyingTo });
     chatInput.textContent = '';
+    cancelReply();
   }
 }
 chatInput.addEventListener('keydown', (e) => {

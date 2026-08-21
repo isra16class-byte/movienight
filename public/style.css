@@ -735,12 +735,79 @@ video { width: 100%; height: 100%; display: block; background: black; }
 #messages .msg { margin: 8px 0; line-height: 1.4; }
 #messages .msg b { color: var(--pink); font-weight: 600; }
 
-.reactions { display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+/* Cada mensaje de usuario es "deslizable": position:relative para el ícono de responder que aparece
+   en la esquina y para el ícono flotante que se ve mientras se arrastra (ver JS, gesto de swipe).
+   touch-action: pan-y le dice al navegador "el scroll vertical lo manejás vos nativo, el gesto
+   horizontal lo controla el JS" — así no hace falta pelear con preventDefault en un listener de
+   touchmove (que además rompería el scroll vertical normal del chat si no se hace con cuidado). */
+#messages .msg { position: relative; touch-action: pan-y; }
+
+/* Responder a un mensaje: citado que aparece arriba del texto cuando el mensaje es una respuesta a
+   otro (ver reply-preview-* para la barra que se arma ANTES de mandar el mensaje). Recortado a 2
+   líneas con line-clamp para que una cita larga no infle la altura del mensaje. */
+#messages .msg .reply-quote {
+  border-left: 3px solid var(--cyan); background: var(--bg-elevated);
+  padding: 4px 8px; border-radius: var(--radius-sm); margin-bottom: 4px;
+  font-size: 12px; color: var(--text-muted); line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+#messages .msg .reply-quote .reply-quote-user { color: var(--cyan); font-weight: 600; margin-right: 4px; }
+
+/* Ícono de "responder" por mensaje: siempre existe pero casi invisible, se resalta al pasar el mouse
+   (desktop) o queda semi-visible de entrada en pantallas táctiles (media hover:none más abajo), ya
+   que ahí el gesto principal es el swipe, pero el ícono sirve de respaldo si no quieren arrastrar. */
+#messages .msg .reply-icon {
+  position: absolute; top: 0; right: 0; background: none; border: none;
+  color: var(--text-muted); font-size: 13px; line-height: 1; padding: 3px 6px;
+  cursor: pointer; border-radius: var(--radius-sm); opacity: 0;
+  transition: opacity .15s ease, color .15s ease;
+}
+#messages .msg:hover .reply-icon { opacity: 0.55; }
+#messages .msg .reply-icon:hover { opacity: 1; color: var(--cyan); }
+@media (hover: none) {
+  #messages .msg .reply-icon { opacity: 0.4; }
+}
+
+/* Ícono ↩ que aparece a la izquierda del mensaje mientras se lo arrastra hacia la derecha (swipe),
+   como referencia visual de que soltar ahí dispara "responder". Se crea y destruye por JS en cada
+   gesto (ver room.html), no queda en el DOM en reposo. */
+.swipe-reply-icon {
+  position: absolute; left: -26px; top: 50%; transform: translateY(-50%);
+  font-size: 16px; opacity: 0; color: var(--cyan); pointer-events: none;
+}
+
+.reactions {
+  display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--line);
+  flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+}
+.reactions::-webkit-scrollbar { height: 4px; }
+.reactions::-webkit-scrollbar-thumb { background: var(--line); border-radius: var(--radius-md); }
 .reactions button {
-  background: var(--bg-elevated); border: 1px solid var(--line); font-size: 18px;
+  flex: 0 0 auto; background: var(--bg-elevated); border: 1px solid var(--line); font-size: 18px;
   padding: 6px 11px; border-radius: var(--radius-sm); cursor: pointer;
 }
 .reactions button:hover { border-color: var(--cyan); }
+
+/* Banner de "respondiendo a…" que aparece arriba de la caja de texto mientras hay una respuesta
+   armada (ver startReply/cancelReply en room.html). Oculto por defecto. */
+#replyPreview {
+  display: none; align-items: center; gap: 8px; padding: 8px 10px;
+  border-top: 1px solid var(--line); background: var(--bg-elevated); font-size: 12px;
+}
+#replyPreview .reply-preview-bar {
+  width: 3px; align-self: stretch; background: var(--cyan); border-radius: 2px; flex: 0 0 auto;
+}
+#replyPreview .reply-preview-text {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-muted);
+}
+#replyPreview .reply-preview-text b { color: var(--cyan); font-weight: 600; }
+#replyPreview .reply-preview-cancel {
+  background: none; border: none; color: var(--text-muted); font-size: 16px; line-height: 1;
+  cursor: pointer; padding: 2px 6px; border-radius: var(--radius-sm); flex: 0 0 auto;
+}
+#replyPreview .reply-preview-cancel:hover { color: var(--pink); }
 
 .chat-input { display: flex; padding: 10px; border-top: 1px solid var(--line); gap: 8px; }
 /* .chat-input-field es un <div contenteditable> en vez de <input> a propósito: Chrome Android

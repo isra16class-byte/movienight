@@ -2,9 +2,8 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 20 de agosto de 2026 (V13 — historial de chat guardado en memoria por sala:
-el chat ya no se le vacía al host al usar "Cambiar cinta" (recargaba la página); ver sección
-8quinvicies).
+Última actualización: 20 de agosto de 2026 (V14 — barra de emojis ampliada con scroll horizontal, y
+responder a un mensaje por swipe o por ícono, con cita de texto plano; ver sección 8sexvicies).
 
 ---
 
@@ -898,6 +897,63 @@ reconectar te lluevan de golpe 50 comentarios flotantes viejos sobre el video).
 **Se mantiene 100% en memoria, no en disco:** si el servidor se reinicia, el historial de todas las
 salas se pierde igual que el resto del estado (`rooms` entero vive en memoria, ver limitación ya
 anotada en la sección 9 de este documento).
+
+## 8sexvicies. Más emojis con scroll horizontal + responder a un mensaje (swipe o ícono) (V14)
+
+Dos pedidos del usuario sobre el chat, a partir de una captura de pantalla en celular:
+
+**Más emojis, con scroll en vez de que se apilen en varias filas.** La barra de reacciones rápidas
+(`.reactions`) tenía 5 botones fijos (😂🔥😱❤️👏) con `flex-wrap: wrap` — con pocos entraban en una
+fila, pero agregar más los mandaba a una segunda fila, comiéndose espacio vertical del chat. Se
+sumaron los "más usados" que faltaban (😭😍👍🙌💀🎉😅, 12 en total) y se cambió el contenedor a
+`flex-wrap: nowrap; overflow-x: auto;` — ahora es una sola fila que se desliza horizontalmente con el
+dedo (o con el mouse en desktop), con una scrollbar fina temática en vez de la del navegador por
+defecto (`scrollbar-width: thin` + `::-webkit-scrollbar` para Chrome/Android, que es lo que se ve en
+la screenshot).
+
+**Responder a un mensaje.** Pedido explícito: poder "agarrar" un mensaje y deslizarlo hacia la derecha
+para dejarlo marcado como el que se está respondiendo — el gesto estándar de WhatsApp/Telegram/etc.
+Se implementó con dos caminos, para cubrir touch y mouse:
+
+1. **Swipe hacia la derecha (`public/room.html`, listeners de touch delegados en `#messages`):**
+   `touchstart` guarda el punto de partida sobre el mensaje (`.msg`) tocado. En el primer `touchmove`
+   que supera una "zona muerta" de 8px se decide la dirección: si el movimiento es más horizontal que
+   vertical Y hacia la derecha, se "bloquea" como swipe-de-responder (se crea un ícono ↩ que va
+   apareciendo a la izquierda del mensaje a medida que se arrastra, y el mensaje se corre con
+   `transform: translateX(...)`, con un tope de 70px); si no, se suelta el gesto entero y el navegador
+   sigue haciendo scroll vertical normal — no hace falta pelear con `preventDefault` en el listener
+   (que además obligaría a declararlo no-pasivo) porque el CSS ya declara `touch-action: pan-y` en
+   `.msg`: eso le dice al navegador "el pan vertical lo manejás vos nativo, lo horizontal es mío", así
+   que los listeners quedan `{ passive: true }` sin perder nada. Al soltar (`touchend`), si se arrastró
+   más de 46px se dispara `startReply(...)` (con una vibración cortita si el dispositivo lo soporta) y
+   el mensaje vuelve a su lugar con una transición suave.
+2. **Ícono ↩ por mensaje (funciona con mouse y como respaldo táctil):** cada mensaje renderizado
+   (`renderChatMessage`) incluye un botoncito ↩ en la esquina superior derecha, casi invisible por
+   defecto y visible al pasar el mouse (`:hover`) en desktop, o siempre semitransparente en pantallas
+   táctiles (`@media (hover: none)`, ya que ahí el hover no existe). Un click/tap sobre él llama a la
+   misma `startReply(...)`.
+
+`startReply(user, text)` guarda `replyingTo = { user, text }` y muestra un banner arriba de la caja de
+texto (`#replyPreview`, oculto por defecto) con la cita y un botón "✕" para cancelar
+(`cancelReply()`). Al enviar (`sendChatMessage`), el payload que viaja por socket pasó de ser un string
+plano a un objeto `{ text, replyTo }`; si había una respuesta armada, se manda junto y se limpia el
+banner después de enviar.
+
+**`server.js` (`socket.on('chat-message', ...)`):** ahora recibe ese objeto en vez de un string —
+se acepta también un string plano por compatibilidad hacia atrás (por si queda algún cliente viejo en
+caché sin recargar la página), y se sanitiza `replyTo` (debe ser un objeto con `user`/`text` string no
+vacíos, se recortan a 40/200 caracteres) antes de armar el mensaje final `{ system: false, user, text,
+replyTo }`, que se guarda en el historial (`pushChatHistory`, sección 8quinvicies) y se reenvía a toda
+la sala como siempre. **No hay IDs de mensaje ni tabla de referencias** — la "respuesta" es una cita de
+texto plano (usuario + contenido) embebida en el mensaje nuevo, no un link clickeable al mensaje
+original; es la forma más simple que cubre el pedido sin sumar un sistema de identificadores por
+mensaje que nada más en el proyecto necesita todavía.
+
+**Cliente, renderizado (`renderChatMessage`):** si el mensaje trae `replyTo`, se pinta un bloque
+citado arriba del texto (`.reply-quote`, con barra de color a la izquierda y recortado a 2 líneas con
+`-webkit-line-clamp` para que una cita larga no infle la altura del mensaje). El historial
+(`chat-history`, sección 8quinvicies) reutiliza el mismo `renderChatMessage`, así que las respuestas
+también sobreviven a una recarga de página igual que el resto del chat.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

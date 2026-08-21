@@ -6,6 +6,39 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-20] Más emojis con scroll horizontal + responder a un mensaje (swipe o ícono) (V14)
+
+**Motivo:** pedido del usuario a partir de una captura del chat en celular — que aparezca la carita
+llorando (😭) y más emojis "de los más usados" en la barra de reacciones, que esa barra se pueda
+desplazar horizontalmente en vez de apilarse en varias filas, y poder "agarrar" un mensaje y deslizarlo
+hacia la derecha para marcarlo como el que se está respondiendo (gesto típico de WhatsApp/Telegram).
+
+**`public/style.css`:** `.reactions` pasa de `flex-wrap: wrap` a `flex-wrap: nowrap; overflow-x:
+auto;` con scrollbar fina temática. Se agregan 7 emojis nuevos (😭😍👍🙌💀🎉😅) a los 5 que ya había,
+12 en total. Nuevos estilos para el sistema de respuestas: `.msg { touch-action: pan-y }` (deja que el
+navegador maneje el scroll vertical nativo y le da el gesto horizontal al JS, sin pelear con
+`preventDefault`), `.reply-quote` (cita recortada a 2 líneas arriba del texto cuando el mensaje es una
+respuesta), `.reply-icon` (botón ↩ por mensaje, visible en hover en desktop / semi-visible siempre en
+táctil), `.swipe-reply-icon` (ícono que aparece mientras se arrastra) y `#replyPreview` (banner de
+"respondiendo a…" arriba de la caja de texto).
+
+**`public/room.html`:** listeners de `touchstart/touchmove/touchend/touchcancel` delegados en
+`#messages`, con zona muerta de 8px para no interferir con un tap ni con el scroll vertical normal, y
+umbral de 46px para disparar la respuesta al soltar (con `navigator.vibrate` si el dispositivo lo
+soporta). El ícono ↩ de cada mensaje hace lo mismo con un click, para desktop o como respaldo táctil.
+`sendChatMessage()` ahora manda `{ text, replyTo }` en vez de un string plano; `renderChatMessage`
+pinta la cita cuando corresponde.
+
+**`server.js`:** `socket.on('chat-message', ...)` acepta el nuevo payload `{ text, replyTo }` (con
+compatibilidad hacia atrás si llega un string plano), sanitiza `replyTo` (user/text string no vacíos,
+recortados a 40/200 caracteres) y lo adjunta al mensaje que guarda en el historial y reenvía a la sala.
+No se agregaron IDs de mensaje — la respuesta es una cita de texto plano embebida, no un link al
+mensaje original.
+
+Ver `MEMORIA.md` sección 8sexvicies para el detalle completo.
+
+---
+
 ## [2026-08-20] Historial de chat server-side: sobrevive a la recarga de "cambiar cinta" (V13)
 
 **Motivo:** pregunta del usuario tras el fix de V11 — notó que al host se le vaciaba el chat entero

@@ -361,12 +361,21 @@ io.on('connection', (socket) => {
     socket.to(currentRoom).emit('sync', data);
   });
 
-  socket.on('chat-message', (text) => {
+  socket.on('chat-message', (payload) => {
     const room = rooms[currentRoom];
     if (!room) return;
     if (room.mutedUserIds.has(socket.userId)) { socket.emit('mute-status', { muted: true }); return; }
+    // El cliente manda { text, replyTo } desde V14; se acepta también un string plano por si
+    // queda algún cliente viejo en caché sin recargar (o algún otro cliente que hable el protocolo
+    // anterior).
+    const text = payload && typeof payload === 'object' ? payload.text : payload;
     if (typeof text !== 'string' || !text.trim()) return;
-    const msg = { system: false, user: socket.username, text: text.slice(0, 500) };
+    let replyTo = null;
+    const rawReply = payload && typeof payload === 'object' ? payload.replyTo : null;
+    if (rawReply && typeof rawReply === 'object' && typeof rawReply.user === 'string' && typeof rawReply.text === 'string' && rawReply.user.trim() && rawReply.text.trim()) {
+      replyTo = { user: rawReply.user.slice(0, 40), text: rawReply.text.slice(0, 200) };
+    }
+    const msg = { system: false, user: socket.username, text: text.slice(0, 500), replyTo };
     pushChatHistory(room, msg);
     io.to(currentRoom).emit('chat-message', msg);
   });
