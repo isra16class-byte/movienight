@@ -6,6 +6,27 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-21] Fix: R2 nunca se activaba usando `.env` (bug de orden de `require`)
+
+**Motivo:** un usuario real completó las 5 variables de R2 en su `.env` siguiendo la guía paso a paso
+y el server seguía mostrando `💾 Cloudflare R2 no está configurado`. No era un error del usuario: era
+un bug de código presente desde la Fase 1 de R2, que nunca se había notado porque hasta ahora R2 solo
+se había probado pasando las variables directo por consola, nunca a través de un archivo `.env` real.
+
+**La causa:** `server.js` cargaba `lib/r2.js` con `require('./lib/r2')` **antes** de llamar a
+`loadDotEnv()`. Como `lib/r2.js` lee `process.env.R2_*` en constantes de nivel de módulo una sola vez,
+en el momento del `require`, esas constantes quedaban fijadas en `''` para siempre si el `.env`
+todavía no se había leído en ese momento — sin importar que `loadDotEnv()` llenara `process.env`
+correctamente dos líneas más abajo.
+
+**El fix:** se movió el `require('./lib/r2')` a después de `loadDotEnv()` en `server.js`. No se tocó
+nada de `lib/r2.js`. Confirmado con una prueba mínima que reproduce el bug y el fix, y con el server
+real levantando con un `.env` de R2 de prueba.
+
+**Documentación:** `MEMORIA.md` sección 8sexicies (nueva) — incluye también una segunda causa posible
+a confirmar con el usuario puntual que reportó esto (variables R2 posiblemente fusionadas en una sola
+línea del `.env`, probable artefacto de copiar/pegar desde PowerShell, no un bug de código).
+
 ## [2026-08-21] Dominio fijo — túnel con nombre de Cloudflare (opcional)
 
 **Motivo:** el Quick Tunnel (`cloudflared tunnel --url ...`, ya documentado desde antes) da un link

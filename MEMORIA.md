@@ -2,8 +2,8 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 21 de agosto de 2026 (Dominio fijo — túnel con nombre de Cloudflare, opcional;
-ver sección 8quinquicies. Guía completa en README + `cloudflared-config.example.yml` + `npm run tunnel`).
+Última actualización: 21 de agosto de 2026 (Fix: R2 nunca se activaba usando `.env` por un bug de
+orden de `require`; ver sección 8sexicies).
 
 ---
 
@@ -1302,6 +1302,45 @@ host tiene que volver a compartirlo con el grupo en cada sesión. Esta sesión a
 **Qué NO se tocó:** nada de `server.js`, `lib/r2.js` ni el frontend — el server sigue escuchando en
 `localhost:PORT` sin ningún cambio, sea que se exponga con Quick Tunnel, túnel con nombre, o ninguno de
 los dos (uso solo en LAN).
+
+## 8sexicies. Fix: R2 nunca se activaba usando `.env` (bug de orden de `require`) (V17)
+
+Un usuario real (no técnico) siguió toda la guía de R2 paso a paso — cuenta, bucket, token, `.env`
+completado con las 5 variables — y el server igual imprimía `💾 Cloudflare R2 no está configurado`.
+No era un error suyo: era un bug de código presente desde la Fase 1, que nunca se había notado porque
+hasta ahora R2 solo se había probado pasando las variables directo por consola
+(`R2_ACCOUNT_ID=x npm start`), nunca a través de un archivo `.env` real.
+
+- **La causa:** `server.js` hacía `const r2 = require('./lib/r2')` **antes** de llamar a
+  `loadDotEnv()`. `lib/r2.js` lee `process.env.R2_*` en constantes de nivel de módulo
+  (`const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID || ''`, etc.), una sola vez, en el momento exacto
+  del `require` — y Node cachea el módulo, así que esas constantes quedan fijadas para siempre. Si en
+  ese momento el `.env` todavía no se leyó, `isR2Enabled()` va a devolver `false` por el resto de la
+  vida del proceso, sin importar qué haya en el `.env` ni que `loadDotEnv()` se ejecute dos líneas más
+  abajo y sí llene `process.env` correctamente. Con variables de entorno reales (pasadas antes de que
+  arranque `node`) esto nunca pasaba, porque ya estaban en `process.env` desde antes del `require` —
+  por eso quedó sin detectar durante las 3 fases de R2.
+- **El fix:** se movió `const r2 = require('./lib/r2')` a después de `loadDotEnv()` en `server.js`.
+  Nada de `lib/r2.js` se tocó — el archivo sigue leyendo `process.env` de la misma forma, solo que
+  ahora el `require` (y por lo tanto esa lectura) pasa después de que el `.env` ya se cargó. Se
+  confirmó con una prueba mínima (`require` antes vs. después de setear las variables) que reproduce
+  el bug y el fix exactos, y con el server real levantando con un `.env` de R2 de prueba: antes del
+  fix imprimía "no está configurado" con las variables ya seteadas; después, pasa a intentar
+  `testConnection()` como corresponde.
+- **Nada más cambió**: el modo dual (disco local si R2 no está configurado) sigue funcionando igual;
+  esto solo corrige que un `.env` bien formado ahora sí se detecte.
+
+**Segunda causa posible, a confirmar con el usuario (no es un bug de código):** en el contenido de
+`.env` que mandó (vía `Get-Content .env` en PowerShell), las 4 variables obligatorias de R2 aparecían
+todas pegadas en una sola línea (`R2_ACCOUNT_ID=xxx R2_ACCESS_KEY_ID=xxx R2_SECRET_ACCESS_KEY=xxx
+R2_BUCKET_NAME=movienight`) en vez de una por línea. Se probó ese caso también: si el `.env` real
+tiene esas 4 variables realmente fusionadas en una sola línea, `loadDotEnv()` (que corta en el
+**primer** `=` de cada línea) solo termina cargando `R2_ACCOUNT_ID` con un valor basura que incluye el
+resto de la línea, y las otras 3 variables no se cargan — `isR2Enabled()` seguiría dando `false`
+incluso con este fix. Es más probable que sea un artefacto de copiar/pegar desde la consola de
+PowerShell (que en Windows puede fusionar líneas envueltas visualmente al copiar con selección de
+mouse) que un problema real del archivo, pero hay que pedirle al usuario que confirme abriendo el
+`.env` en un editor de texto (Notepad, VS Code) que cada `R2_*` esté en su propia línea.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

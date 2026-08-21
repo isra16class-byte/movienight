@@ -6,7 +6,6 @@ const crypto = require('crypto');
 const multer = require('multer');
 const { PassThrough } = require('stream');
 const { Server } = require('socket.io');
-const r2 = require('./lib/r2');
 
 // --- Carga variables desde un .env en la raíz del proyecto, si existe (V10) --------------------
 // No se agregó la librería `dotenv` a propósito: el proyecto ya se mantiene con solo 3 dependencias
@@ -30,6 +29,15 @@ function loadDotEnv() {
   }
 }
 loadDotEnv();
+
+// `require('./lib/r2')` va DESPUÉS de loadDotEnv() a propósito (V17 — fix): lib/r2.js lee
+// process.env.R2_* en constantes de nivel de módulo, una sola vez, en el momento en que se hace
+// `require`. Si el require pasa antes de loadDotEnv() (como estaba desde la Fase 1), esas constantes
+// quedan fijadas en '' para siempre, sin importar qué haya en el .env — porque Node cachea el módulo
+// y no lo vuelve a ejecutar. El bug no se notaba probando con variables de entorno reales (ej.
+// `R2_ACCOUNT_ID=x npm start`), porque esas ya existen en process.env antes de que arranque node —
+// recién se manifestó con un usuario real usando un archivo .env.
+const r2 = require('./lib/r2');
 
 const app = express();
 const server = http.createServer(app);
