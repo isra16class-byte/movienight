@@ -4,7 +4,9 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
+const { PassThrough } = require('stream');
 const { Server } = require('socket.io');
+const r2 = require('./lib/r2');
 
 // --- Carga variables desde un .env en la raíz del proyecto, si existe (V10) --------------------
 // No se agregó la librería `dotenv` a propósito: el proyecto ya se mantiene con solo 3 dependencias
@@ -95,7 +97,48 @@ const storage = multer.diskStorage({
     cb(null, crypto.randomBytes(4).toString('hex') + '__' + safeBase + ext);
   }
 });
-const upload = multer({ storage, limits: { fileSize: 8 * 1024 * 1024 * 1024 } });
+// --- Cloudflare R2 — Fase 2: subida de video en streaming (sin tocar disco) --------------------
+// Motor de storage de Multer alternativo al de disco local de arriba. Multer llama a _handleFile
+// con `file.stream`, el stream crudo de esa parte del multipart mientras todavía está llegando por
+// HTTP — en vez de escribirlo a disco (como hace el motor `storage` de arriba), lo empalmamos
+// directo a `r2.uploadStream`, que lo sube a R2 en partes (multipart) a medida que llega. El archivo
+// nunca toca el disco del host ni se carga entero en memoria en ningún punto del camino.
+// El `PassThrough` intermedio solo cuenta bytes (para poder devolver `size`, igual que hace el motor
+// de disco); no altera ni retiene los datos que pasan por él.
+const r2VideoStorage = {
+  _handleFile(req, file, cb) {
+    const key = r2.makeObjectKey(file.originalname);
+    let bytes = 0;
+    const counter = new PassThrough();
+    counter.on('data', (chunk) => { bytes += chunk.length; });
+    file.stream.pipe(counter);
+    r2.uploadStream(key, counter, file.mimetype)
+      .then(() => cb(null, { key, size: bytes }))
+      .catch((err) => cb(err));
+  },
+  // Multer llama esto para limpiar un archivo ya subido si algo más falla durante la misma request
+  // (ej. otro archivo del mismo form, o un límite excedido detectado después). `file.key` es el campo
+  // propio que devolvimos arriba en _handleFile (no es un campo estándar de Multer).
+  _removeFile(req, file, cb) {
+    if (!file.key) return cb(null);
+    r2.deleteObject(file.key).then(() => cb(null)).catch(cb);
+  }
+};
+
+// Se decide una sola vez al arrancar el server (según las variables de entorno ya cargadas por
+// loadDotEnv arriba): si R2 está configurado, TODAS las subidas de video van a R2, no hay mezcla por
+// request. Ver sección "Cloudflare R2 — Fase 2" en MEMORIA.md para el porqué de este modo dual.
+const videoStorage = r2.isR2Enabled() ? r2VideoStorage : storage;
+const upload = multer({ storage: videoStorage, limits: { fileSize: 8 * 1024 * 1024 * 1024 } });
+
+// A partir del `req.file` que deja Multer (con cualquiera de los dos motores de arriba), arma la URL
+// que se guarda en `room.videoFile` y se manda tal cual al cliente (`room.html` hace
+// `player.src = videoFile` directo, ver 'room-data'/'video-changed') — por eso puede ser tanto una
+// ruta local ('/uploads/archivo.mp4') como una URL absoluta de R2, sin que el cliente necesite saber
+// cuál de las dos es.
+function videoUrlForUploadedFile(file) {
+  return r2.isR2Enabled() ? r2.getPublicUrl(file.key) : '/uploads/' + file.filename;
+}
 
 // Subtítulos: se leen en memoria para poder convertir .srt -> .vtt antes de guardar
 const subtitleUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -149,7 +192,7 @@ function makeRoom(videoFile, password) {
 app.post('/create-room', upload.single('video'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No llegó ningún video' });
   const roomId = makeRoomId();
-  const room = makeRoom('/uploads/' + req.file.filename, (req.body.password || '').trim());
+  const room = makeRoom(videoUrlForUploadedFile(req.file), (req.body.password || '').trim());
   rooms[roomId] = room;
   res.json({ roomId, hostToken: room.hostToken });
 });
@@ -168,7 +211,7 @@ app.post('/room/:id/change-video', upload.single('video'), (req, res) => {
   if (!room) return res.status(404).json({ error: 'Sala no existe' });
   if (req.body.hostToken !== room.hostToken) return res.status(403).json({ error: 'No autorizado' });
   if (!req.file) return res.status(400).json({ error: 'No llegó ningún video' });
-  room.videoFile = '/uploads/' + req.file.filename;
+  room.videoFile = videoUrlForUploadedFile(req.file);
   const changedMsg = { system: true, text: `📼 Cambiaron la cinta: ${videoDisplayName(room.videoFile)}` };
   pushChatHistory(room, changedMsg);
   io.to(req.params.id).emit('chat-message', changedMsg);
@@ -253,6 +296,25 @@ app.delete('/api/uploads/:filename', requireLibraryAuth, (req, res) => {
     if (err) return res.status(500).json({ error: 'No se pudo borrar el archivo' });
     res.json({ ok: true });
   });
+});
+
+// --- Cloudflare R2 — Fase 2: errores de subida como JSON, no como página HTML de Express --------
+// Sin esto, un archivo que supera el límite de Multer, o un fallo de R2 a mitad de subida (credenciales
+// mal puestas, bucket inexistente, conexión caída), tira un error sin manejar que Express devuelve
+// como su página de error HTML por defecto — rompe el `xhr.onload`/`JSON.parse` del cliente (ver
+// index.html/library.html), que espera siempre JSON de estas rutas. Tiene que ir después de todas las
+// rutas que usan `upload.single('video')` para poder atrapar sus errores (así funciona Express).
+app.use((err, req, res, next) => {
+  if (!err) return next();
+  if (err instanceof multer.MulterError) {
+    const msg = err.code === 'LIMIT_FILE_SIZE' ? 'El archivo supera el límite permitido (8GB).' : err.message;
+    return res.status(400).json({ error: msg });
+  }
+  console.error('Error subiendo video:', err.message);
+  const msg = r2.isR2Enabled()
+    ? 'No se pudo subir el video a Cloudflare R2 (revisa credenciales/conexión en el .env).'
+    : 'No se pudo guardar el video.';
+  res.status(502).json({ error: msg });
 });
 
 function broadcastViewerList(roomId) {
@@ -485,6 +547,29 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`MovieNight corriendo en http://localhost:${PORT}`);
+
+  // Cloudflare R2 — Fase 2: si está configurado, se valida la conexión ACÁ (una sola vez, al
+  // arrancar) en vez de dejar que el primer error confuso aparezca recién cuando alguien intente
+  // crear una sala o cambiar de cinta. A propósito NO hay modo de emergencia a disco si esto falla:
+  // mezclar "a veces disco, a veces R2" según si R2 respondió en ese momento sería más confuso que un
+  // error claro al subir. Ver sección "Cloudflare R2 — Fase 2" en MEMORIA.md.
+  if (r2.isR2Enabled()) {
+    r2.testConnection()
+      .then(() => {
+        console.log('☁️  Cloudflare R2: conectado. Las cintas nuevas se suben directo al bucket (no a disco local).');
+      })
+      .catch((err) => {
+        console.log('');
+        console.log('⚠️  Cloudflare R2 está configurado en .env pero la conexión de prueba falló:');
+        console.log(`   ${err.message}`);
+        console.log('   Revisá R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET_NAME.');
+        console.log('   Mientras esto no se arregle, crear sala o cambiar de cinta va a fallar (no hay respaldo a disco).');
+        console.log('');
+      });
+  } else {
+    console.log('💾 Cloudflare R2 no está configurado — los videos se siguen guardando en disco local (public/uploads).');
+  }
+
   if (libraryPasswordWasGenerated) {
     console.log('');
     console.log('🔒 Contraseña de biblioteca (protege /library.html — listar y borrar cintas):');
