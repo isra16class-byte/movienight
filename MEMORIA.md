@@ -3,7 +3,8 @@
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
 Última actualización: 21 de agosto de 2026 (Fix: R2 nunca se activaba usando `.env` por un bug de
-orden de `require`; ver sección 8sexicies).
+orden de `require`, confirmado funcionando en producción por el dueño del proyecto; ver sección
+8sexicies).
 
 ---
 
@@ -1303,7 +1304,7 @@ host tiene que volver a compartirlo con el grupo en cada sesión. Esta sesión a
 `localhost:PORT` sin ningún cambio, sea que se exponga con Quick Tunnel, túnel con nombre, o ninguno de
 los dos (uso solo en LAN).
 
-## 8sexicies. Fix: R2 nunca se activaba usando `.env` (bug de orden de `require`) (V17)
+## 8sexicies. Fix: R2 nunca se activaba usando `.env` (bug de orden de `require`) (V17) — CONFIRMADO
 
 Un usuario real (no técnico) siguió toda la guía de R2 paso a paso — cuenta, bucket, token, `.env`
 completado con las 5 variables — y el server igual imprimía `💾 Cloudflare R2 no está configurado`.
@@ -1330,17 +1331,15 @@ hasta ahora R2 solo se había probado pasando las variables directo por consola
 - **Nada más cambió**: el modo dual (disco local si R2 no está configurado) sigue funcionando igual;
   esto solo corrige que un `.env` bien formado ahora sí se detecte.
 
-**Segunda causa posible, a confirmar con el usuario (no es un bug de código):** en el contenido de
-`.env` que mandó (vía `Get-Content .env` en PowerShell), las 4 variables obligatorias de R2 aparecían
-todas pegadas en una sola línea (`R2_ACCOUNT_ID=xxx R2_ACCESS_KEY_ID=xxx R2_SECRET_ACCESS_KEY=xxx
-R2_BUCKET_NAME=movienight`) en vez de una por línea. Se probó ese caso también: si el `.env` real
-tiene esas 4 variables realmente fusionadas en una sola línea, `loadDotEnv()` (que corta en el
-**primer** `=` de cada línea) solo termina cargando `R2_ACCOUNT_ID` con un valor basura que incluye el
-resto de la línea, y las otras 3 variables no se cargan — `isR2Enabled()` seguiría dando `false`
-incluso con este fix. Es más probable que sea un artefacto de copiar/pegar desde la consola de
-PowerShell (que en Windows puede fusionar líneas envueltas visualmente al copiar con selección de
-mouse) que un problema real del archivo, pero hay que pedirle al usuario que confirme abriendo el
-`.env` en un editor de texto (Notepad, VS Code) que cada `R2_*` esté en su propia línea.
+**Confirmado en producción, con el usuario real (dueño del proyecto):** después de aplicar este patch
+y hacer `git pull`, el server pasó de "💾 Cloudflare R2 no está configurado" a "☁️ Cloudflare R2:
+conectado. Las cintas nuevas se suben directo al bucket" — con el mismo `.env` que ya tenía, sin
+tocarlo. Confirma que la causa era 100% el bug de orden de `require`; la hipótesis alternativa (líneas
+de `.env` fusionadas) quedó descartada — era, como se sospechaba, un artefacto de copiar/pegar desde
+la consola de PowerShell al mandar `Get-Content .env` por chat, no el contenido real del archivo.
+(Nota aparte, sin relación con R2: en el medio apareció un `EADDRINUSE` al correr `npm start` — era
+solo un proceso de Node viejo que había quedado corriendo en otra terminal y seguía ocupando el puerto
+3000; se resolvió cerrándolo, sin ningún cambio de código.)
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

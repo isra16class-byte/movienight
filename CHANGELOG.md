@@ -23,9 +23,12 @@ correctamente dos líneas más abajo.
 nada de `lib/r2.js`. Confirmado con una prueba mínima que reproduce el bug y el fix, y con el server
 real levantando con un `.env` de R2 de prueba.
 
-**Documentación:** `MEMORIA.md` sección 8sexicies (nueva) — incluye también una segunda causa posible
-a confirmar con el usuario puntual que reportó esto (variables R2 posiblemente fusionadas en una sola
-línea del `.env`, probable artefacto de copiar/pegar desde PowerShell, no un bug de código).
+**Confirmado en producción:** el dueño del proyecto aplicó el patch, hizo `git pull` y `npm start` con
+su `.env` de R2 ya completado (sin tocarlo) — el server pasó a mostrar "☁️ Cloudflare R2: conectado".
+Descarta la hipótesis alternativa (variables fusionadas en una sola línea del `.env`); era un
+artefacto de copiar/pegar desde PowerShell al pasar `Get-Content .env` por chat, no el archivo real.
+
+**Documentación:** `MEMORIA.md` sección 8sexicies.
 
 ## [2026-08-21] Dominio fijo — túnel con nombre de Cloudflare (opcional)
 
