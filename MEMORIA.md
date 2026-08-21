@@ -2,9 +2,9 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 20 de agosto de 2026 (V12 — mensajes de chat automáticos: al crear la sala se
-avisa con qué video se creó, y cada cambio de cinta anuncia el nombre del video nuevo; ver sección
-8quatervicies).
+Última actualización: 20 de agosto de 2026 (V13 — historial de chat guardado en memoria por sala:
+el chat ya no se le vacía al host al usar "Cambiar cinta" (recargaba la página); ver sección
+8quinvicies).
 
 ---
 
@@ -852,6 +852,52 @@ en cada join de invitados posteriores.
 
 **Sin cambios en el cliente** — el chat ya sabía renderizar mensajes de sistema (`{ system: true,
 text }`) desde antes; estos son mensajes más de ese mismo tipo, no un formato nuevo.
+
+## 8quinvicies. Historial de chat server-side: sobrevive a la recarga de "cambiar cinta"
+
+Pregunta del usuario, a raíz de la sección anterior: al host se le vaciaba el chat entero cada vez que
+usaba "Cambiar cinta". Causa: el chat nunca se guardó en ningún lado del lado del servidor — es 100%
+en vivo, cada mensaje se emite por socket y cada cliente lo va agregando a su propio DOM (`#messages`)
+sin persistencia. "Cambiar cinta" implica que el host navega fuera de `room.html` (sección 8tervicies)
+— recarga completa de página — así que su `#messages` se reconstruye vacío y nunca vuelve a llenarse,
+porque no había ningún historial para pedirle al servidor. A los invitados no les pasaba porque su
+socket nunca se desconecta durante ese flujo.
+
+**Fix — historial en memoria por sala (`server.js`):** se agrega `chatHistory: []` a `makeRoom()` y
+una constante `CHAT_HISTORY_LIMIT = 50` (últimos 50 mensajes, se descarta el más viejo al llegar al
+tope — evita que una sala con mucha charla acumule memoria indefinidamente). La función
+`pushChatHistory(room, msg)` centraliza el guardado; se llama junto a **cada** emisión de
+`chat-message` que ya existía en el proyecto: mensajes de usuario (`chat-message` del cliente), "se
+unió a la sala", "salió de la sala", traspaso manual de host (`make-host`), traspaso automático de host
+al desconectarse, y los dos mensajes nuevos de la sección anterior ("cinta cargada" / "cambiaron la
+cinta"). No se creó ningún helper que reemplace los `io.to()/socket.to().emit(...)` existentes —
+se dejaron intactos y solo se les agregó el `pushChatHistory(...)` justo al lado, para no tocar de más
+la lógica de quién recibe qué en vivo (algunos usan `socket.to()` para excluir al que dispara el
+mensaje, por ejemplo "fulano se unió" no le llega a fulano mismo — eso sigue igual).
+
+**Envío al cliente (`join-room`):** apenas el socket hace `join`, se le manda
+`socket.emit('chat-history', room.chatHistory)` con el historial **tal como estaba antes de este
+join** — antes de que se generen los mensajes propios de este join (cinta cargada / se unió), que le
+van a llegar en vivo igual que a todos, ya que en ese punto el socket ya está en la sala (`socket.join`
+ocurre más arriba). Este orden evita que esos mensajes se dupliquen (uno por el historial, otro en
+vivo).
+
+**Cliente (`public/room.html`):** nuevo listener `socket.on('chat-history', ...)` que limpia
+`#messages` (`messages.innerHTML = ''`) y repinta cada mensaje del array recibido, reusando la misma
+función de renderizado que ya usaba `chat-message` (se extrajo a `renderChatMessage(data)` para no
+duplicar el HTML de renderizado entre ambos casos). **Por qué limpiar primero:** Socket.io puede
+reconectarse solo (ej. un corte de wifi de un segundo) sin que la página se recargue — en ese caso
+`chat-history` llega de nuevo con todo el historial, y sin este limpiado previo, los mensajes que ya
+estaban en pantalla quedarían duplicados debajo de sí mismos.
+
+**Nota:** el historial NO dispara los comentarios flotantes tipo "danmaku" (sección de pantalla
+completa) al repintarse — `renderChatMessage` solo pinta en el panel de chat; `spawnDanmaku` se sigue
+llamando aparte, solo para mensajes que llegan en vivo por `chat-message` (no tendría sentido que al
+reconectar te lluevan de golpe 50 comentarios flotantes viejos sobre el video).
+
+**Se mantiene 100% en memoria, no en disco:** si el servidor se reinicia, el historial de todas las
+salas se pierde igual que el resto del estado (`rooms` entero vive en memoria, ver limitación ya
+anotada en la sección 9 de este documento).
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

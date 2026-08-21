@@ -67,8 +67,21 @@ function requireLibraryAuth(req, res, next) {
 // Salas en memoria
 // roomId -> { videoFile, subtitleFile, viewers, hostToken, passwordHash,
 //             mutedUserIds:Set<userId>, userNames:Map(socketId->name),
-//             bufferingSockets:Set<socketId>, recentDisconnects:Map(userId->{timer,username}) }
+//             bufferingSockets:Set<socketId>, recentDisconnects:Map(userId->{timer,username}),
+//             chatHistory:Array<msg> }
 const rooms = {};
+
+const CHAT_HISTORY_LIMIT = 50;
+
+// Guarda un mensaje de chat (system o de usuario) en el historial de la sala, con tope de
+// CHAT_HISTORY_LIMIT mensajes (se descarta el más viejo). Se llama junto a cada emit('chat-message',
+// ...) para que el historial refleje exactamente lo que la gente ya vio en su pantalla. No reemplaza
+// los emits en vivo — solo permite reconstruir el chat para quien se (re)conecta, ver 'chat-history'
+// en join-room.
+function pushChatHistory(room, msg) {
+  room.chatHistory.push(msg);
+  if (room.chatHistory.length > CHAT_HISTORY_LIMIT) room.chatHistory.shift();
+}
 
 function makeRoomId() { return crypto.randomBytes(3).toString('hex'); }
 function hashPassword(pw) { return crypto.createHash('sha256').update(String(pw)).digest('hex'); }
@@ -128,7 +141,8 @@ function makeRoom(videoFile, password) {
     userNames: new Map(),
     bufferingSockets: new Set(),
     recentDisconnects: new Map(),
-    initialVideoAnnounced: false // ver join-room: anuncia la cinta con la que se creó la sala una sola vez
+    initialVideoAnnounced: false, // ver join-room: anuncia la cinta con la que se creó la sala una sola vez
+    chatHistory: [] // últimos CHAT_HISTORY_LIMIT mensajes de chat (system y de usuario), ver pushChatHistory
   };
 }
 
@@ -155,7 +169,9 @@ app.post('/room/:id/change-video', upload.single('video'), (req, res) => {
   if (req.body.hostToken !== room.hostToken) return res.status(403).json({ error: 'No autorizado' });
   if (!req.file) return res.status(400).json({ error: 'No llegó ningún video' });
   room.videoFile = '/uploads/' + req.file.filename;
-  io.to(req.params.id).emit('chat-message', { system: true, text: `📼 Cambiaron la cinta: ${videoDisplayName(room.videoFile)}` });
+  const changedMsg = { system: true, text: `📼 Cambiaron la cinta: ${videoDisplayName(room.videoFile)}` };
+  pushChatHistory(room, changedMsg);
+  io.to(req.params.id).emit('chat-message', changedMsg);
   io.to(req.params.id).emit('video-changed', { videoFile: room.videoFile });
   res.json({ ok: true });
 });
@@ -168,7 +184,9 @@ app.post('/room/:id/change-video-from-upload', (req, res) => {
   if (hostToken !== room.hostToken) return res.status(403).json({ error: 'No autorizado' });
   if (!isValidUploadFilename(filename)) return res.status(400).json({ error: 'Ese archivo no existe' });
   room.videoFile = '/uploads/' + filename;
-  io.to(req.params.id).emit('chat-message', { system: true, text: `📼 Cambiaron la cinta: ${videoDisplayName(room.videoFile)}` });
+  const changedMsg = { system: true, text: `📼 Cambiaron la cinta: ${videoDisplayName(room.videoFile)}` };
+  pushChatHistory(room, changedMsg);
+  io.to(req.params.id).emit('chat-message', changedMsg);
   io.to(req.params.id).emit('video-changed', { videoFile: room.videoFile });
   res.json({ ok: true });
 });
@@ -297,12 +315,20 @@ io.on('connection', (socket) => {
 
     const wasMuted = room.mutedUserIds.has(socket.userId);
 
+    // Le manda el historial de chat guardado hasta ahora (antes de agregarle los mensajes propios de
+    // este join, que van a llegarle en vivo más abajo igual que a todos, ya que recién se unió a la
+    // sala vía socket.join). Así el chat sobrevive a recargas de página (ej. el host al volver de
+    // "cambiar cinta", que navega a library.html y de vuelta — antes se le vaciaba el chat entero).
+    socket.emit('chat-history', room.chatHistory);
+
     // Anuncia la cinta con la que se creó la sala, una sola vez (al primer join, normalmente el host
     // recién llegado de crear la sala). Los cambios posteriores de cinta ya avisan por su cuenta desde
     // change-video/change-video-from-upload.
     if (!room.initialVideoAnnounced) {
       room.initialVideoAnnounced = true;
-      io.to(roomId).emit('chat-message', { system: true, text: `🎬 Cinta cargada: ${videoDisplayName(room.videoFile)}` });
+      const loadedMsg = { system: true, text: `🎬 Cinta cargada: ${videoDisplayName(room.videoFile)}` };
+      pushChatHistory(room, loadedMsg);
+      io.to(roomId).emit('chat-message', loadedMsg);
     }
 
     // Reconexión rápida (ej. wifi que se cae un segundo): no repetir "se unió a la sala"
@@ -311,7 +337,9 @@ io.on('connection', (socket) => {
       clearTimeout(recent.timer);
       room.recentDisconnects.delete(socket.userId);
     } else {
-      socket.to(roomId).emit('chat-message', { system: true, text: `${socket.username} se unió a la sala 🎬` });
+      const joinedMsg = { system: true, text: `${socket.username} se unió a la sala 🎬` };
+      pushChatHistory(room, joinedMsg);
+      socket.to(roomId).emit('chat-message', joinedMsg);
     }
 
     if (hostToken && hostToken === room.hostToken) {
@@ -338,7 +366,9 @@ io.on('connection', (socket) => {
     if (!room) return;
     if (room.mutedUserIds.has(socket.userId)) { socket.emit('mute-status', { muted: true }); return; }
     if (typeof text !== 'string' || !text.trim()) return;
-    io.to(currentRoom).emit('chat-message', { system: false, user: socket.username, text: text.slice(0, 500) });
+    const msg = { system: false, user: socket.username, text: text.slice(0, 500) };
+    pushChatHistory(room, msg);
+    io.to(currentRoom).emit('chat-message', msg);
   });
 
   socket.on('typing', () => {
@@ -389,7 +419,9 @@ io.on('connection', (socket) => {
     const fromName = socket.username;
     const toName = target.username;
     setHost(room, currentRoom, target); // degrada a `socket` (host actual) y promueve a `target`
-    io.to(currentRoom).emit('chat-message', { system: true, text: `🎛 ${fromName} le pasó el control remoto a ${toName}` });
+    const transferMsg = { system: true, text: `🎛 ${fromName} le pasó el control remoto a ${toName}` };
+    pushChatHistory(room, transferMsg);
+    io.to(currentRoom).emit('chat-message', transferMsg);
     broadcastViewerList(currentRoom);
   });
 
@@ -409,7 +441,9 @@ io.on('connection', (socket) => {
     const timer = setTimeout(() => {
       room.recentDisconnects.delete(userId);
       room.mutedUserIds.delete(userId); // ya pasó el margen de gracia, se limpia el estado de silencio
-      io.to(currentRoom).emit('chat-message', { system: true, text: `${username} salió de la sala` });
+      const leftMsg = { system: true, text: `${username} salió de la sala` };
+      pushChatHistory(room, leftMsg);
+      io.to(currentRoom).emit('chat-message', leftMsg);
     }, RECONNECT_GRACE_MS);
     room.recentDisconnects.set(userId, { timer, username });
 
@@ -422,7 +456,9 @@ io.on('connection', (socket) => {
         const next = io.sockets.sockets.get([...stillConnected][0]);
         if (next) {
           setHost(room, currentRoom, next);
-          io.to(currentRoom).emit('chat-message', { system: true, text: `🎛 ${next.username || 'Alguien'} ahora tiene el control remoto (el host anterior se desconectó)` });
+          const autoTransferMsg = { system: true, text: `🎛 ${next.username || 'Alguien'} ahora tiene el control remoto (el host anterior se desconectó)` };
+          pushChatHistory(room, autoTransferMsg);
+          io.to(currentRoom).emit('chat-message', autoTransferMsg);
           broadcastViewerList(currentRoom);
         }
       }

@@ -6,6 +6,35 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-20] Historial de chat server-side: sobrevive a la recarga de "cambiar cinta" (V13)
+
+**Motivo:** pregunta del usuario tras el fix de V11 — notó que al host se le vaciaba el chat entero
+cada vez que usaba "Cambiar cinta". Causa: el chat nunca se guardó en el servidor (100% en vivo, sin
+persistencia), y "cambiar cinta" implica que el host navega fuera de `room.html` y recarga la página
+(ver V11) — reconstruye su `#messages` vacío para siempre. Los invitados, cuyo socket nunca se
+desconecta en ese flujo, no tenían este problema.
+
+**`server.js`:** se agrega `chatHistory: []` a `makeRoom()`, tope de `CHAT_HISTORY_LIMIT = 50`
+mensajes, y `pushChatHistory(room, msg)` — se llama junto a cada emisión de `chat-message` que ya
+existía (mensajes de usuario, entradas/salidas, traspasos de host manual y automático, y los mensajes
+de video de V12), sin tocar la lógica existente de a quién le llega cada uno en vivo. En `join-room`,
+apenas el socket hace `join`, se le manda `socket.emit('chat-history', room.chatHistory)` con el
+historial previo a este join (para no duplicar con los mensajes en vivo que le van a llegar del propio
+join, como "cinta cargada"/"se unió").
+
+**`public/room.html`:** nuevo `socket.on('chat-history', ...)` que limpia `#messages` y repinta el
+historial completo, reusando el renderizado ya extraído a `renderChatMessage(data)`. Se limpia primero
+porque Socket.io puede reconectarse solo (ej. wifi inestable) sin recargar la página, y en ese caso el
+evento llega de nuevo — sin el limpiado quedarían mensajes duplicados. El historial no dispara los
+comentarios flotantes ("danmaku"), solo los mensajes que llegan en vivo.
+
+**Nota:** el historial vive en memoria junto con el resto del estado de la sala — se pierde si el
+servidor se reinicia, igual que siempre (ver sección 9 de `MEMORIA.md`).
+
+Ver `MEMORIA.md` sección 8quinvicies para el detalle completo.
+
+---
+
 ## [2026-08-20] Mensajes de chat al crear la sala y al cambiar de cinta (V12)
 
 **Motivo:** pedido del usuario — que el chat avise el nombre del video cada vez que se cambia de

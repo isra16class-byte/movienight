@@ -867,10 +867,25 @@ function addMessage(html, cls) {
   messages.appendChild(div);
   messages.scrollTop = messages.scrollHeight;
 }
-socket.on('chat-message', (data) => {
+function renderChatMessage(data) {
   if (data.system) { addMessage(escapeHtml(data.text), 'system'); return; }
   addMessage(`<span class="msg"><b>${escapeHtml(data.user)}:</b> ${escapeHtml(data.text)}</span>`, 'msg');
-  spawnDanmaku(data.user, data.text);
+}
+socket.on('chat-message', (data) => {
+  renderChatMessage(data);
+  if (!data.system) spawnDanmaku(data.user, data.text);
+});
+
+// Historial de chat que manda el servidor al conectarse (join-room), para que sobreviva a recargas
+// de página — antes, cambiar de cinta (que recarga room.html al volver de la biblioteca) le vaciaba
+// el chat al host, ya que el chat vivía solo en el DOM y nunca se guardaba en ningún lado. Se limpia
+// el contenedor antes de volver a pintarlo: el socket de Socket.io puede reconectarse solo (ej. wifi
+// que se corta un segundo) sin que la página se recargue, y en ese caso este evento llega de nuevo
+// con el historial completo — sin este limpiado, los mensajes que ya estaban en pantalla quedarían
+// duplicados debajo de sí mismos.
+socket.on('chat-history', (history) => {
+  messages.innerHTML = '';
+  (history || []).forEach(renderChatMessage);
 });
 
 // --- Comentarios flotantes del chat sobre el video (estilo "danmaku"), solo en pantalla completa ---
