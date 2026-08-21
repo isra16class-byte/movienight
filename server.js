@@ -375,7 +375,11 @@ io.on('connection', (socket) => {
     if (rawReply && typeof rawReply === 'object' && typeof rawReply.user === 'string' && typeof rawReply.text === 'string' && rawReply.user.trim() && rawReply.text.trim()) {
       replyTo = { user: rawReply.user.slice(0, 40), text: rawReply.text.slice(0, 200) };
     }
-    const msg = { system: false, user: socket.username, text: text.slice(0, 500), replyTo };
+    // isHost va pegado al mensaje (no solo al socket) para que el color del nombre en el chat (V15,
+    // ver room.html) refleje si esa persona ERA el host en el momento de escribirlo — el control
+    // remoto puede pasar de mano en mano durante la sala, y un mensaje viejo no debería cambiar de
+    // color retroactivamente solo porque el host actual es otro ahora.
+    const msg = { system: false, user: socket.username, text: text.slice(0, 500), replyTo, isHost: !!socket.isHost };
     pushChatHistory(room, msg);
     io.to(currentRoom).emit('chat-message', msg);
   });

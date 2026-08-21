@@ -2,8 +2,9 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 20 de agosto de 2026 (V14 — barra de emojis ampliada con scroll horizontal, y
-responder a un mensaje por swipe o por ícono, con cita de texto plano; ver sección 8sexvicies).
+Última actualización: 20 de agosto de 2026 (V15 — colores fijos por nombre de usuario en chat/lista/
+danmaku, y confirmación al salir con el botón "atrás" del navegador, no solo con el botón "Salir"; ver
+sección 8septvicies).
 
 ---
 
@@ -954,6 +955,59 @@ citado arriba del texto (`.reply-quote`, con barra de color a la izquierda y rec
 `-webkit-line-clamp` para que una cita larga no infle la altura del mensaje). El historial
 (`chat-history`, sección 8quinvicies) reutiliza el mismo `renderChatMessage`, así que las respuestas
 también sobreviven a una recarga de página igual que el resto del chat.
+
+## 8septvicies. Colores por nombre de usuario + confirmación al salir con el botón "atrás" (V15)
+
+Dos pedidos del usuario tras la sesión de emojis/respuestas.
+
+**Colores de nombre.** Antes todos los nombres de usuario (en el chat, la lista de espectadores y los
+comentarios flotantes de pantalla completa) se veían del mismo color (`--pink` fijo por CSS, o cyan
+fijo para los danmaku). Se armó una paleta de 7 colores neón pensada para la estética VHS/vaporwave ya
+existente —`#ff2e9a` (rosa, el mismo `--pink`), `#b18aff` (violeta claro), `#ff7a45` (el mismo `--sun`),
+`#4dff9e` (verde "tracking" de cinta), `#ffe066` (amarillo REC), `#5ec8ff` (azul eléctrico, distinto
+del cyan) y `#ff5c72` (coral, distinto del rosa)— y una función `usernameColor(name, isHost)` en
+`room.html` que hashea el nombre (`hashUsername`, hash simple tipo djb2/Java `String.hashCode`) a un
+índice fijo de esa paleta: **el mismo nombre siempre saca el mismo color**, sin importar reconexiones
+ni recargas de página, porque no depende de ningún estado — es puro cálculo sobre el string. El host
+tiene un color reservado aparte, el `--cyan` de la app (el mismo que ya usa el ícono 🎛 en la lista de
+espectadores), para que siempre se distinga quién tiene el control en ese momento; ese color no entra
+en el hash de los demás para que ningún invitado se lo gane por casualidad.
+
+Se aplica en tres lugares: el nombre en cada mensaje de chat y en la cita cuando el mensaje es una
+respuesta (`renderChatMessage`), el nombre en los comentarios flotantes de pantalla completa
+(`spawnDanmaku`, ahora recibe un tercer parámetro `isHost`), y el nombre en la lista de espectadores
+(`viewer-list`). Para que el color de un mensaje de chat refleje "¿esta persona era el host cuando
+escribió esto?" y no "¿es el host ahora?" (el control remoto puede pasar de mano en mano durante la
+sala, sección 5bis), el servidor (`server.js`, handler `chat-message`) agrega `isHost: !!socket.isHost`
+al mensaje que arma y guarda en el historial — así un mensaje viejo no cambia de color retroactivamente
+solo porque el host actual es otro.
+
+**Confirmación al salir con el botón "atrás".** El botón "Salir" (`leaveBtn`) ya pedía confirmación
+desde siempre, pero el botón/gesto de "atrás" del navegador (o el físico de Android) nunca pasaba por
+ahí — simplemente sacaba a la persona de `room.html` directo, sin preguntar nada. El usuario contó el
+caso de una amiga que le erró dos veces seguidas al botón de atrás mientras miraba una peli y salió sin
+querer, y como había entrado por el link directo de la sala (sin nada antes en su historial de
+navegación), no había "a dónde volver" — tuvo que reingresar con el link de nuevo.
+
+Se resolvió con el truco estándar para interceptar "atrás" en una página sin sistema de rutas propio:
+al cargar `room.html` se empuja un estado extra al historial (`history.pushState({ mnRoomGuard: true },
+'', location.href)`) con la misma URL actual. Cuando la persona aprieta atrás, el navegador hace "pop"
+de ese estado extra en vez de salir de la página de una — eso dispara el evento `popstate`, que se
+intercepta re-empujando el mismo estado guardia de inmediato (por eso funciona incluso con dos
+"atrás" seguidos como en el caso de la amiga: el segundo también cae en el mismo guardia, no hay
+ventana en la que se escape) y recién ahí se muestra la misma confirmación que ya usaba "Salir". Si
+confirma, se sale de verdad (`socket.disconnect()` + `location.href = '/'`); si cancela, se queda
+exactamente donde estaba, sin haber navegado a ningún lado. Un flag `leaveConfirmOpen` evita abrir dos
+diálogos superpuestos si el "atrás" se aprieta varias veces mientras el primero todavía espera
+respuesta.
+
+Esto es específico a la navegación por historial (atrás/adelante) — no se tocó nada relacionado a
+`beforeunload` (cerrar pestaña, escribir otra URL, etc.): esos disparadores son mucho menos confiables
+en celular (Chrome Android restringe cada vez más los diálogos de `beforeunload` y a veces ni siquiera
+los muestra) y además dispararían un aviso confuso durante la navegación interna de "cambiar cinta"
+(que también navega fuera de `room.html` a propósito, sección 8tervicies) si no se excluía
+cuidadosamente — el guardia de `popstate` no tiene ese problema porque solo reacciona a "atrás", nunca
+a una navegación hacia adelante como la de `changeVideoLink` o `leaveBtn`.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

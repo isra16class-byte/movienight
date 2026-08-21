@@ -6,6 +6,37 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-20] Colores por nombre de usuario + confirmación al salir con "atrás" (V15)
+
+**Motivo:** dos pedidos separados. (1) Colores para los nombres de invitados en el chat, sin romper la
+estética de la app. (2) Un caso real: a la amiga del usuario se le fue el pulgar dos veces sobre el
+botón de atrás del teléfono mientras miraba una peli y salió de la sala sin querer — como había
+entrado por el link directo (sin historial previo), tuvo que reingresar con el link de nuevo. El botón
+"Salir" ya confirmaba antes de salir, pero el botón/gesto de atrás del navegador no pasaba por esa
+confirmación.
+
+**Colores de nombre (`public/room.html`):** paleta de 7 colores neón acorde a la estética VHS ya
+existente (`#ff2e9a #b18aff #ff7a45 #4dff9e #ffe066 #5ec8ff #ff5c72`) + una función
+`usernameColor(name, isHost)` que hashea el nombre a un color fijo de esa paleta (mismo nombre, mismo
+color siempre). El host tiene un color reservado aparte (el `--cyan` de la app, el mismo del ícono 🎛),
+que no entra en el hash de los demás. Se aplica en el chat (`renderChatMessage`), en la cita cuando un
+mensaje es una respuesta, en los comentarios flotantes de pantalla completa (`spawnDanmaku`, nuevo
+parámetro `isHost`) y en la lista de espectadores. `server.js` agrega `isHost: !!socket.isHost` a cada
+mensaje de chat que arma, para que el color refleje si esa persona era host en el momento de escribir
+(no si lo es ahora — el control puede pasar de mano en mano).
+
+**Confirmación al salir con "atrás" (`public/room.html`):** se empuja un estado extra al historial al
+cargar la sala (`history.pushState`) y se intercepta `popstate` (el evento que dispara el botón/gesto
+de atrás) re-empujando el mismo estado guardia de inmediato — así funciona incluso con dos "atrás"
+seguidos — y mostrando la misma confirmación que ya usaba "Salir". Si confirma, sale de verdad; si
+cancela, se queda donde estaba. No se tocó `beforeunload` (poco confiable en celular, y dispararía
+falsos avisos durante la navegación interna de "cambiar cinta"); el guardia de `popstate` solo
+reacciona a "atrás", nunca a una navegación hacia adelante.
+
+Ver `MEMORIA.md` sección 8septvicies para el detalle completo.
+
+---
+
 ## [2026-08-20] Más emojis con scroll horizontal + responder a un mensaje (swipe o ícono) (V14)
 
 **Motivo:** pedido del usuario a partir de una captura del chat en celular — que aparezca la carita

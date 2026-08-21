@@ -351,6 +351,35 @@ document.getElementById('leaveBtn').onclick = async () => {
   }
 };
 
+// --- Confirmación al salir con el botón "atrás" (gesto o botón físico de Android, no solo leaveBtn) ---
+// Pedido del usuario: a alguien se le fue el pulgar dos veces sobre el botón de atrás del teléfono y
+// salió de la sala sin querer, mientras miraba la peli — tuvo que volver a entrar con el link. El
+// botón "Salir" de arriba ya pedía confirmación, pero el botón/gesto de atrás del navegador nunca
+// pasaba por acá: simplemente descartaba room.html y volvía a la página anterior en el historial (o
+// cerraba la pestaña directamente, si entró por un link directo sin nada antes en su historial —
+// justo el caso de la amiga).
+//
+// La técnica es el truco estándar para interceptar "atrás" en una página sin backend de rutas: al
+// entrar a la sala se empuja un estado extra al historial con la misma URL actual. Cuando el usuario
+// aprieta atrás, el navegador hace "pop" de ese estado extra en vez de salir de la página — eso
+// dispara 'popstate', que volvemos a interceptar re-empujando el mismo estado guardia de inmediato
+// (por eso funciona incluso con dos "atrás" seguidos, como le pasó a la amiga: el segundo también cae
+// en el mismo guardia) y recién ahí se pregunta lo mismo que ya preguntaba "Salir". Si confirma, se
+// sale de verdad; si cancela, se queda exactamente donde estaba, sin haber navegado a ningún lado.
+history.pushState({ mnRoomGuard: true }, '', location.href);
+let leaveConfirmOpen = false;
+window.addEventListener('popstate', async () => {
+  history.pushState({ mnRoomGuard: true }, '', location.href);
+  if (leaveConfirmOpen) return; // ya hay un diálogo esperando respuesta (doble "atrás" rápido); no abrir uno encima del otro
+  leaveConfirmOpen = true;
+  const confirmed = await mnConfirm('¿Salir de la sala y volver al inicio?');
+  leaveConfirmOpen = false;
+  if (confirmed) {
+    socket.disconnect();
+    location.href = '/';
+  }
+});
+
 // "Cambiar cinta" también navega fuera de room.html (a la biblioteca) y de vuelta, igual que
 // leaveBtn arriba — pero a diferencia de leaveBtn, antes no llamaba a socket.disconnect() primero:
 // dejaba que el navegador cerrara la conexión sola al descargar la página. Eso deja un socket
@@ -489,7 +518,7 @@ socket.on('viewer-list', (list) => {
         <button class="kick" data-id="${v.id}">Expulsar</button>
       </span>`;
     }
-    row.innerHTML = `<span>${v.isHost ? '🎛 ' : ''}${escapeHtml(v.username)}${v.buffering ? ' ⏳' : ''}${v.muted ? ' 🔇' : ''}</span>${actions}`;
+    row.innerHTML = `<span>${v.isHost ? '🎛 ' : ''}<span style="color:${usernameColor(v.username, v.isHost)}">${escapeHtml(v.username)}</span>${v.buffering ? ' ⏳' : ''}${v.muted ? ' 🔇' : ''}</span>${actions}`;
     el.appendChild(row);
   });
   el.querySelectorAll('.mute').forEach(b => b.onclick = () => socket.emit('toggle-mute', b.dataset.id));
@@ -870,6 +899,27 @@ document.getElementById('subtitleFile').addEventListener('change', async (e) => 
   }
 });
 
+// --- Colores de nombre de usuario ---
+// Cada nombre se hashea a un color fijo de esta paleta — mismo nombre, mismo color siempre, sin
+// importar reconexiones ni recargas — elegida para que se lea bien sobre el fondo oscuro de la app
+// y quede dentro de la misma familia "VHS/vaporwave" que ya usan --pink/--cyan/--sun/--violet (el
+// violeta y el naranja de acá son versiones más claras/vivas que las variables de tema, pensadas
+// para leerse como texto chico, no como fondo). El host tiene un color aparte reservado — el mismo
+// cyan de los acentos de la app, el mismo que ya usa el ícono 🎛 en la lista de espectadores — para
+// que siempre se distinga quién tiene el control remoto en ese momento; no entra en el hash de los
+// demás para que ningún invitado "le pise" el color por casualidad.
+const USERNAME_COLORS = ['#ff2e9a', '#b18aff', '#ff7a45', '#4dff9e', '#ffe066', '#5ec8ff', '#ff5c72'];
+const HOST_NAME_COLOR = '#00e5ff';
+function hashUsername(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) | 0;
+  return Math.abs(hash);
+}
+function usernameColor(name, isHost) {
+  if (isHost) return HOST_NAME_COLOR;
+  return USERNAME_COLORS[hashUsername(name || '') % USERNAME_COLORS.length];
+}
+
 // --- Chat ---
 const messages = document.getElementById('messages');
 function addMessage(html, cls, dataset) {
@@ -882,10 +932,11 @@ function addMessage(html, cls, dataset) {
 }
 function renderChatMessage(data) {
   if (data.system) { addMessage(escapeHtml(data.text), 'system'); return; }
+  const color = usernameColor(data.user, data.isHost);
   const quoteHtml = data.replyTo
-    ? `<div class="reply-quote"><span class="reply-quote-user">${escapeHtml(data.replyTo.user)}</span>${escapeHtml(data.replyTo.text)}</div>`
+    ? `<div class="reply-quote"><span class="reply-quote-user" style="color:${usernameColor(data.replyTo.user, false)}">${escapeHtml(data.replyTo.user)}</span>${escapeHtml(data.replyTo.text)}</div>`
     : '';
-  const html = `${quoteHtml}<span class="msg-text"><b>${escapeHtml(data.user)}:</b> ${escapeHtml(data.text)}</span>` +
+  const html = `${quoteHtml}<span class="msg-text"><b style="color:${color}">${escapeHtml(data.user)}:</b> ${escapeHtml(data.text)}</span>` +
     `<button class="reply-icon" title="Responder" aria-label="Responder a este mensaje">↩</button>`;
   // data-user/data-text quedan en el div para poder armar la respuesta (click en el ícono o swipe,
   // ver más abajo) sin tener que volver a parsear el HTML ya escapado.
@@ -893,7 +944,7 @@ function renderChatMessage(data) {
 }
 socket.on('chat-message', (data) => {
   renderChatMessage(data);
-  if (!data.system) spawnDanmaku(data.user, data.text);
+  if (!data.system) spawnDanmaku(data.user, data.text, data.isHost);
 });
 
 // Historial de chat que manda el servidor al conectarse (join-room), para que sobreviva a recargas
@@ -1035,12 +1086,12 @@ function pickDanmakuLane() {
   laneFreeAt[lane] = now + 1300; // margen chico antes de reusar el carril, para no encimar el arranque del siguiente
   return lane;
 }
-function spawnDanmaku(user, text) {
+function spawnDanmaku(user, text, isHost) {
   if (!screenWrap.classList.contains('is-fullscreen')) return; // ver nota arriba: nunca se crea fuera de pantalla completa
   const lane = pickDanmakuLane();
   const el = document.createElement('div');
   el.className = 'danmaku-item';
-  el.innerHTML = `<b>${escapeHtml(user)}:</b> ${escapeHtml(text)}`;
+  el.innerHTML = `<b style="color:${usernameColor(user, isHost)}">${escapeHtml(user)}:</b> ${escapeHtml(text)}`;
   el.style.setProperty('--danmaku-top', (10 + lane * 7.5) + '%');
   // Mensajes largos cruzan la pantalla un poco más lento, para que alcancen a leerse.
   const duration = Math.min(15, Math.max(7, text.length / 10 + 6));
