@@ -35,6 +35,17 @@ lo que Cloudflare ya tenía cacheado de antes — para ver los cambios de los do
 
 ---
 
+## [2026-08-22] Ajuste: el desplegable de reacciones vuelve a la derecha (esta vez para quedarse)
+
+Sobre los commits anteriores del desplegable de reacciones: se había movido a arriba-izquierda a
+pedido, pero ahí se veía mal para los invitados — ese rincón solo tiene `.host-badge` (que solo ve el
+host), así que a los invitados el botón les quedaba solo, sin nada al lado. Se volvió a **arriba a
+la derecha**, debajo de `.viewers-badge` (el contador de espectadores, que ven tanto host como
+invitados) — mismo comportamiento de siempre (se abre/cierra solo con el botón toggle, panel
+persistente), solo cambió la posición.
+
+---
+
 ## [2026-08-22] Ajuste: el contador de espectadores y el desplegable de reacciones también se ocultan solos en celular
 
 El auto-ocultado de controles en celular (badge de host + controles ±10s/volumen, ya existente)

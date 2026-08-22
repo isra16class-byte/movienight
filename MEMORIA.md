@@ -2,15 +2,12 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 22 de agosto de 2026 (fix confirmado: Cloudflare cacheaba `.css`/`.js`/`.html`
-en su borde, por eso los últimos cambios visuales no se veían ni reiniciando server/túnel — ahora
-`express.static` manda `Cache-Control: no-store` para el código de la app, ver sección 8sexagies.
-Antes de eso: en celular, el contador de espectadores y el
-desplegable de reacciones de pantalla completa ahora se ocultan/muestran junto con el resto del
-overlay — sección 8quindecies, actualización posterior. Antes de eso: desplegable de reacciones
-flotante arriba a la izquierda, visible solo en pantalla completa y que se queda abierto hasta
-volver a tocar el mismo botón — ver sección 8quinquagies. Antes de eso: dos emojis nuevos en la
-barra de reacciones — 😠 y 😴 — ver sección 8sexvicies).
+Última actualización: 22 de agosto de 2026 (el desplegable de reacciones de pantalla completa
+volvió a arriba a la derecha, debajo del contador de espectadores — se ve mejor para los invitados
+que arriba a la izquierda, donde solo está `.host-badge` (que ellos no ven) — ver sección
+8quinquagies. Antes de eso: fix confirmado de que Cloudflare cacheaba `.css`/`.js`/`.html` en su
+borde, por eso los últimos cambios visuales no se veían ni reiniciando server/túnel — ahora
+`express.static` manda `Cache-Control: no-store` para el código de la app, ver sección 8sexagies).
 
 ---
 
@@ -1528,23 +1525,26 @@ pantalla completa se pide sobre `.screen-wrap` (para que los overlays y el danma
 La Fullscreen API solo pinta al elemento puesto en pantalla completa y a sus descendientes; todo lo
 que está afuera (como `.reactions`, dentro de `.side`) directamente deja de dibujarse mientras dura.
 No hay forma de "traerlo" con CSS estando fuera del árbol — había que agregar el panel físicamente
-dentro de `.screen-wrap`. Primer intento: arriba a la derecha, cerrándose solo al elegir un emoji o
-al tocar afuera (patrón típico de dropdown) — se ajustó al toque a pedido del usuario: **arriba a la
-izquierda**, y **el panel se queda abierto** hasta que se vuelva a tocar el mismo botón (para poder
-mandar varias reacciones seguidas sin reabrirlo cada vez).
+dentro de `.screen-wrap`. Recorrido de ajustes hasta la posición final: primer intento arriba a la
+derecha (cerrándose solo al elegir un emoji o al tocar afuera) → se pasó a arriba a la izquierda con
+panel persistente (a pedido) → **se volvió a arriba a la derecha** (a pedido, porque a la izquierda
+quedaba mal para los invitados: ahí solo se ve `.host-badge`, que ellos no tienen, así que el botón
+les quedaba "flotando solo" sin nada al lado — a la derecha, en cambio, siempre hay `.viewers-badge`
+justo arriba, que ven tanto el host como los invitados).
 
 - `public/room.html`: `#fsEmoji` (botón redondo 😊 + panel `#fsEmojiPanel`), como hijo de
-  `.screen-wrap`, ubicado **arriba a la izquierda**, debajo de `.host-badge` (que solo se ve en la
-  vista del host — para invitados ese espacio queda libre igual). El panel **no repite la lista de
-  emojis a mano**: al cargar la página, clona los botones que ya existen en `.reactions` (mismo
-  `data-e`, mismo `socket.emit('reaction', ...)`) — agregar o sacar un emoji en `.reactions` alcanza
-  para que también cambie acá, sin tocar este bloque. **Se abre/cierra únicamente con el botón
-  toggle** — elegir un emoji no lo cierra, tocar afuera del panel tampoco. Sí se resetea a cerrado al
-  salir de pantalla completa (`fullscreenchange`), para no arrancar la próxima sesión con el panel
-  abierto "fantasma".
+  `.screen-wrap`, ubicado **arriba a la derecha**, debajo de `.viewers-badge` (el contador de
+  espectadores, que ven todos — a diferencia de `.host-badge`, que solo ve el host). El panel **no
+  repite la lista de emojis a mano**: al cargar la página, clona los botones que ya existen en
+  `.reactions` (mismo `data-e`, mismo `socket.emit('reaction', ...)`) — agregar o sacar un emoji en
+  `.reactions` alcanza para que también cambie acá, sin tocar este bloque. **Se abre/cierra
+  únicamente con el botón toggle** — elegir un emoji no lo cierra, tocar afuera del panel tampoco. Sí
+  se resetea a cerrado al salir de pantalla completa (`fullscreenchange`), para no arrancar la
+  próxima sesión con el panel abierto "fantasma".
 - `public/style.css`: `.fs-emoji` oculto por defecto (`display:none`), visible solo con
   `.screen-wrap.is-fullscreen .fs-emoji` — el mismo mecanismo que ya usa `.danmaku-layer` para
-  activarse solo en pantalla completa, nada nuevo conceptualmente.
+  activarse solo en pantalla completa, nada nuevo conceptualmente. También forma parte del bloque de
+  auto-ocultado en celular (sección 8quindecies, actualización), junto con `.viewers-badge`.
 - Nada cambia en `.reactions` ni en el panel de chat normal — es un agregado en paralelo, no un
   reemplazo.
 
