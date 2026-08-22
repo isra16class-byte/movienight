@@ -1217,23 +1217,17 @@ const fsEmojiPanel = document.getElementById('fsEmojiPanel');
 document.querySelectorAll('.reactions button').forEach(btn => {
   const clone = document.createElement('button');
   clone.textContent = btn.dataset.e;
-  clone.onclick = () => {
-    socket.emit('reaction', btn.dataset.e);
-    fsEmojiPanel.classList.remove('open'); // se cierra solo al elegir uno, como cualquier menú
-  };
+  // A propósito NO se cierra el panel al elegir un emoji: el usuario pidió que se quede abierto
+  // hasta que se vuelva a tocar el botón toggle, para poder mandar varias reacciones seguidas sin
+  // tener que reabrirlo cada vez.
+  clone.onclick = () => socket.emit('reaction', btn.dataset.e);
   fsEmojiPanel.appendChild(clone);
 });
-fsEmojiToggle.onclick = (e) => {
-  e.stopPropagation();
-  fsEmojiPanel.classList.toggle('open');
-};
-// Cerrar al tocar afuera del botón/panel (patrón típico de dropdown)
-document.addEventListener('click', (e) => {
-  if (!fsEmoji.contains(e.target)) fsEmojiPanel.classList.remove('open');
-});
+fsEmojiToggle.onclick = () => fsEmojiPanel.classList.toggle('open');
 // Si se sale de pantalla completa con el panel abierto, que no quede abierto "fantasma" la próxima
 // vez que se vuelva a entrar (reusa el mismo evento que ya sincroniza el resto del layout, ver
-// resyncLayoutAfterFullscreen más arriba).
+// resyncLayoutAfterFullscreen más arriba). Esto no contradice el pedido de arriba: es al SALIR de
+// pantalla completa (donde el panel ya no se ve igual), no al elegir un emoji estando adentro.
 document.addEventListener('fullscreenchange', () => fsEmojiPanel.classList.remove('open'));
 </script>
 </body>

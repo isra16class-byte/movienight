@@ -2,8 +2,9 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 22 de agosto de 2026 (desplegable de reacciones flotante arriba a la derecha,
-visible solo en pantalla completa — ver sección 8quinquagies. Antes de eso: dos emojis nuevos en la
+Última actualización: 22 de agosto de 2026 (desplegable de reacciones flotante arriba a la
+izquierda, visible solo en pantalla completa y que se queda abierto hasta volver a tocar el mismo
+botón — ver sección 8quinquagies. Antes de eso: dos emojis nuevos en la
 barra de reacciones — 😠 y 😴 — ver sección 8sexvicies).
 
 ---
@@ -1507,22 +1508,27 @@ completar**:
 
 ## 8quinquagies. Desplegable de reacciones flotante, solo visible en pantalla completa
 
-Pedido: un botón de emojis arriba a la derecha que aparezca únicamente en pantalla completa. El
-motivo por el que hacía falta algo nuevo (no alcanzaba con mostrar `.reactions` con CSS): la barra de
-reacciones de siempre vive en el panel de chat (`#panel-chat`), que es **hermano** de `.screen-wrap`,
-no hijo — y la pantalla completa se pide sobre `.screen-wrap` (sección 8... sobre `toggleAppFullscreen`,
-para que los overlays y el danmaku se sigan viendo). La Fullscreen API solo pinta al elemento puesto
-en pantalla completa y a sus descendientes; todo lo que está afuera (como `.reactions`, dentro de
-`.side`) directamente deja de dibujarse mientras dura. No hay forma de "traerlo" con CSS estando
-fuera del árbol — había que agregar el panel físicamente dentro de `.screen-wrap`.
+Pedido: un botón de emojis que aparezca únicamente en pantalla completa. El motivo por el que hacía
+falta algo nuevo (no alcanzaba con mostrar `.reactions` con CSS): la barra de reacciones de siempre
+vive en el panel de chat (`#panel-chat`), que es **hermano** de `.screen-wrap`, no hijo — y la
+pantalla completa se pide sobre `.screen-wrap` (para que los overlays y el danmaku se sigan viendo).
+La Fullscreen API solo pinta al elemento puesto en pantalla completa y a sus descendientes; todo lo
+que está afuera (como `.reactions`, dentro de `.side`) directamente deja de dibujarse mientras dura.
+No hay forma de "traerlo" con CSS estando fuera del árbol — había que agregar el panel físicamente
+dentro de `.screen-wrap`. Primer intento: arriba a la derecha, cerrándose solo al elegir un emoji o
+al tocar afuera (patrón típico de dropdown) — se ajustó al toque a pedido del usuario: **arriba a la
+izquierda**, y **el panel se queda abierto** hasta que se vuelva a tocar el mismo botón (para poder
+mandar varias reacciones seguidas sin reabrirlo cada vez).
 
 - `public/room.html`: `#fsEmoji` (botón redondo 😊 + panel `#fsEmojiPanel`), como hijo de
-  `.screen-wrap`, ubicado debajo del contador de espectadores (`.viewers-badge`) para no taparlo. El
-  panel **no repite la lista de emojis a mano**: al cargar la página, clona los botones que ya
-  existen en `.reactions` (mismo `data-e`, mismo `socket.emit('reaction', ...)`) — agregar o sacar un
-  emoji en `.reactions` alcanza para que también cambie acá, sin tocar este bloque. Se cierra solo al
-  elegir un emoji, al tocar afuera del botón/panel, o al salir de pantalla completa (reusa el evento
-  `fullscreenchange` que ya existía para el resto del resync de layout).
+  `.screen-wrap`, ubicado **arriba a la izquierda**, debajo de `.host-badge` (que solo se ve en la
+  vista del host — para invitados ese espacio queda libre igual). El panel **no repite la lista de
+  emojis a mano**: al cargar la página, clona los botones que ya existen en `.reactions` (mismo
+  `data-e`, mismo `socket.emit('reaction', ...)`) — agregar o sacar un emoji en `.reactions` alcanza
+  para que también cambie acá, sin tocar este bloque. **Se abre/cierra únicamente con el botón
+  toggle** — elegir un emoji no lo cierra, tocar afuera del panel tampoco. Sí se resetea a cerrado al
+  salir de pantalla completa (`fullscreenchange`), para no arrancar la próxima sesión con el panel
+  abierto "fantasma".
 - `public/style.css`: `.fs-emoji` oculto por defecto (`display:none`), visible solo con
   `.screen-wrap.is-fullscreen .fs-emoji` — el mismo mecanismo que ya usa `.danmaku-layer` para
   activarse solo en pantalla completa, nada nuevo conceptualmente.

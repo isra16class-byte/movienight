@@ -6,6 +6,17 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-22] Ajuste: el desplegable de reacciones va a la izquierda y se queda abierto
+
+Sobre el commit anterior (desplegable de reacciones en pantalla completa): a pedido del usuario, se
+movió de arriba-a-la-derecha a **arriba a la izquierda** (debajo de `.host-badge`), y se le sacó el
+auto-cierre al elegir un emoji o al tocar afuera del panel — ahora **solo se abre/cierra con el botón
+toggle**, para poder mandar varias reacciones seguidas sin tener que reabrirlo cada vez. Sigue
+cerrándose solo al salir de pantalla completa, para no empezar la próxima sesión con el panel abierto
+"fantasma".
+
+---
+
 ## [2026-08-22] Feat: desplegable de reacciones flotante arriba a la derecha, solo en pantalla completa
 
 Pedido del dueño del proyecto: un botón de emojis en la esquina superior derecha que aparezca
