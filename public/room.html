@@ -729,46 +729,82 @@ player.addEventListener('loadedmetadata', updateBufferedBar);
 // siempre visibles como antes (no estorban, hay mouse y espacio de sobra) — pero DENTRO de
 // pantalla completa tapan la experiencia "cine" igual que en celular, así que también se ocultan
 // solas a los pocos segundos sin mover el mouse y reaparecen al primer movimiento (como
-// YouTube/Netflix en fullscreen). Esto vale tanto para #hostControlsWrap (host) como para
-// #localControls (invitado: barra de solo lectura + volumen + pantalla completa) — nunca se
-// muestran los dos a la vez porque `isHost` decide cuál de los dos está en el DOM con `display`
-// distinto de `none` (ver `host-status` más arriba). El CSS (style.css) es el que realmente los
-// oculta/muestra vía la clase `controls-visible` en `.screen-wrap` (opacity + pointer-events) —
-// acá solo se decide CUÁNDO agregar/quitar esa clase.
+// YouTube/Netflix en fullscreen).
+//
+// Hay DOS grupos con temporizador propio, no uno solo (antes eran uno solo a 3s, pero eso causaba
+// un bug: si alguien tardaba más de 3s eligiendo un emoji, todo el desplegable desaparecía de
+// golpe en pleno uso):
+// - Grupo "controles" (3s, `controls-visible`): #hostControlsWrap (host, la barra de progreso +
+//   ±10s) y #localControls (invitado: barra de solo lectura + volumen + pantalla completa),
+//   además de `.host-badge`. Nunca se muestran host-controls y local-controls a la vez porque
+//   `isHost` decide cuál de los dos está en el DOM con `display` distinto de `none` (ver
+//   `host-status` más arriba).
+// - Grupo "aside" (5s, `aside-visible`): `.viewers-badge` (contador de espectadores) y `.fs-emoji`
+//   (desplegable de reacciones) — se pidió más tiempo que el grupo de controles porque leer la
+//   lista de emojis o el contador lleva más que un vistazo rápido a la barra de progreso.
+//
+// Mientras el panel de emojis está ABIERTO (`.fs-emoji-panel.open`), `.fs-emoji` se fija visible
+// sin importar ningún temporizador (ver `setEmojiPanelOpen` más abajo) — así se resuelve el bug de
+// raíz: no es que ahora dure más, es que directamente no corre ningún reloj mientras se está
+// interactuando con el panel. Además, mientras el panel está abierto se oculta la barra de
+// progreso (`.host-controls`/`.local-controls`) para no competir por espacio/atención con el panel.
+// El CSS (style.css) es el que realmente oculta/muestra cada grupo vía sus clases en `.screen-wrap`
+// (opacity + pointer-events) — acá solo se decide CUÁNDO agregar/quitar esas clases.
 const screenWrap = document.querySelector('.screen-wrap');
-let overlayHideTimer = null;
+let overlayHideTimer = null; // grupo "controles", 3s
+let asideHideTimer = null;   // grupo "aside" (espectadores + emojis), 5s
 function showControlsOverlay() {
+  // No mostrar la barra de progreso mientras el panel de emojis está abierto (pedido explícito) —
+  // el CSS ya la fuerza oculta con `.emoji-panel-open`, pero cortar acá evita además que quede
+  // corriendo un temporizador de 3s de fondo sin sentido mientras tanto.
+  if (screenWrap.classList.contains('emoji-panel-open')) return;
   screenWrap.classList.add('controls-visible');
   clearTimeout(overlayHideTimer);
   overlayHideTimer = setTimeout(() => screenWrap.classList.remove('controls-visible'), 3000);
 }
+function showAsideOverlay() {
+  screenWrap.classList.add('aside-visible');
+  clearTimeout(asideHideTimer);
+  asideHideTimer = setTimeout(() => screenWrap.classList.remove('aside-visible'), 5000);
+}
 screenWrap.addEventListener('click', (e) => {
   if (!mobileLayoutQuery.matches) return;
-  // Tocar el badge, los botones de salto (host) o la barra/volumen/pantalla completa (invitado)
-  // no debe "apagar" el overlay de golpe (el botón ya ejecuta su propia acción con este mismo
-  // click) — solo hay que refrescarle el temporizador de autoescondido para que no desaparezca
-  // mientras el dedo todavía está ahí.
+  // Tocar el badge o la barra de progreso (host o invitado) no debe "apagar" el overlay de golpe
+  // (el botón ya ejecuta su propia acción con este mismo click) — solo hay que refrescarle el
+  // temporizador de autoescondido para que no desaparezca mientras el dedo todavía está ahí.
   if (e.target.closest('.host-controls') || e.target.closest('.host-badge') || e.target.closest('.local-controls')) {
     showControlsOverlay();
     return;
   }
-  // Tocar el video (fuera del overlay): alterna, como el tap-to-toggle de cualquier reproductor.
-  if (screenWrap.classList.contains('controls-visible')) {
-    screenWrap.classList.remove('controls-visible');
+  // Ídem para el contador de espectadores y el desplegable de reacciones, pero con el grupo
+  // "aside" — importante manejarlos aparte del branch de "tocar el video" de abajo: antes no
+  // estaban contemplados acá, así que tocar el botón de emojis caía en ese branch y podía cerrar
+  // todo el overlay de un tap en vez de solo abrir/cerrar el panel (ver `fsEmojiToggle.onclick`).
+  if (e.target.closest('.viewers-badge') || e.target.closest('.fs-emoji')) {
+    showAsideOverlay();
+    return;
+  }
+  // Tocar el video (fuera de cualquier overlay): alterna los dos grupos juntos, como el
+  // tap-to-toggle de cualquier reproductor.
+  if (screenWrap.classList.contains('controls-visible') || screenWrap.classList.contains('aside-visible')) {
+    screenWrap.classList.remove('controls-visible', 'aside-visible');
     clearTimeout(overlayHideTimer);
+    clearTimeout(asideHideTimer);
   } else {
     showControlsOverlay();
+    showAsideOverlay();
   }
 });
 // Equivalente en escritorio, pero por mouse en vez de touch, y solo dentro de pantalla completa
-// (fuera de fullscreen el CSS los deja siempre visibles sin importar esta clase, ver style.css) —
-// cualquier movimiento del mouse reinicia el temporizador de 3s, sin necesidad de distinguir si
+// (fuera de fullscreen el CSS los deja siempre visibles sin importar estas clases, ver style.css) —
+// cualquier movimiento del mouse reinicia ambos temporizadores, sin necesidad de distinguir si
 // tocó un control o el video (a diferencia del click de celular, mover el mouse nunca "ejecuta"
 // nada por sí solo, así que no hace falta el toggle ni el chequeo de `closest`).
 screenWrap.addEventListener('mousemove', () => {
   if (mobileLayoutQuery.matches) return; // celular ya se maneja arriba por touch
   if (!screenWrap.classList.contains('is-fullscreen')) return;
   showControlsOverlay();
+  showAsideOverlay();
 });
 
 // --- Buffering compartido: aviso visible en la lista de espectadores mientras alguien está cargando ---
@@ -890,18 +926,20 @@ function updateFullscreenState() {
   // clearDanmaku más abajo) — si no, quedan "congelados" en el layer oculto y revientan todos
   // juntos, chocando con los nuevos, la próxima vez que se entre en pantalla completa.
   if (!isFs) clearDanmaku();
-  // En escritorio: al entrar en pantalla completa, mostrar el overlay un momento de entrada (si no,
-  // quedaría oculto hasta el primer movimiento de mouse, que puede tardar). Al salir, se apaga el
-  // temporizador y se saca la clase de una — aunque el CSS de escritorio solo oculta con
+  // En escritorio: al entrar en pantalla completa, mostrar ambos grupos del overlay de una (si no,
+  // quedarían ocultos hasta el primer movimiento de mouse, que puede tardar). Al salir, se apagan
+  // los dos temporizadores y se sacan las dos clases — aunque el CSS de escritorio solo oculta con
   // `.is-fullscreen` presente (así que ya no haría nada visualmente), evita arrancar la próxima
-  // entrada a pantalla completa con un temporizador viejo corriendo de fondo. En celular no se
+  // entrada a pantalla completa con temporizadores viejos corriendo de fondo. En celular no se
   // toca nada acá: ese overlay se maneja aparte por touch, sin relación con el estado de fullscreen.
   if (!mobileLayoutQuery.matches) {
     if (isFs) {
       showControlsOverlay();
+      showAsideOverlay();
     } else {
       clearTimeout(overlayHideTimer);
-      screenWrap.classList.remove('controls-visible');
+      clearTimeout(asideHideTimer);
+      screenWrap.classList.remove('controls-visible', 'aside-visible');
     }
   }
   const icon = isFs ? '✕' : '⛶';
@@ -1251,12 +1289,34 @@ document.querySelectorAll('.reactions button').forEach(btn => {
   clone.onclick = () => socket.emit('reaction', btn.dataset.e);
   fsEmojiPanel.appendChild(clone);
 });
-fsEmojiToggle.onclick = () => fsEmojiPanel.classList.toggle('open');
+fsEmojiToggle.onclick = () => setEmojiPanelOpen(!fsEmojiPanel.classList.contains('open'));
+// Centraliza abrir/cerrar el panel para que, además de la clase `open` (que ya controlaba el CSS
+// de mostrar/ocultar la grilla de emojis), se sincronice `.emoji-panel-open` en `.screen-wrap` —
+// eso es lo que el CSS usa para (mientras el panel está abierto): fijar `.fs-emoji` visible sin
+// importar el temporizador de 5s (arregla el bug reportado: antes, si tardabas más de unos
+// segundos eligiendo un emoji, el desplegable entero desaparecía en pleno uso) y, a la vez, ocultar
+// la barra de progreso (`.host-controls`/`.local-controls`), a pedido, para no competir con el
+// panel. Al cerrar, se reinicia el temporizador de 5s normal del grupo "aside" — si no, `.fs-emoji`
+// se quedaría visible para siempre después de la primera vez que se abrió el panel.
+function setEmojiPanelOpen(open) {
+  const wasOpen = fsEmojiPanel.classList.contains('open');
+  if (open === wasOpen) return; // ya estaba en ese estado: no hay nada que sincronizar ni timer que tocar
+  fsEmojiPanel.classList.toggle('open', open);
+  screenWrap.classList.toggle('emoji-panel-open', open);
+  if (open) {
+    clearTimeout(overlayHideTimer);
+    clearTimeout(asideHideTimer);
+    screenWrap.classList.remove('controls-visible'); // el CSS ya la fuerza oculta; esto es prolijidad
+  } else {
+    showAsideOverlay();
+  }
+}
 // Si se sale de pantalla completa con el panel abierto, que no quede abierto "fantasma" la próxima
 // vez que se vuelva a entrar (reusa el mismo evento que ya sincroniza el resto del layout, ver
-// resyncLayoutAfterFullscreen más arriba). Esto no contradice el pedido de arriba: es al SALIR de
-// pantalla completa (donde el panel ya no se ve igual), no al elegir un emoji estando adentro.
-document.addEventListener('fullscreenchange', () => fsEmojiPanel.classList.remove('open'));
+// resyncLayoutAfterFullscreen más arriba). Esto no contradice el pedido original de que el panel no
+// se cierre solo: es al SALIR de pantalla completa (donde el panel ya no se ve igual), no al elegir
+// un emoji estando adentro.
+document.addEventListener('fullscreenchange', () => setEmojiPanelOpen(false));
 </script>
 </body>
 </html>

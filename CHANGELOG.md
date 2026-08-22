@@ -6,6 +6,31 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-22] V21 — Fix: el panel de emojis en pantalla completa desaparecía en pleno uso + timers separados (3s/5s)
+
+Bug reportado: con el auto-ocultado a 3s (V20), si el usuario tardaba más de 3s eligiendo un emoji
+en el desplegable de pantalla completa, todo el overlay desaparecía de golpe mientras seguía
+interactuando con él — un solo temporizador compartido controlaba los cinco elementos (badge,
+contador de espectadores, desplegable de reacciones, y ambas barras de progreso) a la vez.
+
+- `public/room.html` / `public/style.css`: se separó en dos grupos independientes. Grupo
+  "controles" (`.host-badge`, barra de progreso del host/invitado) sigue a 3s, clase
+  `controls-visible`. Grupo "aside" (`.viewers-badge`, `.fs-emoji`) pasa a 5s, clase nueva
+  `aside-visible` — más tiempo porque leer estos lleva más que un vistazo a la barra de progreso.
+- **El fix real del bug:** mientras el panel de emojis está abierto (`#fsEmojiPanel.open`), no corre
+  ningún temporizador para el grupo aside — `.fs-emoji` se fija visible por CSS
+  (`.emoji-panel-open`) sin depender de ningún reloj, en vez de solo alargarlo. Nueva función
+  `setEmojiPanelOpen(open)` en room.html sincroniza esto (con guard para no reiniciar el timer en
+  llamadas redundantes, ej. al cerrar el panel por `fullscreenchange`).
+- A pedido: mientras el panel de emojis está abierto, también se oculta la barra de progreso
+  (`.host-controls`/`.local-controls`) y `.host-badge`, para no competir con el panel.
+- De paso, se corrigió que tocar el botón de emojis o el contador de espectadores en celular
+  bubbleaba hasta el branch de "tap en el video", pudiendo cerrar todo el overlay de un tap.
+
+Ver `MEMORIA.md`, sección 8undeoctogies, para el detalle técnico completo.
+
+---
+
 ## [2026-08-22] V20 — Auto-ocultado de controles a los 3s también en escritorio, dentro de pantalla completa
 
 La regla de "todo desaparece a los 3 segundos sin actividad" (badge de host, botones ±10s, barra de

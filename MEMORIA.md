@@ -1616,6 +1616,66 @@ que también participe del auto-escondido en escritorio igual que en celular.
 **Qué NO cambia:** el comportamiento en celular (touch, con o sin fullscreen) es exactamente el
 mismo de antes. El comportamiento en escritorio fuera de pantalla completa tampoco cambia.
 
+## 8undeoctogies. Dos grupos de auto-ocultado independientes (3s/5s) + fix: el panel de emojis desaparecía en pleno uso (V21)
+
+Reportado por el usuario: con el auto-ocultado a 3s de 8septuagies, si tardaba más de esos 3s
+**eligiendo un emoji** en el desplegable de pantalla completa (`#fsEmojiPanel`), todo el overlay
+desaparecía de golpe mientras seguía interactuando con él — el temporizador no distinguía "sin
+actividad" de "interactuando con algo que no dispara mousemove/click en el momento justo". También
+se pidió, aparte, que la barra de progreso no se muestre mientras el panel de emojis está abierto
+(compiten por espacio/atención).
+
+**Causa real del bug:** un solo temporizador (`overlayHideTimer`, 3s) controlaba TODO
+(`.host-badge`, `.viewers-badge`, `.fs-emoji`, `.host-controls`, `.local-controls`) a la vez, vía
+una sola clase `controls-visible`. No había forma de que un elemento se quedara más tiempo que otro,
+ni de "pausar" el reloj mientras el usuario estaba mirando el panel sin mover el mouse (algo normal
+al leer una lista de emojis).
+
+**La solución — dos grupos con timer propio, más un pin explícito:**
+
+- **Grupo "controles" (3s, clase `controls-visible`):** `.host-badge`, `#hostControlsWrap`,
+  `#localControls` (la barra de progreso, sea la editable del host o la de solo lectura del
+  invitado). Se mantiene igual que antes.
+- **Grupo "aside" (5s, clase nueva `aside-visible`):** `.viewers-badge` (contador de espectadores)
+  y `.fs-emoji` (desplegable de reacciones). Más tiempo porque leer estos lleva más que un vistazo
+  rápido a la barra de progreso — el usuario pidió específicamente 5s para este grupo.
+- Cada grupo tiene su propio temporizador en JS (`overlayHideTimer` / `asideHideTimer`) y su propia
+  función (`showControlsOverlay()` / `showAsideOverlay()`), en vez de una función y timer únicos.
+  El tap/click en celular y el `mousemove` en escritorio fullscreen siguen disparando ambos grupos
+  juntos cuando el gesto es sobre el video (comportamiento sin cambios visibles ahí); pero tocar
+  específicamente el badge/controles de un grupo solo refresca el timer de ESE grupo (antes
+  refrescaba uno solo compartido por los cinco elementos).
+- **El fix real del bug** no es solo "más tiempo" — es que mientras `#fsEmojiPanel` tiene la clase
+  `open`, **no corre ningún temporizador para el grupo aside**: `.fs-emoji` (y de paso
+  `.viewers-badge`, que vive al lado) se fija visible por CSS sin condicionar a ningún reloj. Esto
+  se sincroniza con una función nueva, `setEmojiPanelOpen(open)`, que reemplaza el
+  `fsEmojiPanel.classList.toggle('open')` directo de antes: además de la clase `open` (que ya movía
+  el CSS de mostrar/ocultar la grilla), ahora también agrega/quita `.emoji-panel-open` en
+  `.screen-wrap`. Tiene un guard `if (open === wasOpen) return;` para no hacer nada si se llama con
+  el estado que ya tenía — importante porque el listener de `fullscreenchange` que cierra el panel
+  al salir de pantalla completa (ver 8quinquagies) llama a `setEmojiPanelOpen(false)` en **cada**
+  cambio de fullscreen, no solo cuando el panel estaba realmente abierto; sin el guard, cada
+  entrada/salida de pantalla completa reiniciaría el timer de "aside" sin motivo, mostrando el
+  contador/panel aunque el usuario no hubiese tocado nada.
+- **Ocultar la barra de progreso mientras el panel está abierto** (pedido aparte): mientras
+  `.emoji-panel-open` está puesta, `.host-controls`/`.local-controls`/`.host-badge` se fuerzan
+  ocultos por CSS (con `!important`, para pisar los bloques de celular/escritorio de arriba) —
+  `setEmojiPanelOpen(true)` además limpia los timers y saca `controls-visible` de una por
+  prolijidad (el CSS ya lo hubiera ocultado igual). Al cerrar el panel (`setEmojiPanelOpen(false)`,
+  ya sea por el botón toggle o por salir de pantalla completa con el panel abierto), se llama a
+  `showAsideOverlay()` para reiniciar el temporizador de 5s normal — si no, `.fs-emoji` se quedaría
+  fijo visible para siempre después de la primera vez que se abrió el panel una vez en la sesión.
+- **De paso, un bug chico relacionado:** antes, tocar el botón toggle de emojis en celular (o el
+  contador de espectadores) no estaba contemplado en el `click` handler de `.screen-wrap` — el
+  click "burbujeaba" hasta caer en el branch de "tocar el video" (tap-to-toggle), que podía cerrar
+  TODO el overlay de un solo tap sobre el botón de emojis. Ahora `.viewers-badge`/`.fs-emoji` tienen
+  su propio branch (igual que ya tenían `.host-controls`/`.host-badge`/`.local-controls`) que solo
+  refresca el timer del grupo aside, sin tocar el resto ni disparar el toggle general.
+
+**Qué NO cambia:** el gesto de tocar/mover el mouse sobre el video (fuera de cualquier control)
+sigue mostrando/ocultando los dos grupos juntos, como antes. El botón toggle de emojis sigue sin
+cerrar el panel al elegir un emoji (eso no se tocó, sigue siendo a propósito).
+
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 
 - El `hostToken` viaja en texto plano por HTTP (a menos que Cloudflare Tunnel lo cifre en tránsito, que sí lo hace vía HTTPS). Si alguien lo obtiene (inspeccionando `localStorage` de la persona equivocada, por ejemplo), puede hacerse pasar por host.
@@ -1652,6 +1712,7 @@ mismo de antes. El comportamiento en escritorio fuera de pantalla completa tampo
 - [x] ~~Cloudflare R2 — Fase 3: conectar la biblioteca (`library.html`, listar/reutilizar/borrar) al bucket~~ — resuelto (ver sección 8quatricies). Con esto se cierran las 3 fases planeadas de R2.
 - [x] ~~Proteger la subida de video nuevo (crear sala / cambiar cinta) para que no cualquiera pueda llenar el storage de R2 y generar costo~~ — resuelto en V19: contraseña de biblioteca + bloqueo de 15 min tras 3 intentos incorrectos por IP (ver sección 8novicies).
 - [x] ~~Auto-ocultado de controles a los 3s (badge, botones, barra de invitado, reacciones) también en escritorio~~ — resuelto en V20, acotado a pantalla completa (ver sección 8septuagies).
+- [x] ~~Bug: el desplegable de emojis en pantalla completa desaparecía en pleno uso si se tardaba más de 3s eligiendo~~ — resuelto en V21: contador de espectadores y desplegable de reacciones ahora tienen su propio timer de 5s, y mientras el panel está abierto no corre ningún reloj (se fija visible) + se oculta la barra de progreso (ver sección 8undeoctogies).
 
 ## 11. Historial de cambios
 
