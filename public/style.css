@@ -1091,6 +1091,33 @@ video { width: 100%; height: 100%; display: block; background: black; }
   }
 }
 
+/* Mismo mecanismo que el bloque de arriba, pero para escritorio y acotado a pantalla completa
+   (`.screen-wrap.is-fullscreen`) — fuera de fullscreen en escritorio los controles se quedan
+   siempre visibles como siempre (no hay regla acá que los toque). Adentro, tapan la experiencia
+   "cine" igual que en celular, así que también se ocultan solas a los pocos segundos sin mover el
+   mouse (ver mousemove en room.html) y reaparecen al primer movimiento. `.fs-emoji` ya tenía su
+   propio `display:none/block` atado a `.is-fullscreen` (sección aparte más arriba) — acá se le
+   suma la opacidad para que también participe del auto-escondido, sin pisar esa regla. */
+@media (min-width: 821px) {
+  .screen-wrap.is-fullscreen .host-badge,
+  .screen-wrap.is-fullscreen .viewers-badge,
+  .screen-wrap.is-fullscreen .fs-emoji,
+  .screen-wrap.is-fullscreen .host-controls,
+  .screen-wrap.is-fullscreen .local-controls {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+  .screen-wrap.is-fullscreen.controls-visible .host-badge,
+  .screen-wrap.is-fullscreen.controls-visible .viewers-badge,
+  .screen-wrap.is-fullscreen.controls-visible .fs-emoji,
+  .screen-wrap.is-fullscreen.controls-visible .host-controls,
+  .screen-wrap.is-fullscreen.controls-visible .local-controls {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 /* Teclado abierto en celular (parado): antes el video se achicaba mucho (hasta 20dvh/64px) para
    maximizar el chat, pero el pedido cambió — la prioridad es que el video se siga viendo grande
    (poder "hablar y ver el video al mismo tiempo"), así que ahora se achica poco. El resto del

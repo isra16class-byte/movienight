@@ -1577,6 +1577,45 @@ no para algo con miles de visitas donde sí valdría la pena cachear con cache-b
 cacheado de antes de aplicarlo — para ver cambios de patches previos a este, puede seguir haciendo
 falta un purge manual una vez (o esperar a que expire solo).
 
+## 8septuagies. Auto-ocultado de controles a los 3s también en escritorio, dentro de pantalla completa (V20)
+
+Pedido: la regla de "todo desaparece a los 3 segundos" (badge, botones ±10s, barra de invitado,
+desplegable de reacciones) ya existía desde 8quinquagies/antes, pero **solo en celular** — en
+escritorio los controles se quedaban siempre visibles sin importar el estado. El pedido fue
+extenderla a escritorio, pero acotada a pantalla completa: fuera de fullscreen en escritorio no
+estorban (hay mouse y espacio de sobra), pero dentro tapan la experiencia "cine" igual que en
+celular.
+
+**JS (`public/room.html`):**
+- Nuevo listener `screenWrap.addEventListener('mousemove', ...)`, equivalente por mouse al `click`
+  que ya maneja celular: si `mobileLayoutQuery.matches` (ya cubierto por touch) o si `.screen-wrap`
+  no tiene `is-fullscreen`, no hace nada. Si está en escritorio y en pantalla completa, cualquier
+  movimiento llama a `showControlsOverlay()` (la misma función que ya usaba celular — agrega
+  `controls-visible` y reinicia el timeout de 3s). A diferencia del `click` de celular, acá no hace
+  falta distinguir si el mouse está sobre un control o sobre el video (no hay un "toggle"): mover el
+  mouse nunca ejecuta una acción por sí solo, así que simplemente refresca el timer siempre.
+- `updateFullscreenState()` (la función que prende/apaga la clase `is-fullscreen` al entrar/salir de
+  pantalla completa) ahora también, **solo si no es celular**: al entrar, llama a
+  `showControlsOverlay()` de una (si no, quedaría oculto hasta el primer movimiento de mouse, que
+  podría tardar); al salir, limpia el timer y saca `controls-visible` (por prolijidad — el CSS de
+  escritorio de todos modos solo oculta con `.is-fullscreen` puesto, así que no cambia nada visible,
+  pero evita arrancar la próxima entrada a fullscreen con un temporizador viejo corriendo de fondo).
+  En celular esta rama no se toca: ese overlay sigue exclusivamente atado a touch, sin relación con
+  el estado de fullscreen (un invitado en celular puede querer ver los controles sin estar en
+  pantalla completa, por ejemplo).
+
+**CSS (`public/style.css`):** nuevo bloque `@media (min-width: 821px) { .screen-wrap.is-fullscreen ... }`,
+en paralelo al bloque `@media (max-width: 820px)` que ya existía para celular (mismo mecanismo:
+`opacity`/`pointer-events` en 0 por defecto, en 1 con `.controls-visible`) — la diferencia es que en
+este bloque nuevo el selector exige además `.is-fullscreen`, así que fuera de pantalla completa en
+escritorio ninguna regla de este bloque aplica y los controles quedan con su comportamiento de
+siempre (visibles, sin opacity tocada). `.fs-emoji` ya tenía su propio `display:none/block` atado a
+`.is-fullscreen` (sección 8quinquagies) — este bloque le suma la opacidad sin pisar esa regla, para
+que también participe del auto-escondido en escritorio igual que en celular.
+
+**Qué NO cambia:** el comportamiento en celular (touch, con o sin fullscreen) es exactamente el
+mismo de antes. El comportamiento en escritorio fuera de pantalla completa tampoco cambia.
+
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 
 - El `hostToken` viaja en texto plano por HTTP (a menos que Cloudflare Tunnel lo cifre en tránsito, que sí lo hace vía HTTPS). Si alguien lo obtiene (inspeccionando `localStorage` de la persona equivocada, por ejemplo), puede hacerse pasar por host.
@@ -1612,6 +1651,7 @@ falta un purge manual una vez (o esperar a que expire solo).
 - [x] ~~Cloudflare R2 — Fase 2: conectar la subida de video (crear sala / cambiar cinta) al bucket~~ — resuelto (ver sección 8tricies).
 - [x] ~~Cloudflare R2 — Fase 3: conectar la biblioteca (`library.html`, listar/reutilizar/borrar) al bucket~~ — resuelto (ver sección 8quatricies). Con esto se cierran las 3 fases planeadas de R2.
 - [x] ~~Proteger la subida de video nuevo (crear sala / cambiar cinta) para que no cualquiera pueda llenar el storage de R2 y generar costo~~ — resuelto en V19: contraseña de biblioteca + bloqueo de 15 min tras 3 intentos incorrectos por IP (ver sección 8novicies).
+- [x] ~~Auto-ocultado de controles a los 3s (badge, botones, barra de invitado, reacciones) también en escritorio~~ — resuelto en V20, acotado a pantalla completa (ver sección 8septuagies).
 
 ## 11. Historial de cambios
 

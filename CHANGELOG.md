@@ -6,6 +6,28 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-22] V20 — Auto-ocultado de controles a los 3s también en escritorio, dentro de pantalla completa
+
+La regla de "todo desaparece a los 3 segundos sin actividad" (badge de host, botones ±10s, barra de
+invitado, desplegable de reacciones) ya existía, pero solo corría en celular por touch. Ahora también
+corre en escritorio, con mouse, pero **acotada a pantalla completa**: fuera de fullscreen en
+escritorio los controles se siguen quedando siempre visibles como hasta ahora (no estorban, hay mouse
+y espacio de sobra); dentro de pantalla completa, en cambio, se ocultan solos a los 3s de no mover el
+mouse y reaparecen al primer movimiento — mismo comportamiento que YouTube/Netflix en fullscreen.
+
+- `public/room.html`: nuevo listener `mousemove` en `.screen-wrap` (equivalente por mouse al `click`
+  que ya maneja celular), activo solo en escritorio y solo con `.is-fullscreen` puesto.
+  `updateFullscreenState()` ahora también muestra el overlay al entrar en pantalla completa en
+  escritorio (para no depender del primer movimiento de mouse) y limpia el temporizador al salir.
+- `public/style.css`: nuevo bloque `@media (min-width: 821px) { .screen-wrap.is-fullscreen ... }`,
+  en paralelo al bloque ya existente para celular — mismo mecanismo (opacity/pointer-events vía la
+  clase `controls-visible`), pero exigiendo además `.is-fullscreen`.
+- No cambia nada del comportamiento en celular, ni en escritorio fuera de pantalla completa.
+
+Ver `MEMORIA.md`, sección 8septuagies, para el detalle técnico completo.
+
+---
+
 ## [2026-08-22] Fix: Cloudflare cacheaba `style.css`/`.js`/`.html` en su borde, ocultando cambios de código — CONFIRMADO en producción
 
 **El síntoma:** dos patches seguidos de cambios visuales (posición del desplegable de reacciones,

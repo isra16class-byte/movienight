@@ -722,15 +722,19 @@ player.addEventListener('progress', updateBufferedBar);
 player.addEventListener('loadedmetadata', updateBufferedBar);
 
 // --- Overlay de host (badge "CONTROL REMOTO" + botones ±10s) oculto hasta tocar el video, en
-// celular ---
-// En escritorio se quedan siempre visibles (no estorban, hay mouse). En celular tapaban buena
-// parte del video todo el tiempo, así que ahora imitan a cualquier reproductor: aparecen al
-// tocar la pantalla y se esconden solos a los pocos segundos de no volver a tocarlos. Esto vale
-// tanto para #hostControlsWrap (host) como para #localControls (invitado: barra de solo lectura +
-// volumen + pantalla completa) — nunca se muestran los dos a la vez porque `isHost` decide cuál de
-// los dos está en el DOM con `display` distinto de `none` (ver `host-status` más arriba). El CSS
-// (style.css) es el que realmente los oculta/muestra vía la clase `controls-visible` en
-// `.screen-wrap` (opacity + pointer-events) — acá solo se decide CUÁNDO agregar/quitar esa clase.
+// celular / mover el mouse, en escritorio dentro de pantalla completa ---
+// En celular (fuera y dentro de pantalla completa) tapaban buena parte del video todo el tiempo,
+// así que imitan a cualquier reproductor: aparecen al tocar la pantalla y se esconden solos a los
+// pocos segundos de no volver a tocarlos. En escritorio, FUERA de pantalla completa se quedan
+// siempre visibles como antes (no estorban, hay mouse y espacio de sobra) — pero DENTRO de
+// pantalla completa tapan la experiencia "cine" igual que en celular, así que también se ocultan
+// solas a los pocos segundos sin mover el mouse y reaparecen al primer movimiento (como
+// YouTube/Netflix en fullscreen). Esto vale tanto para #hostControlsWrap (host) como para
+// #localControls (invitado: barra de solo lectura + volumen + pantalla completa) — nunca se
+// muestran los dos a la vez porque `isHost` decide cuál de los dos está en el DOM con `display`
+// distinto de `none` (ver `host-status` más arriba). El CSS (style.css) es el que realmente los
+// oculta/muestra vía la clase `controls-visible` en `.screen-wrap` (opacity + pointer-events) —
+// acá solo se decide CUÁNDO agregar/quitar esa clase.
 const screenWrap = document.querySelector('.screen-wrap');
 let overlayHideTimer = null;
 function showControlsOverlay() {
@@ -755,6 +759,16 @@ screenWrap.addEventListener('click', (e) => {
   } else {
     showControlsOverlay();
   }
+});
+// Equivalente en escritorio, pero por mouse en vez de touch, y solo dentro de pantalla completa
+// (fuera de fullscreen el CSS los deja siempre visibles sin importar esta clase, ver style.css) —
+// cualquier movimiento del mouse reinicia el temporizador de 3s, sin necesidad de distinguir si
+// tocó un control o el video (a diferencia del click de celular, mover el mouse nunca "ejecuta"
+// nada por sí solo, así que no hace falta el toggle ni el chequeo de `closest`).
+screenWrap.addEventListener('mousemove', () => {
+  if (mobileLayoutQuery.matches) return; // celular ya se maneja arriba por touch
+  if (!screenWrap.classList.contains('is-fullscreen')) return;
+  showControlsOverlay();
 });
 
 // --- Buffering compartido: aviso visible en la lista de espectadores mientras alguien está cargando ---
@@ -876,6 +890,20 @@ function updateFullscreenState() {
   // clearDanmaku más abajo) — si no, quedan "congelados" en el layer oculto y revientan todos
   // juntos, chocando con los nuevos, la próxima vez que se entre en pantalla completa.
   if (!isFs) clearDanmaku();
+  // En escritorio: al entrar en pantalla completa, mostrar el overlay un momento de entrada (si no,
+  // quedaría oculto hasta el primer movimiento de mouse, que puede tardar). Al salir, se apaga el
+  // temporizador y se saca la clase de una — aunque el CSS de escritorio solo oculta con
+  // `.is-fullscreen` presente (así que ya no haría nada visualmente), evita arrancar la próxima
+  // entrada a pantalla completa con un temporizador viejo corriendo de fondo. En celular no se
+  // toca nada acá: ese overlay se maneja aparte por touch, sin relación con el estado de fullscreen.
+  if (!mobileLayoutQuery.matches) {
+    if (isFs) {
+      showControlsOverlay();
+    } else {
+      clearTimeout(overlayHideTimer);
+      screenWrap.classList.remove('controls-visible');
+    }
+  }
   const icon = isFs ? '✕' : '⛶';
   const title = isFs ? 'Salir de pantalla completa' : 'Pantalla completa';
   fsBtn.textContent = icon;
