@@ -6,6 +6,43 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-22] Herramienta: script para limpiar subidas multipart abandonadas en R2
+
+**El problema que lo motivó:** el usuario vio en el dashboard de Cloudflare R2 que el bucket
+"ocupaba" 3,52 GB (y contaba 850 operaciones de Clase A / 270 de Clase B) pero el listado de
+objetos aparecía vacío ("Tu bucket está listo. Agrega los archivos para comenzar."). No era un bug
+de la app ni datos corruptos: `uploadStream` (`lib/r2.js`) sube los videos a R2 en partes
+(multipart, vía `@aws-sdk/lib-storage`) para poder manejar archivos de varios GB. Si una subida se
+corta a medias — pestaña cerrada, túnel de Cloudflare caído, server local reiniciado mientras algo
+subía — las partes que ya llegaron a R2 quedan ocupando espacio y facturando, pero como el objeto
+nunca se "completó" formalmente, `ListObjectsV2` (usado por `listObjects()`) no las muestra: son
+invisibles en el listado pero siguen sumando al tamaño del bucket. R2 tiene por defecto una regla de
+lifecycle que las aborta solas a los 7 días de iniciadas, pero no había forma de verlas ni forzar su
+limpieza antes de eso.
+
+**Qué se agregó:**
+- `lib/r2.js`: dos funciones nuevas, `listMultipartUploads()` (lista las subidas sin completar del
+  bucket, con su key y fecha de inicio, vía `ListMultipartUploadsCommand`) y
+  `abortMultipartUpload(key, uploadId)` (cancela una puntual y libera sus partes, vía
+  `AbortMultipartUploadCommand` — operación gratis, no cuenta como Clase A/B).
+- `scripts/r2-cleanup-multipart.js`: script standalone (no necesita levantar el server) que lista
+  las subidas abandonadas y, opcionalmente, las cancela todas. Por defecto solo **lista** (modo
+  seguro, no destructivo); hace falta pasar `--abort` explícitamente para que borre algo, porque
+  abortar una multipart es irreversible.
+- `package.json`: atajo `npm run r2:cleanup` (equivale a `node scripts/r2-cleanup-multipart.js`).
+
+**Uso:**
+```
+node scripts/r2-cleanup-multipart.js            # solo lista, no borra nada
+node scripts/r2-cleanup-multipart.js --abort     # cancela todas las que encuentre
+```
+
+Nota: la API de S3 no expone el tamaño en bytes de una subida multipart sin completar (solo la key
+y la fecha de inicio), así que el script no puede mostrar "cuánto" pesa cada una — solo hace cuántos
+días lleva iniciada, para poder juzgar si es basura vieja.
+
+---
+
 ## [2026-08-22] Feat: contraseña + límite de 3 intentos para subir cintas nuevas (protege R2 de abuso/costo)
 
 **Motivo:** pedido explícito del dueño del proyecto tras conectar R2 en producción — con el server

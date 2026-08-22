@@ -2,11 +2,11 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 22 de agosto de 2026 (V19: contraseña + límite de 3 intentos para subir cintas
-nuevas, reusando la contraseña de biblioteca — protege contra que cualquiera con el link llene el
-storage de Cloudflare R2 y genere costo; ver sección 8novicies. Antes de eso: fix del video que se
-reiniciaba al minuto 0 al salir/reentrar de la sala — sección 8septicies — y documentación, sin cambio
-de código, del corte intermitente del túnel rápido de Cloudflare — sección 8octicies).
+Última actualización: 22 de agosto de 2026 (herramienta de mantenimiento: script para listar y
+cancelar subidas multipart abandonadas en R2 —las que ocupan espacio facturable sin aparecer en el
+listado del bucket—, ver sección 8quadragies. Antes de eso, V19: contraseña + límite de 3 intentos
+para subir cintas nuevas, reusando la contraseña de biblioteca — protege contra que cualquiera con
+el link llene el storage de Cloudflare R2 y genere costo; ver sección 8novicies).
 
 ---
 
@@ -36,6 +36,8 @@ movienight/
   cloudflared-config.yml   # Copia con valores reales (NO se sube a git, ver .gitignore)
   lib/
     r2.js                  # Cloudflare R2 (opcional): subir/listar/borrar videos en R2 en vez de disco
+  scripts/
+    r2-cleanup-multipart.js  # Herramienta manual: listar/cancelar subidas multipart de R2 abandonadas (ver sección 8quadragies)
   public/
     index.html            # Pantalla para crear sala (subir video) o unirse por código
     library.html            # Biblioteca de cintas: lista videos ya subidos, permite usarlos o borrarlos (V6)
@@ -1462,6 +1464,45 @@ Antes de este cambio no había ninguna protección en `/create-room` ni en `/roo
   contador (reseteaba el conteo en cada intento en vez de acumularlo, porque comparaba
   `lockedUntil <= now` sin chequear primero que `lockedUntil` fuera `> 0`) — quedó corregido antes de
   este commit, no llegó a versionarse roto.
+
+## 8quadragies. Herramienta: script para limpiar subidas multipart abandonadas en R2
+
+Motivado por algo que el usuario vio en el dashboard de Cloudflare R2: el bucket mostraba "3,52 GB"
+ocupados (y operaciones de Clase A/B > 0) pero el listado de objetos aparecía completamente vacío
+("Tu bucket está listo. Agrega los archivos para comenzar."). No es un bug de la app ni datos
+corruptos — es el comportamiento normal de S3/R2 cuando una **subida multipart queda sin
+completar**:
+
+- `uploadStream` (`lib/r2.js`, sección 8tricies) sube los videos a R2 en partes de 10MB vía
+  `@aws-sdk/lib-storage` (necesario para archivos de varios GB). Si la subida se corta a medias —
+  se cierra la pestaña del navegador a mitad de subida, se cae el túnel de Cloudflare, se reinicia
+  el server local mientras algo estaba subiendo — las partes que ya llegaron a R2 quedan ahí,
+  ocupando espacio y facturando, pero el objeto nunca llega a "completarse" formalmente. Por eso
+  `listObjects()` (que usa `ListObjectsV2Command`, y solo lista objetos completos) no las muestra:
+  son invisibles en el listado normal pero siguen sumando al tamaño total del bucket.
+- R2 tiene por defecto una regla de lifecycle que aborta solas estas subidas a los 7 días de
+  iniciadas — si el corte fue reciente, alcanza con esperar. Pero no había forma de **verlas** ni de
+  forzar la limpieza antes de eso, de ahí este script.
+
+**Qué se agregó:**
+- `lib/r2.js`: dos funciones nuevas junto a las que ya existían (`listObjects`, `deleteObject`,
+  etc.): `listMultipartUploads()` (vía `ListMultipartUploadsCommand`, devuelve key + fecha de inicio
+  de cada subida sin completar — la API de S3 no expone el tamaño en bytes de una subida
+  incompleta, solo estos dos datos) y `abortMultipartUpload(key, uploadId)` (vía
+  `AbortMultipartUploadCommand`, cancela una puntual y libera sus partes; es una operación gratis,
+  no cuenta como Clase A/B).
+- `scripts/r2-cleanup-multipart.js`: script standalone (carga su propio `.env` con el mismo loader
+  minimalista que usa `server.js`, no hace falta levantar el servidor) que lista las subidas
+  abandonadas y opcionalmente las cancela. **Por defecto solo lista, no borra nada** — abortar una
+  multipart es irreversible, así que hace falta pasar `--abort` explícitamente:
+  ```
+  node scripts/r2-cleanup-multipart.js            # solo lista
+  node scripts/r2-cleanup-multipart.js --abort     # cancela todas las que encuentre
+  ```
+  También disponible como `npm run r2:cleanup` (equivalente a la forma sin `--abort`).
+- No se tocó nada del flujo de subida normal (`r2VideoStorage`, `requireUploadAuth`, etc.) — esto es
+  puramente una herramienta de mantenimiento manual, no corre automáticamente ni se conecta a
+  ninguna ruta HTTP existente.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

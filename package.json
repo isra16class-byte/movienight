@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "tunnel": "cloudflared tunnel --config cloudflared-config.yml run"
+    "tunnel": "cloudflared tunnel --config cloudflared-config.yml run",
+    "r2:cleanup": "node scripts/r2-cleanup-multipart.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1115.0",
