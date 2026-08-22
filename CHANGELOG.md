@@ -6,6 +6,32 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-22] Fix: el video se reiniciaba al minuto 0 al salir/reentrar de la sala
+
+**Motivo:** reportado por el dueño del proyecto tras la primera sesión larga real (2h, con R2 ya
+andando): salir y volver a entrar a la sala reiniciaba el video al minuto 0 — grave sobre todo cuando
+quien reingresaba recuperaba el host (automático por el `hostToken` guardado en `localStorage`),
+porque a él nadie lo corregía y el reinicio se propagaba a toda la sala al tocar play.
+
+**La causa:** `room-data` (lo que el servidor manda a quien se conecta) nunca incluía el minuto actual
+del video, solo el archivo. El `<video>` del navegador arranca en 0 por defecto en toda carga fresca.
+A un espectador normal lo corregía el próximo heartbeat del host (parpadeo de ~4s), pero al host mismo
+nadie lo corrige.
+
+**El fix:** la sala guarda ahora la última posición conocida (`room.videoPosition`), actualizada en
+cada `sync` del host, y la manda en `room-data` a quien se conecta. El cliente la aplica solo en
+cargas frescas del `<video>` (nunca en una reconexión de socket con la pestaña ya abierta, para no
+meter saltos innecesarios). Se resetea a 0 al cambiar de cinta. Verificado con una prueba de extremo a
+extremo con `socket.io-client` real: host avanza a 45:00, se desconecta, reconecta recuperando el
+host, `room-data` le manda `time: 2700` (antes del fix, siempre daba `0`).
+
+**También documentado (sin cambio de código):** el corte intermitente cada ~15 min con Error 1033 de
+Cloudflare, reportado en la misma sesión — es una limitación conocida de los túneles rápidos
+(`*.trycloudflare.com`, sin garantía de actividad), no un bug de MovieNight. El proyecto ya tiene la
+solución (túnel con nombre, sección 8quinquicies de `MEMORIA.md`) para sesiones largas.
+
+**Documentación:** `MEMORIA.md` secciones 8septicies y 8octicies.
+
 ## [2026-08-21] Fix: R2 nunca se activaba usando `.env` (bug de orden de `require`)
 
 **Motivo:** un usuario real completó las 5 variables de R2 en su `.env` siguiendo la guía paso a paso

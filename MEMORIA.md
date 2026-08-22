@@ -2,9 +2,9 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 21 de agosto de 2026 (Fix: R2 nunca se activaba usando `.env` por un bug de
-orden de `require`, confirmado funcionando en producción por el dueño del proyecto; ver sección
-8sexicies).
+Última actualización: 22 de agosto de 2026 (Fix: el video se reiniciaba al minuto 0 al salir/reentrar
+de la sala, sobre todo al recuperar el host; ver sección 8septicies. También se documentó, sin cambio
+de código, el corte intermitente del túnel rápido de Cloudflare — sección 8octicies).
 
 ---
 
@@ -1340,6 +1340,65 @@ la consola de PowerShell al mandar `Get-Content .env` por chat, no el contenido 
 (Nota aparte, sin relación con R2: en el medio apareció un `EADDRINUSE` al correr `npm start` — era
 solo un proceso de Node viejo que había quedado corriendo en otra terminal y seguía ocupando el puerto
 3000; se resolvió cerrándolo, sin ningún cambio de código.)
+
+## 8septicies. Fix: el video se reiniciaba al minuto 0 al salir/reentrar de la sala (V18)
+
+Reportado por el dueño del proyecto después de la primera sesión larga real (2h, con R2 ya andando):
+cada vez que alguien salía de la sala y volvía a entrar, el video se reiniciaba al minuto 0. Era
+particularmente grave si quien volvía a entrar era el host (o recuperaba el host al reingresar, algo
+automático porque el `hostToken` queda guardado en `localStorage`): en ese caso el reinicio a 0 no se
+autocorregía nunca, y al tocar play se propagaba a toda la sala.
+
+- **La causa:** `join-room` mandaba `room-data` con el archivo del video (`videoFile`), pero nunca con
+  el minuto en el que iba. El `<video>` del navegador arranca en el segundo 0 por defecto siempre que
+  se le asigna un `src` nuevo (que es lo que pasa en toda carga fresca de `room.html`: primer ingreso,
+  o volver a entrar después de haber salido). A un espectador común lo terminaba corrigiendo el
+  próximo heartbeat del host (se manda cada 4s), lo cual se sentía como un salto/parpadeo molesto pero
+  se autocorregía solo. Al host mismo, en cambio, nadie lo corrige — nadie le manda heartbeats a él —
+  así que se quedaba en 0 de verdad hasta que tocara play, momento en el que ese 0 se emitía como
+  `sync` a todos los demás.
+- **El fix:** la sala ahora guarda en el servidor la última posición conocida del video
+  (`room.videoPosition = { time, paused }`), actualizada en cada `sync` que manda el host (play,
+  pause, seek, y el heartbeat de cada 4s como respaldo). `join-room` la manda de vuelta en `room-data`
+  a quien se conecta. Del lado del cliente, `room.html` aplica esa posición (`player.currentTime` +
+  seguir reproduciendo si `paused` es `false`) **solo** cuando el `<video>` se está cargando de cero
+  (mismo `if` que ya decidía si había que asignar `player.src` de nuevo) — a propósito no se aplica en
+  cada reconexión de socket.io mientras la pestaña sigue abierta (ej. un tropiezo de wifi de un
+  segundo), porque en ese caso el `<video>` nunca se destruyó y ya sigue solo desde el minuto
+  correcto; forzar un seek ahí metería un salto innecesario.
+- **Al cambiar de cinta** (`change-video` / `change-video-from-upload`) la posición se resetea a
+  `{ time: 0, paused: true }` a propósito — una cinta nueva arranca de cero, no del minuto en el que
+  iba la anterior.
+- **Verificado con una prueba de extremo a extremo** (cliente `socket.io-client` real, sin mockear
+  nada): se crea una sala, el host avanza el video hasta el minuto 45:00 vía `sync`, se desconecta
+  (simulando "Salir"), y al reconectar recuperando el host, `room-data` le manda `time: 2700` en vez
+  de `0` — confirmado antes y después del fix (antes del fix siempre daba `0`).
+
+## 8octicies. El "se durmió" cada ~15 min con Error 1033 — no es un bug de código, es el túnel rápido
+
+También reportado en la misma sesión larga: cada tanto (variable, más o menos cada 15 minutos), dejaba
+de poder escribir en el chat o pasar el host — aunque el video seguía reproduciéndose sin cortes — y
+al recargar la página aparecía **Error 1033 de Cloudflare** ("Cloudflare Tunnel error... Cloudflare is
+currently unable to resolve it"). Después de 1-2 intentos de volver a entrar con el mismo link,
+volvía a andar solo.
+
+- **Por qué el video seguía andando pero el chat no:** el `<video>` apunta directo a la URL pública
+  del bucket de R2 (`https://pub-xxxxx.r2.dev/...`), un dominio de Cloudflare completamente aparte del
+  túnel — así que sigue sirviendo bytes sin problema aunque el túnel esté caído. El chat, la lista de
+  espectadores y el traspaso de host sí dependen de Socket.io, que viaja **a través** del túnel hacia
+  `localhost:3000` — si el túnel tiene un corte breve, esa parte se cae mientras el video no.
+- **La causa real, confirmada:** no es un bug de MovieNight ni de la sala en sí — es una limitación
+  conocida y documentada de los **túneles rápidos** de Cloudflare (`cloudflared tunnel --url ...`,
+  que generan un link `*.trycloudflare.com`), que es justamente el que se estaba usando. Cloudflare
+  mismo advierte que estos túneles "sin cuenta" (quick tunnels) **no tienen garantía de actividad**
+  ("no uptime guarantee") y pueden tener cortes breves sin aviso — no están pensados para sesiones
+  largas o de producción.
+- **La solución ya existe en el proyecto y no requiere cambio de código:** el túnel **con nombre**
+  (sección 8quinquicies — `cloudflared-config.example.yml` + `npm run tunnel`, guía completa en
+  README) usa infraestructura persistente de Cloudflare en vez de un túnel efímero, y no debería
+  sufrir estos cortes de la misma forma. Recomendado para sesiones largas o cuando el corte
+  intermitente moleste. No se tocó código por este tema — queda documentado acá para no repetir el
+  diagnóstico si vuelve a pasar.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

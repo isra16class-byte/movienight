@@ -208,7 +208,15 @@ function makeRoom(videoFile, password) {
     bufferingSockets: new Set(),
     recentDisconnects: new Map(),
     initialVideoAnnounced: false, // ver join-room: anuncia la cinta con la que se creó la sala una sola vez
-    chatHistory: [] // últimos CHAT_HISTORY_LIMIT mensajes de chat (system y de usuario), ver pushChatHistory
+    chatHistory: [], // últimos CHAT_HISTORY_LIMIT mensajes de chat (system y de usuario), ver pushChatHistory
+    // Última posición conocida del video (V18 — fix: sin esto, cualquiera que se conectaba o
+    // reconectaba arrancaba SIEMPRE en el segundo 0, porque 'room-data' solo mandaba el archivo,
+    // nunca el minuto. A un espectador normal lo corregía el próximo heartbeat del host (parpadeo de
+    // ~4s), pero si quien se reconectaba recuperaba el host (por el hostToken guardado en su
+    // localStorage), nadie lo corregía a él — se quedaba en 0 en serio, y al tocar play eso se
+    // propagaba a toda la sala vía 'sync'. Se actualiza en cada 'sync' que manda el host (play/
+    // pause/seek/heartbeat) y se manda de vuelta en 'room-data' a quien se conecta.
+    videoPosition: { time: 0, paused: true }
   };
 }
 
@@ -240,6 +248,7 @@ app.post('/room/:id/change-video', upload.single('video'), (req, res) => {
   if (req.body.hostToken !== room.hostToken) return res.status(403).json({ error: 'No autorizado' });
   if (!req.file) return res.status(400).json({ error: 'No llegó ningún video' });
   room.videoFile = videoUrlForUploadedFile(req.file);
+  room.videoPosition = { time: 0, paused: true }; // cinta nueva: arranca de 0, no de donde iba la anterior
   const changedMsg = { system: true, text: `📼 Cambiaron la cinta: ${videoDisplayName(room.videoFile)}` };
   pushChatHistory(room, changedMsg);
   io.to(req.params.id).emit('chat-message', changedMsg);
@@ -260,6 +269,7 @@ app.post('/room/:id/change-video-from-upload', async (req, res) => {
     return res.status(502).json({ error: 'No se pudo consultar Cloudflare R2 (revisa credenciales/conexión).' });
   }
   room.videoFile = videoUrlForExistingFile(filename);
+  room.videoPosition = { time: 0, paused: true }; // cinta nueva: arranca de 0, no de donde iba la anterior
   const changedMsg = { system: true, text: `📼 Cambiaron la cinta: ${videoDisplayName(room.videoFile)}` };
   pushChatHistory(room, changedMsg);
   io.to(req.params.id).emit('chat-message', changedMsg);
@@ -475,7 +485,7 @@ io.on('connection', (socket) => {
       socket.isHost = false;
       socket.emit('host-status', { isHost: false, hostToken: null });
     }
-    socket.emit('room-data', { videoFile: room.videoFile, subtitleFile: room.subtitleFile });
+    socket.emit('room-data', { videoFile: room.videoFile, subtitleFile: room.subtitleFile, position: room.videoPosition });
     if (wasMuted) socket.emit('mute-status', { muted: true });
 
     io.to(roomId).emit('viewer-count', room.viewers);
@@ -485,6 +495,16 @@ io.on('connection', (socket) => {
   // Solo el host puede mover el video
   socket.on('sync', (data) => {
     if (!socket.isHost || !currentRoom) return;
+    const room = rooms[currentRoom];
+    // Guarda la última posición conocida (V18) para poder mandársela a quien se conecte después —
+    // ver nota en makeRoom(). 'seek' no toca `paused` (solo cambia el minuto); 'play'/'pause' sí;
+    // 'heartbeat' manda ambos datos juntos cada 4s como respaldo por si se perdió algún evento.
+    if (room && typeof data.time === 'number') {
+      room.videoPosition.time = data.time;
+      if (data.type === 'play') room.videoPosition.paused = false;
+      else if (data.type === 'pause') room.videoPosition.paused = true;
+      else if (data.type === 'heartbeat' && typeof data.paused === 'boolean') room.videoPosition.paused = data.paused;
+    }
     socket.to(currentRoom).emit('sync', data);
   });
 

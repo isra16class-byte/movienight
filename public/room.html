@@ -434,8 +434,28 @@ socket.on('room-error', async (msg) => {
   location.href = '/';
 });
 
-socket.on('room-data', ({ videoFile, subtitleFile }) => {
-  if (player.src.indexOf(videoFile) === -1) player.src = videoFile;
+// V18 — fix del reinicio a minuto 0: ver nota en server.js (makeRoom/videoPosition) para la causa
+// completa. Acá, la clave es reusar la MISMA condición que ya decidía si hay que (re)cargar el
+// <video> (`player.src.indexOf(videoFile) === -1`): eso es true únicamente en una carga fresca de
+// la página (primer join, o volver a entrar después de haber salido) — nunca en una reconexión de
+// socket mientras la pestaña sigue abierta (ej. un tropiezo de wifi de un segundo), porque en ese
+// caso el <video> nunca se destruyó y ya sigue reproduciendo desde el minuto correcto por su cuenta;
+// forzar un seek ahí de nuevo solo metería un salto innecesario. Por eso el seek a `position` vive
+// adentro del mismo `if`, no en un listener aparte.
+socket.on('room-data', ({ videoFile, subtitleFile, position }) => {
+  if (player.src.indexOf(videoFile) === -1) {
+    player.src = videoFile;
+    if (position) {
+      const applyInitialPosition = () => {
+        ignoreSync = true;
+        player.currentTime = position.time;
+        if (!position.paused) player.play().catch(() => {});
+        lastKnownTime = position.time;
+        setTimeout(() => ignoreSync = false, 300);
+      };
+      player.addEventListener('loadedmetadata', applyInitialPosition, { once: true });
+    }
+  }
   updateSubtitleTrack(subtitleFile);
 });
 
