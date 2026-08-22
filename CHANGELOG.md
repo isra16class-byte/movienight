@@ -6,6 +6,35 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-22] Fix: Cloudflare cacheaba `style.css`/`.js`/`.html` en su borde, ocultando cambios de código — CONFIRMADO en producción
+
+**El síntoma:** dos patches seguidos de cambios visuales (posición del desplegable de reacciones,
+auto-ocultado del contador de espectadores) parecían no aplicarse — el usuario reportó que, después
+de `git am` + reiniciar el server y el túnel, la sala seguía viéndose exactamente como antes.
+
+**La causa real, confirmada:** no era un problema del código ni de que el patch no se hubiera
+aplicado — Cloudflare cachea por defecto los archivos estáticos según su extensión (`.css`, `.js`,
+etc.) en su red de bordes, **sin que el origen (nuestro Express) le diga nada al respecto**. Como el
+dominio pasa por Cloudflare Tunnel (proxied), esa capa de caché está siempre presente. Reiniciar el
+server o el túnel no tiene ningún efecto sobre una copia que ya está guardada en el borde — hay que
+purgarla a mano desde el dashboard, o evitar que se guarde en primer lugar.
+
+**El fix:** `express.static` ahora recibe `setHeaders`, que agrega `Cache-Control: no-store` a
+cualquier archivo `.html`, `.css` o `.js` servido desde `public/` (no a `public/uploads/`, donde
+viven los videos/thumbnails del modo sin R2 — esos sí se pueden seguir cacheando normalmente, no hay
+motivo para forzarlos a bajar de nuevo en cada visita). Con esto, Cloudflare deja de guardar copias
+de los archivos de código de la app, así que cualquier cambio futuro se ve reflejado al toque sin
+tener que purgar caché a mano. Sacrifica algo de velocidad de carga (los .css/.js se piden de nuevo
+en cada visita) a cambio de que "lo que está en el repo es lo que se ve" — trade-off correcto para
+un proyecto que se actualiza a mano seguido, más que para algo con miles de visitas.
+
+**Nota para el usuario:** este fix evita que el problema pase de nuevo hacia adelante, pero no borra
+lo que Cloudflare ya tenía cacheado de antes — para ver los cambios de los dos patches anteriores
+(desplegable de reacciones), sigue haciendo falta purgar el caché una vez desde el dashboard
+(Caching → Configuration → Purge Everything), o esperar a que expire solo.
+
+---
+
 ## [2026-08-22] Ajuste: el contador de espectadores y el desplegable de reacciones también se ocultan solos en celular
 
 El auto-ocultado de controles en celular (badge de host + controles ±10s/volumen, ya existente)

@@ -2,7 +2,10 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 22 de agosto de 2026 (en celular, el contador de espectadores y el
+Última actualización: 22 de agosto de 2026 (fix confirmado: Cloudflare cacheaba `.css`/`.js`/`.html`
+en su borde, por eso los últimos cambios visuales no se veían ni reiniciando server/túnel — ahora
+`express.static` manda `Cache-Control: no-store` para el código de la app, ver sección 8sexagies.
+Antes de eso: en celular, el contador de espectadores y el
 desplegable de reacciones de pantalla completa ahora se ocultan/muestran junto con el resto del
 overlay — sección 8quindecies, actualización posterior. Antes de eso: desplegable de reacciones
 flotante arriba a la izquierda, visible solo en pantalla completa y que se queda abierto hasta
@@ -1544,6 +1547,35 @@ mandar varias reacciones seguidas sin reabrirlo cada vez).
   activarse solo en pantalla completa, nada nuevo conceptualmente.
 - Nada cambia en `.reactions` ni en el panel de chat normal — es un agregado en paralelo, no un
   reemplazo.
+
+## 8sexagies. Fix: Cloudflare cacheaba `.css`/`.js`/`.html` en su borde, ocultando cambios de código — CONFIRMADO
+
+Reportado por el usuario: después de aplicar dos patches seguidos con cambios visuales (posición del
+desplegable de reacciones, auto-ocultado del contador de espectadores) y reiniciar tanto el server
+como el túnel, la sala se seguía viendo exactamente igual que antes — "como si no hubiésemos hecho
+cambios".
+
+**Causa real, confirmada:** no era que el patch no se hubiera aplicado ni un problema del código en
+sí — Cloudflare cachea por defecto los archivos estáticos según su extensión (`.css`, `.js`, etc.) en
+su red de bordes, **sin que el server de origen le diga nada al respecto**. Como el dominio pasa por
+Cloudflare Tunnel (proxied, sección 8quinquicies), esa capa de caché siempre está presente. Reiniciar
+el server o el túnel no tiene ningún efecto sobre una copia que Cloudflare ya tenía guardada en el
+borde de antes — hace falta purgarla a mano desde el dashboard (Caching → Purge Everything), o evitar
+que se guarde en primer lugar.
+
+**El fix (permanente, para que no vuelva a pasar):** en `server.js`, `express.static(... , {
+setHeaders })` agrega `Cache-Control: no-store` a cualquier archivo `.html`, `.css` o `.js` servido
+desde `public/` — **no** a `public/uploads/` (videos/thumbnails del modo sin R2, que sí se pueden
+seguir cacheando normalmente, no hay motivo para forzarlos a bajar de nuevo en cada visita). Con esto
+Cloudflare deja de guardar copias del código de la app: cualquier cambio futuro se ve reflejado al
+toque, sin purgar caché a mano. Sacrifica algo de velocidad de carga (los `.css`/`.js` se piden de
+nuevo en cada visita en vez de servirse desde el borde) a cambio de que "lo que está en el repo es lo
+que se ve" — trade-off correcto para un proyecto que se actualiza a mano seguido y con poco tráfico,
+no para algo con miles de visitas donde sí valdría la pena cachear con cache-busting por versión.
+
+**Importante:** este fix evita el problema hacia adelante, pero no borra lo que Cloudflare ya tenía
+cacheado de antes de aplicarlo — para ver cambios de patches previos a este, puede seguir haciendo
+falta un purge manual una vez (o esperar a que expire solo).
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

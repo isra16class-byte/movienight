@@ -62,7 +62,19 @@ function clientIp(req) {
 const UPLOAD_DIR = path.join(__dirname, 'public', 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-app.use(express.static(path.join(__dirname, 'public')));
+// `setHeaders` para .html/.css/.js: por defecto Cloudflare cachea estáticos por extensión (CSS/JS
+// sobre todo) en su borde, INDEPENDIENTEMENTE de que reiniciemos el server o el túnel — confirmado
+// en producción: un cambio de `style.css` no se veía reflejado hasta purgar el caché a mano en el
+// dashboard de Cloudflare, aunque el archivo en disco ya estuviera actualizado. Como este proyecto
+// se actualiza seguido a mano (git am + reiniciar), preferimos que SIEMPRE se sirva la versión más
+// nueva del código de la app antes que ganar unos ms de velocidad — `no-store` en el código (no en
+// los uploads/thumbnails de `public/uploads`, que si se pueden cachear normalmente) evita que
+// Cloudflare vuelva a guardar una copia vieja.
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    if (/\.(html|css|js)$/i.test(filePath)) res.setHeader('Cache-Control', 'no-store');
+  }
+}));
 app.use(express.json());
 
 // --- Contraseña de biblioteca (V9) --------------------------------------------------------------
