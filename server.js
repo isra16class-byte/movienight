@@ -43,6 +43,22 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
+// El server escucha en localhost y se expone con Cloudflare Tunnel (ver README) — todas las
+// requests le llegan físicamente desde `cloudflared` en la propia máquina, no desde el navegador de
+// cada persona. Sin `trust proxy`, `req.ip` sería siempre la misma IP local para todo el mundo, lo
+// cual inutilizaría cualquier rate-limiting por IP (ver requireUploadAuth, V19: un solo intento
+// fallido de cualquiera bloquearía a todo el grupo por igual). Con esto, Express lee la IP real del
+// visitante del header `X-Forwarded-For` que agrega Cloudflare en el camino.
+app.set('trust proxy', true);
+
+// IP real del visitante: preferimos el header propio de Cloudflare (`Cf-Connecting-Ip`, más confiable
+// cuando se pasa por su red, sea con Tunnel o no) y caemos a `req.ip` (ya resuelto por Express vía
+// X-Forwarded-For gracias al 'trust proxy' de arriba) si no está presente — ej. corriendo en
+// localhost sin túnel, donde Cloudflare no interviene.
+function clientIp(req) {
+  return req.headers['cf-connecting-ip'] || req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
+}
+
 const UPLOAD_DIR = path.join(__dirname, 'public', 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -72,6 +88,65 @@ function requireLibraryAuth(req, res, next) {
     return res.status(401).json({ error: 'Contraseña de biblioteca requerida o incorrecta.' });
   }
   next();
+}
+
+// --- Contraseña + límite de intentos para SUBIR una cinta nueva (V19) ----------------------------
+// Motivo: con R2 conectado, cualquiera con el link llegaba a /create-room y podía subir archivos
+// gigantes sin ninguna traba — cada uno se factura (almacenamiento + operaciones de R2). A diferencia
+// de requireLibraryAuth (que protege leer/borrar la biblioteca y ya alcanzaba con "correcta o no"),
+// acá el costo de un intento de más es mucho más alto: dejar pasar la SUBIDA REAL de un archivo
+// pesado es peor que dejar pasar un GET. Por eso, además de reusar la misma LIBRARY_PASSWORD (un solo
+// secreto para todo el server, no hace falta uno nuevo — ver sección de riesgos en MEMORIA.md), esto
+// suma un límite de intentos por IP: 3 contraseñas incorrectas seguidas bloquean esa IP por 15 minutos
+// antes de poder volver a intentar, para que probar contraseñas al azar no sea gratis.
+//
+// Se aplica ANTES de `upload.single('video')` en las rutas que suben un archivo nuevo (/create-room,
+// /room/:id/change-video) — a propósito, para que una contraseña incorrecta corte la request antes de
+// que Multer empiece a leer/subir el archivo. El cliente manda la contraseña por el header
+// `x-library-password` (no por un campo del FormData): así queda disponible para este middleware
+// antes de que arranque el parseo del multipart/form-data que trae el video.
+const UPLOAD_AUTH_MAX_ATTEMPTS = 3;
+const UPLOAD_AUTH_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutos bloqueado tras agotar los 3 intentos
+const uploadAuthAttempts = new Map(); // ip -> { count, lockedUntil }
+
+function requireUploadAuth(req, res, next) {
+  const ip = clientIp(req);
+  const now = Date.now();
+  let entry = uploadAuthAttempts.get(ip);
+
+  if (entry && entry.lockedUntil > now) {
+    const minutesLeft = Math.ceil((entry.lockedUntil - now) / 60000);
+    return res.status(429).json({
+      error: `Demasiados intentos fallidos. Esperá ${minutesLeft} min y volvé a intentar.`,
+      lockedMinutes: minutesLeft
+    });
+  }
+
+  const provided = req.get('x-library-password') || '';
+  if (hashPassword(provided) === libraryPasswordHash) {
+    uploadAuthAttempts.delete(ip); // contraseña correcta: se olvida cualquier intento fallido previo
+    return next();
+  }
+
+  // Arranca un contador nuevo si no había uno todavía, o si el bloqueo anterior ya venció (lockedUntil
+  // solo es > 0 una vez que se llegó al 3er intento fallido; mientras se está contando 1° y 2°
+  // intento, lockedUntil se mantiene en 0 y NO hay que resetear el contador en cada request).
+  if (!entry || (entry.lockedUntil > 0 && entry.lockedUntil <= now)) entry = { count: 0, lockedUntil: 0 };
+  entry.count += 1;
+  if (entry.count >= UPLOAD_AUTH_MAX_ATTEMPTS) {
+    entry.lockedUntil = now + UPLOAD_AUTH_LOCKOUT_MS;
+    entry.count = 0; // al vencer el bloqueo, vuelve a tener 3 intentos frescos
+    uploadAuthAttempts.set(ip, entry);
+    return res.status(401).json({
+      error: 'Contraseña incorrecta. Se bloquearon los intentos de subida por 15 minutos.',
+      attemptsLeft: 0
+    });
+  }
+  uploadAuthAttempts.set(ip, entry);
+  return res.status(401).json({
+    error: 'Contraseña incorrecta.',
+    attemptsLeft: UPLOAD_AUTH_MAX_ATTEMPTS - entry.count
+  });
 }
 
 // Salas en memoria
@@ -220,7 +295,7 @@ function makeRoom(videoFile, password) {
   };
 }
 
-app.post('/create-room', upload.single('video'), (req, res) => {
+app.post('/create-room', requireUploadAuth, upload.single('video'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No llegó ningún video' });
   const roomId = makeRoomId();
   const room = makeRoom(videoUrlForUploadedFile(req.file), (req.body.password || '').trim());
@@ -242,7 +317,7 @@ app.post('/create-room-from-upload', async (req, res) => {
   }
 });
 
-app.post('/room/:id/change-video', upload.single('video'), (req, res) => {
+app.post('/room/:id/change-video', requireUploadAuth, upload.single('video'), (req, res) => {
   const room = rooms[req.params.id];
   if (!room) return res.status(404).json({ error: 'Sala no existe' });
   if (req.body.hostToken !== room.hostToken) return res.status(403).json({ error: 'No autorizado' });

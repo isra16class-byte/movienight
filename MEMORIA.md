@@ -2,9 +2,11 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 22 de agosto de 2026 (Fix: el video se reiniciaba al minuto 0 al salir/reentrar
-de la sala, sobre todo al recuperar el host; ver sección 8septicies. También se documentó, sin cambio
-de código, el corte intermitente del túnel rápido de Cloudflare — sección 8octicies).
+Última actualización: 22 de agosto de 2026 (V19: contraseña + límite de 3 intentos para subir cintas
+nuevas, reusando la contraseña de biblioteca — protege contra que cualquiera con el link llene el
+storage de Cloudflare R2 y genere costo; ver sección 8novicies. Antes de eso: fix del video que se
+reiniciaba al minuto 0 al salir/reentrar de la sala — sección 8septicies — y documentación, sin cambio
+de código, del corte intermitente del túnel rápido de Cloudflare — sección 8octicies).
 
 ---
 
@@ -68,7 +70,7 @@ rooms = {
 - `hostSocketId` (V8): a diferencia de `hostToken` (que es una credencial, no cambia), este campo dice quién es el host **ahora mismo** — el `socket.id` del único socket con `isHost = true` en la sala en un momento dado. Es la pieza que faltaba antes de V8: sin ella, presentar un `hostToken` válido alcanzaba para volverse host sin importar si ya había otro. Ver sección 5bis para el fix completo.
 - `passwordHash` (V7): opcional. Si está seteado, `join-room` exige que el cliente mande la contraseña en texto plano por socket; el servidor la hashea (`sha256`) y compara. No hay salt por usuario — es una protección básica pensada para un grupo de amigos, no para resistir ataques serios (ver sección 9).
 - `userId` (V7): identificador persistente generado en el cliente (`crypto.randomUUID()`, guardado en `localStorage` como `mn_uid`, uno solo por navegador — no por sala). Se manda en cada `join-room` y es lo que permite que el estado de "silenciado" y la supresión de mensajes de reconexión sobrevivan a un refresh o a una caída de wifi. Es distinto de `socket.id`, que cambia en cada conexión.
-- `LIBRARY_PASSWORD` (V9): **no** es un campo de `rooms` — es una única contraseña a nivel de todo el servidor (no por sala), guardada en una variable de módulo (`libraryPasswordHash`), que protege `GET /api/uploads` y `DELETE /api/uploads/:filename` (ver sección 8septendecies). Se lee de la variable de entorno del mismo nombre; si no está definida, se genera una al azar en cada arranque y se imprime por consola.
+- `LIBRARY_PASSWORD` (V9, ampliado en V19): **no** es un campo de `rooms` — es una única contraseña a nivel de todo el servidor (no por sala), guardada en una variable de módulo (`libraryPasswordHash`), que protege `GET /api/uploads` y `DELETE /api/uploads/:filename` (ver sección 8septendecies) y, desde V19, también `POST /create-room` y `POST /room/:id/change-video` — las dos rutas que suben un archivo NUEVO (ver sección 8novicies; `requireUploadAuth`, distinto de `requireLibraryAuth`, agrega ahí un límite de 3 intentos por IP). Se lee de la variable de entorno del mismo nombre; si no está definida, se genera una al azar en cada arranque y se imprime por consola.
 
 ## 5. Sistema de roles (host vs invitado) — IMPORTANTE
 
@@ -1400,11 +1402,73 @@ volvía a andar solo.
   intermitente moleste. No se tocó código por este tema — queda documentado acá para no repetir el
   diagnóstico si vuelve a pasar.
 
+## 8novicies. Contraseña + límite de 3 intentos para subir cintas nuevas (V19)
+
+Pedido explícito del dueño del proyecto tras conectar R2 en producción: con el server expuesto al
+internet vía Cloudflare Tunnel, cualquiera con el link de la home (`index.html`) podía subir archivos
+de video gigantes sin ninguna traba — y cada subida a R2 se factura (almacenamiento + operaciones).
+Antes de este cambio no había ninguna protección en `/create-room` ni en `/room/:id/change-video`
+(ver el ítem correspondiente en la sección 9, ahora resuelto).
+
+- **La contraseña es la misma que ya existía** (`LIBRARY_PASSWORD`, la que protege listar/borrar en
+  la biblioteca desde V9, sección 8septendecies) — no se agregó un secreto nuevo. Sigue siendo una
+  sola variable de entorno para todo el server, no por sala.
+- **Dónde se aplica:** solo en las dos rutas que reciben un archivo NUEVO y lo suben a R2/disco —
+  `POST /create-room` (crear sala subiendo un video) y `POST /room/:id/change-video` (cambiar la
+  cinta subiendo una nueva). **No** se tocaron `/create-room-from-upload` ni
+  `/room/:id/change-video-from-upload` (reutilizar un video ya subido desde la biblioteca): esas no
+  generan storage nuevo, así que no hay costo que proteger ahí. Tampoco se tocó
+  `/room/:id/upload-subtitle`: los subtítulos siempre se guardan en disco local (nunca en R2, ver
+  `subtitleUpload` en `server.js`) y tienen un límite de 5MB — no es el gasto que preocupaba.
+- **El middleware nuevo (`requireUploadAuth` en `server.js`) es distinto de `requireLibraryAuth`**
+  (que sigue igual, sin límite de intentos, para listar/borrar) porque acá el costo de un intento de
+  más es mucho mayor: dejar pasar la subida real de un archivo pesado a R2 es peor que dejar pasar un
+  `GET /api/uploads`. Por eso `requireUploadAuth` suma un límite de **3 intentos incorrectos por IP**
+  antes de bloquear esa IP por **15 minutos** (constantes `UPLOAD_AUTH_MAX_ATTEMPTS` /
+  `UPLOAD_AUTH_LOCKOUT_MS`), guardado en un `Map` en memoria (`uploadAuthAttempts`, se pierde si el
+  server se reinicia — aceptable dado el caso de uso). Una contraseña correcta resetea el contador de
+  esa IP a cero.
+- **Se aplica ANTES de `upload.single('video')` a propósito**, para que una contraseña incorrecta
+  corte la request antes de que Multer empiece siquiera a leer el archivo. Esto importa especialmente
+  con R2 activo: el motor de storage de la Fase 2 (`r2VideoStorage._handleFile`, ver sección
+  8tricies) sube el archivo a R2 **en streaming, a medida que llega** — si el chequeo de contraseña
+  fuera posterior a Multer, la subida a R2 ya se habría completado (y facturado) para cuando el
+  servidor recién se entera de que la contraseña era incorrecta. Por eso el cliente manda la
+  contraseña por el header `x-library-password` (no como campo del `FormData`): un header HTTP está
+  disponible antes de que arranque el parseo del cuerpo multipart, un campo del form no.
+- **IP real detrás del túnel:** el server escucha en `localhost` y Cloudflare Tunnel le reenvía todo
+  el tráfico desde la propia máquina — sin nada más, `req.ip` sería siempre la misma IP local para
+  todo el mundo, lo que habría inutilizado el límite por IP (un intento fallido de cualquiera hubiera
+  bloqueado a todo el grupo por igual). Se agregó `app.set('trust proxy', true)` + una función
+  `clientIp(req)` que prioriza el header `Cf-Connecting-Ip` (el que agrega Cloudflare con la IP real
+  del visitante) y cae a `req.ip`/`req.socket.remoteAddress` si no está presente (ej. corriendo en
+  localhost sin túnel).
+- **Frontend:** `index.html` (crear sala) y `library.html` (subir cinta nueva desde una sala, flujo
+  `fromRoom`) piden la contraseña con el mismo componente de modal (`mnDialog`/`mnPrompt`) que ya
+  usaban `room.html` y `library.html` — se copió el componente a `index.html`, que hasta ahora no lo
+  tenía (usaba inputs simples en la página). La contraseña se cachea en `localStorage` bajo la MISMA
+  clave que ya usa la biblioteca (`mn_library_pw`, ver `mnLibraryFetch` en `library.html`): si ya se
+  desbloqueó la biblioteca una vez en ese navegador, crear sala o cambiar cinta no vuelve a pedir
+  nada. Si el server responde 401 con intentos restantes, se reintenta la subida (con el mismo
+  archivo ya seleccionado, sin que el usuario tenga que volver a elegirlo) pidiendo la contraseña de
+  nuevo; si responde 401 sin intentos restantes o 429 (ya bloqueada), se corta y se avisa el motivo
+  sin seguir insistiendo.
+- **Verificado a mano** contra el server real (`LIBRARY_PASSWORD` de prueba): 3 contraseñas
+  incorrectas seguidas devuelven `attemptsLeft` decreciente (2, 1, 0) y la 3ra ya viene con el aviso
+  de bloqueo; un 4to intento —incluso con la contraseña correcta— devuelve `429` con los minutos
+  restantes; una contraseña correcta en cualquier momento anterior al bloqueo resetea el contador a
+  cero; y una subida real (archivo de prueba chico) con la contraseña correcta llega hasta Multer y
+  crea la sala con normalidad. De paso se encontró y corrigió un bug en la primera versión del
+  contador (reseteaba el conteo en cada intento en vez de acumularlo, porque comparaba
+  `lockedUntil <= now` sin chequear primero que `lockedUntil` fuera `> 0`) — quedó corregido antes de
+  este commit, no llegó a versionarse roto.
+
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 
 - El `hostToken` viaja en texto plano por HTTP (a menos que Cloudflare Tunnel lo cifre en tránsito, que sí lo hace vía HTTPS). Si alguien lo obtiene (inspeccionando `localStorage` de la persona equivocada, por ejemplo), puede hacerse pasar por host.
 - La contraseña de sala (V7) y la de biblioteca (V9) usan `sha256` sin salt — suficiente para que alguien con el link no entre "sin querer", pero no es resistente a un atacante que se lo proponga en serio (sin rate-limiting en `join-room` ni en `requireLibraryAuth`, se podrían probar contraseñas por fuerza bruta). Dado el caso de uso (grupo de amigos), se consideró un trade-off aceptable.
-- No hay rate-limiting en el chat, en `join-room`, en `requireLibraryAuth`, ni en la subida de archivos — un usuario malicioso podría floodear el chat, probar contraseñas repetidamente, o intentar subir archivos gigantes repetidamente.
+- No hay rate-limiting en el chat ni en `join-room` (intentos de contraseña de sala) — un usuario malicioso podría floodear el chat o probar contraseñas de sala repetidamente. `requireLibraryAuth` (listar/borrar biblioteca) tampoco tiene límite de intentos, a propósito: el costo de un intento de más ahí es bajo (una lectura), a diferencia de subir un archivo nuevo.
+- ~~No hay rate-limiting en... la subida de archivos~~ — resuelto en V19 para las rutas que suben un archivo NUEVO (`/create-room`, `/room/:id/change-video`, las que consumen storage de R2 y se facturan): ahora exigen la contraseña de biblioteca y bloquean la IP 15 minutos tras 3 intentos incorrectos (ver sección 8novicies). Las rutas que reutilizan un video ya subido (`*-from-upload`) no se tocaron porque no generan storage nuevo.
 - No hay validación de tipo de archivo más allá de lo que el navegador manda como `video/*` en el `<input accept>` (o la extensión `.srt`/`.vtt` para subtítulos) — no es una validación real de seguridad, solo de UX.
 - Las salas nunca se borran ni expiran — si el server corre mucho tiempo, `rooms` y los archivos en `uploads/` se van acumulando. (Ahora al menos se pueden borrar a mano fácil desde `library.html`, ver sección 8quater.)
 - Borrar un video desde `library.html` mientras una sala activa lo está usando rompe esa sala sin avisar (ver 8quater) — sigue sin resolverse en V9. Mitigado en parte por V9: ahora hace falta la contraseña de biblioteca para borrar, así que ya no puede pasar por accidente por un desconocido random con el link de una sala — pero un amigo del grupo (que sí tiene la contraseña) todavía podría borrar sin querer un video en uso.
@@ -1417,7 +1481,7 @@ volvía a andar solo.
 - [x] ~~Dominio fijo con Cloudflare Tunnel nombrado (requiere cuenta de Cloudflare + dominio propio) para no tener que compartir un link nuevo cada sesión~~ — resuelto (ver sección 8quinquicies): guía completa en README + `cloudflared-config.example.yml` + `npm run tunnel`.
 - [ ] Posible: avisar si se intenta borrar un video que está en uso por una sala activa.
 - [ ] Posible: contraseña también al reutilizar un video desde la biblioteca (`create-room-from-upload`), hoy solo existe al crear desde `index.html`.
-- [ ] Posible: rate-limiting real en `join-room` (intentos de contraseña) y en la subida de archivos.
+- [ ] Posible: rate-limiting real en `join-room` (intentos de contraseña de sala) y en el chat (flood). El de la subida de archivos ya se resolvió (ver siguiente ítem).
 - [ ] Posible: rediseñar "cambiar cinta" para que no implique salir de `room.html` (hoy navega a `library.html` y vuelve, ver sección 8tervicies) — evitaría el parpadeo de traspaso automático de host mientras el host elige la cinta nueva.
 - [ ] Evaluado y descartado por ahora (no encaja con el caso de uso de grupo privado chico): video/voz en vivo integrado tipo Scener/Kast, soporte para reproducir desde plataformas externas (Netflix/YouTube/etc.).
 - [x] ~~Mostrar advertencia/loading mientras el video sube~~ — resuelto en V5 con barra de progreso real (ver sección 8ter).
@@ -1433,6 +1497,7 @@ volvía a andar solo.
 - [x] ~~/api/uploads (listar/borrar cintas) sin ninguna autenticación~~ — resuelto en V9 con contraseña de biblioteca (ver sección 8septendecies).
 - [x] ~~Cloudflare R2 — Fase 2: conectar la subida de video (crear sala / cambiar cinta) al bucket~~ — resuelto (ver sección 8tricies).
 - [x] ~~Cloudflare R2 — Fase 3: conectar la biblioteca (`library.html`, listar/reutilizar/borrar) al bucket~~ — resuelto (ver sección 8quatricies). Con esto se cierran las 3 fases planeadas de R2.
+- [x] ~~Proteger la subida de video nuevo (crear sala / cambiar cinta) para que no cualquiera pueda llenar el storage de R2 y generar costo~~ — resuelto en V19: contraseña de biblioteca + bloqueo de 15 min tras 3 intentos incorrectos por IP (ver sección 8novicies).
 
 ## 11. Historial de cambios
 

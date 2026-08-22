@@ -6,6 +6,37 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-22] Feat: contraseña + límite de 3 intentos para subir cintas nuevas (protege R2 de abuso/costo)
+
+**Motivo:** pedido explícito del dueño del proyecto tras conectar R2 en producción — con el server
+expuesto al internet, cualquiera con el link de la home podía subir archivos de video gigantes sin
+ninguna traba, y cada subida a R2 se factura (almacenamiento + operaciones). No había ninguna
+protección en `/create-room` ni en `/room/:id/change-video`.
+
+**El fix:** ambas rutas (las únicas que suben un archivo *nuevo*, a diferencia de reutilizar uno ya
+subido desde la biblioteca) ahora exigen la misma contraseña que ya protege la biblioteca
+(`LIBRARY_PASSWORD`, sin agregar un secreto nuevo). Un middleware propio (`requireUploadAuth`,
+distinto de `requireLibraryAuth` porque acá el costo de un intento de más es mucho mayor) corre
+**antes** de Multer, para que una contraseña incorrecta corte la request antes de que empiece a
+subirse nada a R2 — importante porque el motor de subida a R2 sube en streaming a medida que llega
+el archivo. Bloquea la IP 15 minutos después de 3 intentos incorrectos seguidos; una contraseña
+correcta resetea el contador. Se agregó `trust proxy` + lectura de `Cf-Connecting-Ip` para que el
+límite sea por visitante real y no por la IP compartida del túnel.
+
+**Frontend:** `index.html` (crear sala) y `library.html` (subir cinta nueva desde una sala) piden la
+contraseña con el mismo modal que ya usaban `room.html`/`library.html`, cacheada en el mismo
+`localStorage` que ya usa la biblioteca — si ya se desbloqueó una vez en ese navegador, no se vuelve
+a pedir. Reintenta automáticamente con el mismo archivo si queda algún intento; se detiene con el
+motivo si se agotan o si la IP ya está bloqueada.
+
+**Verificado a mano** contra el server real: 3 contraseñas incorrectas seguidas dan `attemptsLeft`
+decreciente (2, 1, 0) y bloquean; un 4to intento (incluso con la contraseña correcta) da `429` con los
+minutos restantes; la contraseña correcta en cualquier momento resetea el contador; y una subida real
+con la contraseña correcta funciona sin trabas. Se encontró y corrigió en el camino un bug propio del
+contador (reseteaba en cada intento en vez de acumular) — no llegó a versionarse roto.
+
+**Documentación:** `MEMORIA.md` sección 8novicies.
+
 ## [2026-08-22] Fix: el video se reiniciaba al minuto 0 al salir/reentrar de la sala
 
 **Motivo:** reportado por el dueño del proyecto tras la primera sesión larga real (2h, con R2 ya

@@ -295,46 +295,95 @@ if (fromRoom) {
   const newTapeProgressBar = document.getElementById('newTapeProgressBar');
   const newTapeStatus = document.getElementById('newTapeStatus');
 
-  newTapeFile.addEventListener('change', () => {
+  // --- Contraseña de subida (V19) ---------------------------------------------------------------
+  // Mismo motivo y misma contraseña que en index.html (ver ese comentario): el server exige
+  // `x-library-password` en /room/:id/change-video y corta a los 3 intentos incorrectos (bloqueo de
+  // 15 min por IP, ver requireUploadAuth en server.js). Reusa el mismo localStorage `mn_library_pw`
+  // que ya usa mnLibraryFetch acá mismo — si ya se desbloqueó la biblioteca en este navegador, no
+  // vuelve a pedir nada.
+  async function getUploadPassword(message = '') {
+    return await mnPrompt({
+      title: 'Subida protegida',
+      message: message || 'Esta cinta se sube a un almacenamiento con costo. Pedile la contraseña a quien armó el servidor (es la misma de la biblioteca).',
+      placeholder: 'Contraseña',
+      type: 'password',
+      okLabel: 'Entrar'
+    });
+  }
+
+  newTapeFile.addEventListener('change', async () => {
     const file = newTapeFile.files[0];
     if (!file) return;
     if (!roomHostToken) { newTapeStatus.textContent = 'No tienes permisos de host en esta sala desde este navegador.'; return; }
 
+    let pw = localStorage.getItem('mn_library_pw') || '';
+    if (!pw) {
+      pw = await getUploadPassword();
+      if (pw === null) return; // canceló el prompt
+    }
+
     newTapeFileName.textContent = file.name;
     newTapeProgressWrap.classList.add('active');
-    newTapeStatus.innerHTML = `${cassetteIcon} Subiendo cinta... 0%`;
 
-    const form = new FormData();
-    form.append('video', file);
-    form.append('hostToken', roomHostToken);
+    // Intenta subir con `pw`; si el server responde 401 y todavía quedan intentos, vuelve a pedir la
+    // contraseña y reintenta con el MISMO archivo ya seleccionado (no hace falta re-elegirlo).
+    function tryUpload(pw) {
+      newTapeStatus.innerHTML = `${cassetteIcon} Subiendo cinta... 0%`;
+      newTapeProgressBar.style.width = '0%';
 
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', `/room/${fromRoom}/change-video`);
+      const form = new FormData();
+      form.append('video', file);
+      form.append('hostToken', roomHostToken);
 
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) {
-        const pct = Math.round((e.loaded / e.total) * 100);
-        newTapeProgressBar.style.width = pct + '%';
-        newTapeStatus.innerHTML = `${cassetteIcon} Subiendo cinta... ${pct}%`;
-      }
-    };
-    xhr.onload = () => {
-      let data;
-      try { data = JSON.parse(xhr.responseText); } catch { data = { error: 'Respuesta inválida del servidor' }; }
-      if (xhr.status < 200 || xhr.status >= 300 || data.error) {
-        newTapeStatus.textContent = 'Error: ' + (data.error || 'no se pudo cambiar la cinta');
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `/room/${fromRoom}/change-video`);
+      xhr.setRequestHeader('x-library-password', pw);
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          newTapeProgressBar.style.width = pct + '%';
+          newTapeStatus.innerHTML = `${cassetteIcon} Subiendo cinta... ${pct}%`;
+        }
+      };
+      xhr.onload = async () => {
+        let data;
+        try { data = JSON.parse(xhr.responseText); } catch { data = { error: 'Respuesta inválida del servidor' }; }
+
+        if (xhr.status === 401 || xhr.status === 429) {
+          if (xhr.status === 401 && data.attemptsLeft > 0) {
+            const nextPw = await getUploadPassword(`Contraseña incorrecta. Te quedan ${data.attemptsLeft} intento${data.attemptsLeft === 1 ? '' : 's'}.`);
+            if (nextPw === null) {
+              newTapeStatus.textContent = 'Subida cancelada.';
+              newTapeProgressWrap.classList.remove('active');
+              return;
+            }
+            tryUpload(nextPw);
+            return;
+          }
+          newTapeStatus.textContent = 'Error: ' + (data.error || 'no se pudo cambiar la cinta');
+          newTapeProgressWrap.classList.remove('active');
+          return;
+        }
+
+        if (xhr.status < 200 || xhr.status >= 300 || data.error) {
+          newTapeStatus.textContent = 'Error: ' + (data.error || 'no se pudo cambiar la cinta');
+          newTapeProgressWrap.classList.remove('active');
+          return;
+        }
+        localStorage.setItem('mn_library_pw', pw); // correcta: no se vuelve a pedir en este navegador
+        newTapeProgressBar.style.width = '100%';
+        newTapeStatus.textContent = 'Listo, volviendo a la sala...';
+        window.location = `/room/${fromRoom}`;
+      };
+      xhr.onerror = () => {
+        newTapeStatus.textContent = 'No se pudo subir el archivo. Intenta de nuevo.';
         newTapeProgressWrap.classList.remove('active');
-        return;
-      }
-      newTapeProgressBar.style.width = '100%';
-      newTapeStatus.textContent = 'Listo, volviendo a la sala...';
-      window.location = `/room/${fromRoom}`;
-    };
-    xhr.onerror = () => {
-      newTapeStatus.textContent = 'No se pudo subir el archivo. Intenta de nuevo.';
-      newTapeProgressWrap.classList.remove('active');
-    };
-    xhr.send(form);
+      };
+      xhr.send(form);
+    }
+
+    tryUpload(pw);
   });
 }
 

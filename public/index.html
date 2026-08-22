@@ -73,6 +73,22 @@
   </main>
 </div>
 
+<!-- Modal genérico: reemplaza prompt()/confirm()/alert() nativos (mismo componente que room.html/
+     library.html — ver nota junto a .mn-modal-overlay en style.css). Se suma acá recién en V19, para
+     pedir la contraseña de subida antes de mandar el video a /create-room. -->
+<div class="mn-modal-overlay" id="mnModalOverlay" hidden>
+  <div class="mn-modal" role="dialog" aria-modal="true" aria-labelledby="mnModalTitle">
+    <p class="mn-modal-title" id="mnModalTitle"></p>
+    <p class="mn-modal-message" id="mnModalMessage" hidden></p>
+    <input class="mn-modal-input" id="mnModalInput" hidden autocomplete="off">
+    <p class="mn-modal-error" id="mnModalError" hidden></p>
+    <div class="mn-modal-actions">
+      <button class="mn-modal-btn mn-modal-cancel" id="mnModalCancel">Cancelar</button>
+      <button class="mn-modal-btn mn-modal-ok" id="mnModalOk">Aceptar</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const btn = document.getElementById('createBtn');
 const status = document.getElementById('status');
@@ -95,53 +111,168 @@ fileInput.addEventListener('change', () => {
   }
 });
 
-btn.onclick = () => {
+// --- Modal genérico: reemplaza prompt()/confirm()/alert() nativos del navegador ---
+// (mismo componente que room.html/library.html — ver nota junto a .mn-modal-overlay en style.css).
+let mnModalHideTimer = null;
+function mnDialog({ title, message = '', showInput = false, inputType = 'text', placeholder = '',
+                     defaultValue = '', okLabel = 'Aceptar', cancelLabel = 'Cancelar', showCancel = true }) {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById('mnModalOverlay');
+    const titleEl = document.getElementById('mnModalTitle');
+    const messageEl = document.getElementById('mnModalMessage');
+    const input = document.getElementById('mnModalInput');
+    const errorEl = document.getElementById('mnModalError');
+    const okBtn = document.getElementById('mnModalOk');
+    const cancelBtn = document.getElementById('mnModalCancel');
+
+    titleEl.textContent = title;
+    messageEl.textContent = message;
+    messageEl.hidden = !message;
+    input.hidden = !showInput;
+    input.type = inputType;
+    input.placeholder = placeholder;
+    input.value = defaultValue;
+    errorEl.hidden = true;
+    okBtn.textContent = okLabel;
+    cancelBtn.textContent = cancelLabel;
+    cancelBtn.hidden = !showCancel;
+
+    if (mnModalHideTimer) { clearTimeout(mnModalHideTimer); mnModalHideTimer = null; }
+    overlay.hidden = false;
+    requestAnimationFrame(() => overlay.classList.add('is-visible'));
+    setTimeout(() => (showInput ? input : okBtn).focus(), 30);
+
+    function close(result) {
+      overlay.classList.remove('is-visible');
+      mnModalHideTimer = setTimeout(() => { overlay.hidden = true; mnModalHideTimer = null; }, 150);
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      input.removeEventListener('keydown', onKeydown);
+      resolve(result);
+    }
+    function onOk() { close(showInput ? input.value : true); }
+    function onCancel() { close(showInput ? null : false); }
+    function onKeydown(e) {
+      if (e.key === 'Enter') { e.preventDefault(); onOk(); }
+      else if (e.key === 'Escape' && showCancel) onCancel();
+    }
+
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+    input.addEventListener('keydown', onKeydown);
+  });
+}
+function mnAlert(message, title = 'MovieNight') {
+  return mnDialog({ title, message, showCancel: false, okLabel: 'OK' });
+}
+function mnPrompt({ title, message = '', placeholder = '', type = 'text', defaultValue = '', okLabel = 'Aceptar', cancelLabel = 'Cancelar', showCancel = true }) {
+  return mnDialog({ title, message, showInput: true, inputType: type, placeholder, defaultValue, okLabel, cancelLabel, showCancel });
+}
+
+// --- Contraseña de subida (V19) ---------------------------------------------------------------
+// Motivo: con R2 conectado, cualquiera con el link llegaba acá y podía subir archivos gigantes sin
+// ninguna traba — cada uno se factura (ver requireUploadAuth en server.js). Reusa la MISMA contraseña
+// que ya protege la biblioteca (`LIBRARY_PASSWORD`, un solo secreto para todo el server) y el mismo
+// nombre de localStorage (`mn_library_pw`) que usa library.html: si ya la desbloqueaste ahí en este
+// navegador, acá ni te la vuelve a pedir. El servidor corta a las 3 contraseñas incorrectas seguidas
+// (bloqueo de 15 min por IP) — este loop del cliente respeta ese límite vía `attemptsLeft` en la
+// respuesta 401, no reintenta indefinidamente.
+async function getUploadPassword(message = '') {
+  return await mnPrompt({
+    title: 'Subida protegida',
+    message: message || 'Esta cinta se sube a un almacenamiento con costo. Pedile la contraseña a quien armó el servidor (es la misma de la biblioteca).',
+    placeholder: 'Contraseña',
+    type: 'password',
+    okLabel: 'Entrar'
+  });
+}
+
+btn.onclick = async () => {
   const file = fileInput.files[0];
   if (!file) { status.textContent = 'Inserta una cinta primero'; return; }
+
+  let pw = localStorage.getItem('mn_library_pw') || '';
+  if (!pw) {
+    pw = await getUploadPassword();
+    if (pw === null) return; // canceló el prompt
+  }
+
   btn.disabled = true;
   btn.querySelector('span:last-child').textContent = 'GRABANDO...';
   progressWrap.classList.add('active');
-  status.innerHTML = `${cassetteIcon} Subiendo cinta... 0%`;
 
-  const form = new FormData();
-  form.append('video', file);
-  form.append('password', document.getElementById('roomPassword').value.trim());
+  // Intenta subir con `pw`; si el server responde 401 y todavía quedan intentos, vuelve a pedir la
+  // contraseña y reintenta con el MISMO archivo ya seleccionado (no hace falta re-elegirlo).
+  function tryUpload(pw) {
+    status.innerHTML = `${cassetteIcon} Subiendo cinta... 0%`;
+    progressBar.style.width = '0%';
 
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', '/create-room');
+    const form = new FormData();
+    form.append('video', file);
+    form.append('password', document.getElementById('roomPassword').value.trim());
 
-  xhr.upload.onprogress = (e) => {
-    if (e.lengthComputable) {
-      const pct = Math.round((e.loaded / e.total) * 100);
-      progressBar.style.width = pct + '%';
-      status.innerHTML = `${cassetteIcon} Subiendo cinta... ${pct}%`;
-    }
-  };
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/create-room');
+    xhr.setRequestHeader('x-library-password', pw);
 
-  xhr.onload = () => {
-    let data;
-    try { data = JSON.parse(xhr.responseText); } catch { data = { error: 'Respuesta inválida del servidor' }; }
-    if (xhr.status < 200 || xhr.status >= 300 || data.error) {
-      status.textContent = 'Error: ' + (data.error || 'no se pudo crear la sala');
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        const pct = Math.round((e.loaded / e.total) * 100);
+        progressBar.style.width = pct + '%';
+        status.innerHTML = `${cassetteIcon} Subiendo cinta... ${pct}%`;
+      }
+    };
+
+    xhr.onload = async () => {
+      let data;
+      try { data = JSON.parse(xhr.responseText); } catch { data = { error: 'Respuesta inválida del servidor' }; }
+
+      if (xhr.status === 401 || xhr.status === 429) {
+        if (xhr.status === 401 && data.attemptsLeft > 0) {
+          const nextPw = await getUploadPassword(`Contraseña incorrecta. Te quedan ${data.attemptsLeft} intento${data.attemptsLeft === 1 ? '' : 's'}.`);
+          if (nextPw === null) {
+            status.textContent = 'Subida cancelada.';
+            btn.disabled = false;
+            btn.querySelector('span:last-child').textContent = 'GRABAR SALA';
+            progressWrap.classList.remove('active');
+            return;
+          }
+          tryUpload(nextPw);
+          return;
+        }
+        status.textContent = 'Error: ' + (data.error || 'no se pudo crear la sala');
+        btn.disabled = false;
+        btn.querySelector('span:last-child').textContent = 'GRABAR SALA';
+        progressWrap.classList.remove('active');
+        return;
+      }
+
+      if (xhr.status < 200 || xhr.status >= 300 || data.error) {
+        status.textContent = 'Error: ' + (data.error || 'no se pudo crear la sala');
+        btn.disabled = false;
+        btn.querySelector('span:last-child').textContent = 'GRABAR SALA';
+        progressWrap.classList.remove('active');
+        return;
+      }
+
+      localStorage.setItem('mn_library_pw', pw); // correcta: no se vuelve a pedir en este navegador
+      localStorage.setItem('mn_host_' + data.roomId, data.hostToken);
+      progressBar.style.width = '100%';
+      status.innerHTML = `${cassetteIcon} Preparando la sala...`;
+      window.location = `/room/${data.roomId}`;
+    };
+
+    xhr.onerror = () => {
+      status.textContent = 'No se pudo subir el archivo. Intenta de nuevo.';
       btn.disabled = false;
       btn.querySelector('span:last-child').textContent = 'GRABAR SALA';
       progressWrap.classList.remove('active');
-      return;
-    }
-    localStorage.setItem('mn_host_' + data.roomId, data.hostToken);
-    progressBar.style.width = '100%';
-    status.innerHTML = `${cassetteIcon} Preparando la sala...`;
-    window.location = `/room/${data.roomId}`;
-  };
+    };
 
-  xhr.onerror = () => {
-    status.textContent = 'No se pudo subir el archivo. Intenta de nuevo.';
-    btn.disabled = false;
-    btn.querySelector('span:last-child').textContent = 'GRABAR SALA';
-    progressWrap.classList.remove('active');
-  };
+    xhr.send(form);
+  }
 
-  xhr.send(form);
+  tryUpload(pw);
 };
 
 // --- Unirse a sala con código ---
