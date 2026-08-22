@@ -180,7 +180,7 @@ function mnPrompt({ title, message = '', placeholder = '', type = 'text', defaul
 async function getUploadPassword(message = '') {
   return await mnPrompt({
     title: 'Subida protegida',
-    message: message || 'Esta cinta se sube a un almacenamiento con costo. Pedile la contraseña a quien armó el servidor (es la misma de la biblioteca).',
+    message: message || 'Subir una cinta nueva necesita la contraseña de la biblioteca. Pedísela a quien armó el servidor.',
     placeholder: 'Contraseña',
     type: 'password',
     okLabel: 'Entrar'
