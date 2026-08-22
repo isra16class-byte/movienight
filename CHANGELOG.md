@@ -6,6 +6,18 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-22] Ajuste: el contador de espectadores y el desplegable de reacciones también se ocultan solos en celular
+
+El auto-ocultado de controles en celular (badge de host + controles ±10s/volumen, ya existente)
+dejaba afuera al contador de espectadores (`.viewers-badge`) y al desplegable de reacciones de
+pantalla completa (`.fs-emoji`) — se quedaban siempre visibles mientras el resto del overlay ya se
+había escondido a los 3s de inactividad. Pedido del usuario: que "todo desaparezca junto con la
+barra". Se agregaron ambos al mismo bloque de CSS (`opacity`/`pointer-events` + clase
+`controls-visible`), sin tocar nada del JS — el mecanismo de mostrar/ocultar (tap-to-toggle,
+temporizador de 3s) ya existía y ahora simplemente cubre más elementos.
+
+---
+
 ## [2026-08-22] Ajuste: el desplegable de reacciones va a la izquierda y se queda abierto
 
 Sobre el commit anterior (desplegable de reacciones en pantalla completa): a pedido del usuario, se

@@ -2,9 +2,11 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 22 de agosto de 2026 (desplegable de reacciones flotante arriba a la
-izquierda, visible solo en pantalla completa y que se queda abierto hasta volver a tocar el mismo
-botón — ver sección 8quinquagies. Antes de eso: dos emojis nuevos en la
+Última actualización: 22 de agosto de 2026 (en celular, el contador de espectadores y el
+desplegable de reacciones de pantalla completa ahora se ocultan/muestran junto con el resto del
+overlay — sección 8quindecies, actualización posterior. Antes de eso: desplegable de reacciones
+flotante arriba a la izquierda, visible solo en pantalla completa y que se queda abierto hasta
+volver a tocar el mismo botón — ver sección 8quinquagies. Antes de eso: dos emojis nuevos en la
 barra de reacciones — 😠 y 😴 — ver sección 8sexvicies).
 
 ---
@@ -514,6 +516,14 @@ muestran cuando `.screen-wrap` tiene la clase `controls-visible`, que JS (`room.
 - Se aplica en las dos orientaciones de celular (vertical y landscape angosto), a diferencia de
   otras reglas de esta sección que sí distinguen orientación (acá el overlay tapa una porción
   similar del video chico en cualquiera de las dos).
+
+**Actualización posterior:** al agregarse `.viewers-badge` (contador de espectadores) y `.fs-emoji`
+(desplegable de reacciones de pantalla completa, sección 8quinquagies), quedaron al principio
+**siempre visibles** en celular mientras el resto del overlay ya se había escondido — pedido del
+usuario para que "todo desaparezca junto con la barra". Se sumaron ambos al mismo selector de
+`opacity`/`controls-visible` de este bloque: ahora todo el overlay (badge de host, contador de
+espectadores, desplegable de reacciones, controles de host/invitado) aparece y desaparece como una
+sola unidad, con el mismo temporizador de 3s.
 
 **2) Rediseño de los botones ±10s.** Antes eran rectángulos planos con emoji de flechas dobles
 (⏪/⏩), que se veían a color y desentonaban con el resto de la interfaz (monocroma, con glow de
