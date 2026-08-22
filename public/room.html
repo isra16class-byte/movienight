@@ -17,6 +17,10 @@
       <div class="screen-wrap">
         <div class="viewers-badge" id="viewers">👥 0</div>
         <div class="host-badge" id="hostBadge" style="display:none;">🎛 CONTROL REMOTO</div>
+        <div class="fs-emoji" id="fsEmoji">
+          <button class="fs-emoji-toggle" id="fsEmojiToggle" title="Reacciones" aria-label="Reacciones">😊</button>
+          <div class="fs-emoji-panel" id="fsEmojiPanel"></div>
+        </div>
         <video id="player" playsinline webkit-playsinline disablepictureinpicture></video>
         <div class="danmaku-layer" id="danmakuLayer" aria-hidden="true"></div>
         <div class="host-controls" id="hostControlsWrap" style="display:none;">
@@ -1199,6 +1203,38 @@ socket.on('reaction', (emoji) => {
   document.querySelector('.screen-wrap').appendChild(el);
   setTimeout(() => el.remove(), 2500);
 });
+
+// --- Desplegable de reacciones para pantalla completa ---
+// La barra `.reactions` de siempre vive en el panel de chat, que queda AFUERA de `.screen-wrap` —
+// y la Fullscreen API solo muestra al elemento puesto en pantalla completa y sus hijos (ver
+// toggleAppFullscreen más arriba), así que en pantalla completa esa barra directamente no se ve.
+// En vez de mantener la lista de emojis escrita dos veces en el HTML (una fácil de desincronizar
+// si mañana se agrega/saca un emoji en un solo lado), este panel se arma clonando los botones que
+// ya existen en `.reactions` — agregar o quitar un emoji ahí alcanza para que también aparezca acá.
+const fsEmoji = document.getElementById('fsEmoji');
+const fsEmojiToggle = document.getElementById('fsEmojiToggle');
+const fsEmojiPanel = document.getElementById('fsEmojiPanel');
+document.querySelectorAll('.reactions button').forEach(btn => {
+  const clone = document.createElement('button');
+  clone.textContent = btn.dataset.e;
+  clone.onclick = () => {
+    socket.emit('reaction', btn.dataset.e);
+    fsEmojiPanel.classList.remove('open'); // se cierra solo al elegir uno, como cualquier menú
+  };
+  fsEmojiPanel.appendChild(clone);
+});
+fsEmojiToggle.onclick = (e) => {
+  e.stopPropagation();
+  fsEmojiPanel.classList.toggle('open');
+};
+// Cerrar al tocar afuera del botón/panel (patrón típico de dropdown)
+document.addEventListener('click', (e) => {
+  if (!fsEmoji.contains(e.target)) fsEmojiPanel.classList.remove('open');
+});
+// Si se sale de pantalla completa con el panel abierto, que no quede abierto "fantasma" la próxima
+// vez que se vuelva a entrar (reusa el mismo evento que ya sincroniza el resto del layout, ver
+// resyncLayoutAfterFullscreen más arriba).
+document.addEventListener('fullscreenchange', () => fsEmojiPanel.classList.remove('open'));
 </script>
 </body>
 </html>

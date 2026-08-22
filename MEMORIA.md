@@ -2,12 +2,9 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 22 de agosto de 2026 (dos emojis nuevos en la barra de reacciones — 😠 y 😴 —
-ver sección 8sexvicies. Antes de eso: herramienta de mantenimiento, script para listar y cancelar
-subidas multipart abandonadas en R2 —las que ocupan espacio facturable sin aparecer en el listado del
-bucket—, ver sección 8quadragies. Antes de eso, V19: contraseña + límite de 3 intentos para subir
-cintas nuevas, reusando la contraseña de biblioteca — protege contra que cualquiera con el link llene
-el storage de Cloudflare R2 y genere costo; ver sección 8novicies).
+Última actualización: 22 de agosto de 2026 (desplegable de reacciones flotante arriba a la derecha,
+visible solo en pantalla completa — ver sección 8quinquagies. Antes de eso: dos emojis nuevos en la
+barra de reacciones — 😠 y 😴 — ver sección 8sexvicies).
 
 ---
 
@@ -1507,6 +1504,30 @@ completar**:
 - No se tocó nada del flujo de subida normal (`r2VideoStorage`, `requireUploadAuth`, etc.) — esto es
   puramente una herramienta de mantenimiento manual, no corre automáticamente ni se conecta a
   ninguna ruta HTTP existente.
+
+## 8quinquagies. Desplegable de reacciones flotante, solo visible en pantalla completa
+
+Pedido: un botón de emojis arriba a la derecha que aparezca únicamente en pantalla completa. El
+motivo por el que hacía falta algo nuevo (no alcanzaba con mostrar `.reactions` con CSS): la barra de
+reacciones de siempre vive en el panel de chat (`#panel-chat`), que es **hermano** de `.screen-wrap`,
+no hijo — y la pantalla completa se pide sobre `.screen-wrap` (sección 8... sobre `toggleAppFullscreen`,
+para que los overlays y el danmaku se sigan viendo). La Fullscreen API solo pinta al elemento puesto
+en pantalla completa y a sus descendientes; todo lo que está afuera (como `.reactions`, dentro de
+`.side`) directamente deja de dibujarse mientras dura. No hay forma de "traerlo" con CSS estando
+fuera del árbol — había que agregar el panel físicamente dentro de `.screen-wrap`.
+
+- `public/room.html`: `#fsEmoji` (botón redondo 😊 + panel `#fsEmojiPanel`), como hijo de
+  `.screen-wrap`, ubicado debajo del contador de espectadores (`.viewers-badge`) para no taparlo. El
+  panel **no repite la lista de emojis a mano**: al cargar la página, clona los botones que ya
+  existen en `.reactions` (mismo `data-e`, mismo `socket.emit('reaction', ...)`) — agregar o sacar un
+  emoji en `.reactions` alcanza para que también cambie acá, sin tocar este bloque. Se cierra solo al
+  elegir un emoji, al tocar afuera del botón/panel, o al salir de pantalla completa (reusa el evento
+  `fullscreenchange` que ya existía para el resto del resync de layout).
+- `public/style.css`: `.fs-emoji` oculto por defecto (`display:none`), visible solo con
+  `.screen-wrap.is-fullscreen .fs-emoji` — el mismo mecanismo que ya usa `.danmaku-layer` para
+  activarse solo en pantalla completa, nada nuevo conceptualmente.
+- Nada cambia en `.reactions` ni en el panel de chat normal — es un agregado en paralelo, no un
+  reemplazo.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 

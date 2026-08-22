@@ -6,6 +6,27 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-22] Feat: desplegable de reacciones flotante arriba a la derecha, solo en pantalla completa
+
+Pedido del dueño del proyecto: un botón de emojis en la esquina superior derecha que aparezca
+únicamente estando en pantalla completa. La barra de reacciones (`.reactions`) de siempre vive en el
+panel de chat, que queda **fuera** de `.screen-wrap` — y como la pantalla completa se pide sobre
+`.screen-wrap` (no sobre toda la página, ver sección relevante en `MEMORIA.md`), la Fullscreen API
+solo muestra ese elemento y sus hijos: `.reactions` directamente desaparece de la vista en pantalla
+completa. Por eso hacía falta un panel nuevo que viva dentro de `.screen-wrap`.
+
+- `public/room.html`: botón redondo `#fsEmojiToggle` (😊) + panel `#fsEmojiPanel`, dentro de
+  `.screen-wrap`, debajo del contador de espectadores. El panel se arma **clonando** los botones que
+  ya existen en `.reactions` en vez de repetir la lista de emojis a mano — agregar/sacar un emoji ahí
+  alcanza para que se refleje también acá. Se cierra solo al elegir un emoji, al tocar afuera, o al
+  salir de pantalla completa.
+- `public/style.css`: `.fs-emoji` oculto por defecto, visible solo con `.screen-wrap.is-fullscreen`
+  (la misma clase que ya prende el danmaku) — mismo mecanismo, nada nuevo ahí.
+- No se tocó el comportamiento de `.reactions` en el panel de chat normal (fuera de pantalla
+  completa); esto es puramente un agregado en paralelo.
+
+---
+
 ## [2026-08-22] Agregar emojis de enojado (😠) y sueño (😴) a la barra de reacciones
 
 Pedido directo del dueño del proyecto. Se agregaron dos botones más al final de `.reactions` en
