@@ -2,11 +2,12 @@
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
-Última actualización: 22 de agosto de 2026 (herramienta de mantenimiento: script para listar y
-cancelar subidas multipart abandonadas en R2 —las que ocupan espacio facturable sin aparecer en el
-listado del bucket—, ver sección 8quadragies. Antes de eso, V19: contraseña + límite de 3 intentos
-para subir cintas nuevas, reusando la contraseña de biblioteca — protege contra que cualquiera con
-el link llene el storage de Cloudflare R2 y genere costo; ver sección 8novicies).
+Última actualización: 22 de agosto de 2026 (dos emojis nuevos en la barra de reacciones — 😠 y 😴 —
+ver sección 8sexvicies. Antes de eso: herramienta de mantenimiento, script para listar y cancelar
+subidas multipart abandonadas en R2 —las que ocupan espacio facturable sin aparecer en el listado del
+bucket—, ver sección 8quadragies. Antes de eso, V19: contraseña + límite de 3 intentos para subir
+cintas nuevas, reusando la contraseña de biblioteca — protege contra que cualquiera con el link llene
+el storage de Cloudflare R2 y genere costo; ver sección 8novicies).
 
 ---
 
@@ -924,7 +925,10 @@ sumaron los "más usados" que faltaban (😭😍👍🙌💀🎉😅, 12 en tota
 `flex-wrap: nowrap; overflow-x: auto;` — ahora es una sola fila que se desliza horizontalmente con el
 dedo (o con el mouse en desktop), con una scrollbar fina temática en vez de la del navegador por
 defecto (`scrollbar-width: thin` + `::-webkit-scrollbar` para Chrome/Android, que es lo que se ve en
-la screenshot).
+la screenshot). Más tarde se sumaron dos más, 😠 (enojado) y 😴 (sueño), a pedido del usuario — el
+selector `.reactions button` no depende de una cantidad fija ni de `nth-child`, así que agregar
+botones nuevos al final del bloque en `room.html` alcanza, sin tocar CSS. Lista actual (14 en total):
+😂😭😍😱🔥❤️👍👏🙌💀🎉😅😠😴.
 
 **Responder a un mensaje.** Pedido explícito: poder "agarrar" un mensaje y deslizarlo hacia la derecha
 para dejarlo marcado como el que se está respondiendo — el gesto estándar de WhatsApp/Telegram/etc.

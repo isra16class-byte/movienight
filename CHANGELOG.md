@@ -6,6 +6,23 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-08-22] Agregar emojis de enojado (😠) y sueño (😴) a la barra de reacciones
+
+Pedido directo del dueño del proyecto. Se agregaron dos botones más al final de `.reactions` en
+`public/room.html` (mismo patrón que los 12 ya existentes: `<button data-e="😠">😠</button>` y
+`<button data-e="😴">😴</button>`), sin tocar CSS ni JS — la barra ya tenía scroll horizontal y el
+selector `.reactions button` no depende de una cantidad fija, así que los nuevos entran solos al
+final del scroll.
+
+De paso: se le explicó al usuario que el aviso nativo de Android/Chrome ("Para salir de la pantalla
+completa, arrastra desde la parte superior...") que aparece cada vez que se entra en pantalla
+completa **no se puede evitar desde el código de la app** — es un toast del propio sistema/navegador
+para cualquier página que use la Fullscreen API estándar (`requestFullscreen()`, la misma que usa
+`toggleAppFullscreen()` en `room.html`), no hay ninguna API web para suprimirlo. No se tocó nada al
+respecto porque no hay nada que tocar.
+
+---
+
 ## [2026-08-22] Herramienta: script para limpiar subidas multipart abandonadas en R2
 
 **El problema que lo motivó:** el usuario vio en el dashboard de Cloudflare R2 que el bucket
