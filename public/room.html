@@ -1102,12 +1102,18 @@ messages.addEventListener('click', (e) => {
   startReply(row.dataset.user, row.dataset.text, row.dataset.ishost === 'true');
 });
 
-// Gesto de swipe hacia la derecha sobre un mensaje = responderlo. Umbral chico de "zona muerta" al
-// principio del gesto para no interferir con un tap normal ni con el scroll vertical del chat: recién
-// se decide si es un swipe horizontal (y se bloquea) una vez que el dedo se movió lo suficiente Y en
-// dirección más horizontal que vertical; si no, se suelta el gesto (swipeState = null) y el navegador
-// sigue haciendo scroll normal solo, gracias a `touch-action: pan-y` en CSS (evita pelear a mano con
-// preventDefault, que además tendría que declarar los listeners como no-pasivos).
+// Gesto de swipe = responder un mensaje. La dirección depende de si el mensaje es propio o ajeno:
+// los ajenos (alineados a la izquierda, ver CSS .msg vs .msg.own) se deslizan hacia la DERECHA, como
+// siempre; los propios (alineados a la derecha) se deslizan hacia la IZQUIERDA — el sentido "natural"
+// en cada caso es tirar del mensaje hacia el centro del chat, no siempre hacia el mismo lado de la
+// pantalla. `dir` (+1 o -1) generaliza toda la lógica de abajo: `pull` es cuánto se deslizó EN la
+// dirección correcta (siempre positivo mientras se cumple), sin importar el signo real de `dx`.
+// Umbral chico de "zona muerta" al principio del gesto para no interferir con un tap normal ni con
+// el scroll vertical del chat: recién se decide si es un swipe horizontal (y se bloquea) una vez que
+// el dedo se movió lo suficiente Y en dirección más horizontal que vertical; si no, se suelta el
+// gesto (swipeState = null) y el navegador sigue haciendo scroll normal solo, gracias a
+// `touch-action: pan-y` en CSS (evita pelear a mano con preventDefault, que además tendría que
+// declarar los listeners como no-pasivos).
 let swipeState = null;
 const SWIPE_DEAD_ZONE = 8;
 const SWIPE_MAX_PULL = 70;
@@ -1117,7 +1123,8 @@ messages.addEventListener('touchstart', (e) => {
   const row = e.target.closest('.msg');
   if (!row) return;
   const t = e.touches[0];
-  swipeState = { row, startX: t.clientX, startY: t.clientY, dx: 0, locked: null, iconEl: null };
+  const dir = row.classList.contains('own') ? -1 : 1;
+  swipeState = { row, dir, startX: t.clientX, startY: t.clientY, pull: 0, locked: null, iconEl: null };
 }, { passive: true });
 
 messages.addEventListener('touchmove', (e) => {
@@ -1125,10 +1132,11 @@ messages.addEventListener('touchmove', (e) => {
   const t = e.touches[0];
   const dx = t.clientX - swipeState.startX;
   const dy = t.clientY - swipeState.startY;
+  const pull = dx * swipeState.dir; // positivo solo mientras se desliza en la dirección correcta para este mensaje
   if (swipeState.locked === null) {
     if (Math.abs(dx) < SWIPE_DEAD_ZONE && Math.abs(dy) < SWIPE_DEAD_ZONE) return;
-    swipeState.locked = Math.abs(dx) > Math.abs(dy) && dx > 0;
-    if (!swipeState.locked) { swipeState = null; return; } // vertical o hacia la izquierda: no es swipe de responder
+    swipeState.locked = Math.abs(dx) > Math.abs(dy) && pull > 0;
+    if (!swipeState.locked) { swipeState = null; return; } // vertical o hacia el lado que no corresponde: no es swipe de responder
     const icon = document.createElement('span');
     icon.className = 'swipe-reply-icon';
     icon.textContent = '↩';
@@ -1137,15 +1145,15 @@ messages.addEventListener('touchmove', (e) => {
     swipeState.iconEl = icon;
   }
   if (!swipeState.locked) return;
-  const clamped = Math.max(0, Math.min(dx, SWIPE_MAX_PULL));
-  swipeState.dx = clamped;
-  swipeState.row.style.transform = `translateX(${clamped}px)`;
+  const clamped = Math.max(0, Math.min(pull, SWIPE_MAX_PULL));
+  swipeState.pull = clamped;
+  swipeState.row.style.transform = `translateX(${clamped * swipeState.dir}px)`;
   if (swipeState.iconEl) swipeState.iconEl.style.opacity = Math.min(1, clamped / SWIPE_REPLY_THRESHOLD);
 }, { passive: true });
 
 function endSwipe(triggerReply) {
   if (!swipeState) return;
-  const { row, dx, iconEl, locked } = swipeState;
+  const { row, pull, iconEl, locked } = swipeState;
   if (locked) {
     row.style.transition = 'transform .18s ease';
     row.style.transform = '';
@@ -1154,7 +1162,7 @@ function endSwipe(triggerReply) {
       iconEl.style.opacity = '0';
       setTimeout(() => iconEl.remove(), 200);
     }
-    if (triggerReply && dx >= SWIPE_REPLY_THRESHOLD) {
+    if (triggerReply && pull >= SWIPE_REPLY_THRESHOLD) {
       startReply(row.dataset.user, row.dataset.text, row.dataset.ishost === 'true');
       if (navigator.vibrate) navigator.vibrate(12);
     }

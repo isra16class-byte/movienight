@@ -6,6 +6,26 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-09-03] V24 — Swipe-para-responder bidireccional: izquierda en mensajes propios, derecha en ajenos
+
+Ajuste sobre V23: el swipe para responder seguía siendo solo hacia la derecha para todos los
+mensajes, pero un mensaje propio ya queda pegado al borde derecho del chat — deslizarlo más hacia la
+derecha no tenía sentido. Pedido del usuario: que en los mensajes propios el gesto sea al revés.
+
+- `public/room.html`: la lógica de swipe se generalizó con una variable `dir` (+1 ajeno, -1 propio,
+  según la clase `own` de la fila) y trabaja con `pull = dx * dir` en vez de `dx` crudo — así el
+  mismo código sirve para las dos direcciones sin duplicar nada.
+- `public/style.css`: el ícono flotante `↩` que aparece durante el gesto se espeja a la derecha en
+  mensajes propios (antes siempre a la izquierda).
+- El ícono de responder por click (esquina de la burbuja) no cambió — sigue disponible como
+  alternativa al swipe.
+- Probado matemáticamente (sin DOM) con varias secuencias de arrastre: cada tipo de mensaje solo
+  dispara la respuesta deslizando en su dirección correspondiente.
+
+Ver `MEMORIA.md`, sección 8centies, para el detalle técnico completo.
+
+---
+
 ## [2026-09-03] V23 — Chat en burbujas alineadas izquierda/derecha, tipo WhatsApp
 
 Pedido: que los mensajes propios en el chat se vean a la derecha, como en cualquier app de

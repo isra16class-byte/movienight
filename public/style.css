@@ -782,13 +782,16 @@ video { width: 100%; height: 100%; display: block; background: black; }
   #messages .msg .reply-icon { opacity: 0.4; }
 }
 
-/* Ícono ↩ que aparece a la izquierda del mensaje mientras se lo arrastra hacia la derecha (swipe),
-   como referencia visual de que soltar ahí dispara "responder". Se crea y destruye por JS en cada
-   gesto (ver room.html), no queda en el DOM en reposo. */
+/* Ícono ↩ que aparece al costado del mensaje mientras se lo arrastra (swipe), como referencia visual
+   de que soltar ahí dispara "responder". Se crea y destruye por JS en cada gesto (ver room.html), no
+   queda en el DOM en reposo. Por defecto a la izquierda (mensajes ajenos, que se deslizan hacia la
+   derecha); en mensajes propios (`.msg.own`, que se deslizan hacia la izquierda) se espeja a la
+   derecha — el ícono siempre queda del lado "de origen" del gesto, hacia donde vuelve el mensaje. */
 .swipe-reply-icon {
   position: absolute; left: -26px; top: 50%; transform: translateY(-50%);
   font-size: 16px; opacity: 0; color: var(--cyan); pointer-events: none;
 }
+.msg.own .swipe-reply-icon { left: auto; right: -26px; }
 
 .reactions {
   display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--line);

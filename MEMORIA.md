@@ -1740,11 +1740,44 @@ cualquier app de mensajería.
   cada burbuja se mantiene alineado a la izquierda (no se tocó `text-align`) — lo que cambia es la
   posición de la burbuja completa dentro del contenedor, igual que en WhatsApp real (el globo se pega
   a un lado, el texto adentro se lee de la forma normal).
-- No se tocó nada del gesto de swipe-para-responder ni del ícono ↩ (ambos son `position: relative` a
-  la burbuja misma, no al contenedor, así que siguen funcionando igual para mensajes propios y ajenos).
+- El ícono de responder por click (`.reply-icon`, siempre en la esquina superior de la burbuja) no
+  cambió. El gesto de **swipe** sí se ajustó después para que la dirección tenga sentido en cada lado
+  — ver sección 8centies (V24): al principio quedó igual para todos (swipe a la derecha), pero no
+  tenía sentido "tirar" de un mensaje propio (ya pegado a la derecha) hacia la derecha todavía más.
 - Probado simulando dos clientes de socket.io con el **mismo nombre pero distinto `userId`**: cada uno
   recibe su propio mensaje marcado como propio y el del otro (mismo nombre) como ajeno — confirma que
   la comparación por `userId` funciona incluso en el caso ambiguo que rompía comparar por nombre.
+
+## 8centies. Swipe-para-responder bidireccional: izquierda en mensajes propios, derecha en ajenos (V24)
+
+Ajuste sobre V23 (burbujas alineadas): el gesto de swipe para responder seguía funcionando solo hacia
+la derecha para TODOS los mensajes, propios y ajenos — pero un mensaje propio ya está pegado al borde
+derecho del chat (ver sección 8novogies), así que deslizarlo más hacia la derecha no tenía sentido
+visual ni espacial. Pedido del usuario: que en los mensajes propios el gesto sea al revés (izquierda).
+
+- `public/room.html`, sección de swipe (`touchstart`/`touchmove`/`endSwipe`): se generalizó toda la
+  lógica con una variable `dir` (+1 para mensajes ajenos, -1 para propios — se decide una sola vez en
+  `touchstart` mirando si la fila tiene la clase `own`). En vez de trabajar directo con `dx` (el
+  desplazamiento real del dedo, que cambia de signo según el mensaje), se calcula `pull = dx * dir`:
+  un número que da positivo únicamente cuando el dedo se mueve en la dirección "correcta" para ESE
+  mensaje en particular, sin importar si esa dirección real es izquierda o derecha. Todo lo demás
+  (zona muerta, threshold de 46px, tope de 70px, animación de vuelta) sigue igual, ahora expresado en
+  términos de `pull` en vez de `dx` crudo.
+- El `transform: translateX(...)` que mueve la burbuja mientras se arrastra multiplica el `pull`
+  clampeado por `dir` de nuevo, para que el mensaje efectivamente se mueva hacia el lado real que
+  corresponde (izquierda visual para `.own`, derecha para el resto).
+- `public/style.css`: el ícono flotante `↩` que aparece durante el gesto (`.swipe-reply-icon`) por
+  defecto sigue a la izquierda del mensaje (`left: -26px`, mensajes ajenos); se agregó
+  `.msg.own .swipe-reply-icon { left: auto; right: -26px; }` para que en mensajes propios aparezca del
+  lado derecho — el lado "de origen" hacia donde vuelve el mensaje al soltar, en ambos casos.
+- El ícono de responder por click (`.reply-icon`, esquina superior de la burbuja) no cambió — sigue
+  siendo el mismo respaldo para quien no quiera o no pueda hacer el gesto de swipe, funciona igual en
+  mensajes propios y ajenos.
+- Probado matemáticamente (sin DOM, simulando solo el cálculo de `dir`/`pull`/`locked` con distintas
+  secuencias de `dx`): confirmado que un mensaje ajeno solo dispara respuesta deslizando a la derecha
+  (deslizar a la izquierda no hace nada, `locked` queda `false`) y un mensaje propio solo deslizando a
+  la izquierda (deslizar a la derecha no hace nada) — el signo cruzado no interfiere con el scroll
+  vertical normal del chat en ninguno de los dos casos.
 
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 
@@ -1789,6 +1822,9 @@ cualquier app de mensajería.
 - [x] ~~Los mensajes propios en el chat no se distinguían visualmente de los de otros (todos apilados
   del mismo lado)~~ — resuelto en V23: burbujas alineadas izquierda/derecha tipo WhatsApp, decidiendo
   "es mío" por `userId` (no por nombre, que puede repetirse) (ver sección 8novogies).
+- [x] ~~El swipe-para-responder seguía siendo solo hacia la derecha para mensajes propios, aunque ya
+  quedaran pegados al borde derecho tras V23~~ — resuelto en V24: dirección invertida (izquierda) para
+  mensajes propios, derecha para el resto (ver sección 8centies).
 
 ## 11. Historial de cambios
 
