@@ -6,6 +6,28 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-09-03] V22 — PWA: instalable en celular/escritorio (manifest + service worker + íconos)
+
+MovieNight ahora se puede instalar como app (ícono propio, abre sin la barra del navegador) desde
+Android o iOS, sin tocar `server.js` ni ninguna ruta existente — es 100% archivos nuevos en `public/`
+más un puñado de líneas en el `<head>` de las 3 páginas.
+
+- Nuevo `public/manifest.webmanifest`: nombre, `display: standalone`, colores del tema
+  (`#170b27`, el morado de la paleta VHS).
+- Nuevo `public/icons/`: ícono propio (cinta VHS) en los tamaños que piden Android (192/512/512
+  maskable) e iOS (`apple-touch-icon` 180×180).
+- Nuevo `public/sw.js`: service worker mínimo a propósito. Cachea solo el "app shell" estático
+  (HTML/CSS/íconos) con estrategia network-first; nunca intercepta `/api/*`, `/room/*`,
+  `/socket.io/*`, `/uploads/*` ni `/create-room*` — el video y el chat en tiempo real siempre van
+  directo a la red, sin caché de por medio.
+- `public/index.html`, `public/room.html`, `public/library.html`: agregan el `<link rel="manifest">`,
+  meta tags de iOS y el registro del service worker en el `<head>`.
+
+Ver `MEMORIA.md`, sección 8octogies, para el detalle técnico completo (incluida una limitación
+conocida de iOS con video en background, que no tiene solución desde una PWA).
+
+---
+
 ## [2026-08-22] V21 — Fix: el panel de emojis en pantalla completa desaparecía en pleno uso + timers separados (3s/5s)
 
 Bug reportado: con el auto-ocultado a 3s (V20), si el usuario tardaba más de 3s eligiendo un emoji

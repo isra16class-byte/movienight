@@ -1,0 +1,21 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#241239"/>
+      <stop offset="100%" stop-color="#170b27"/>
+    </linearGradient>
+    <linearGradient id="tape" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ff2e9a"/>
+      <stop offset="100%" stop-color="#7b2ff7"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+  <rect x="96" y="176" width="320" height="200" rx="18" fill="#1d0e33" stroke="#3a2261" stroke-width="6"/>
+  <rect x="96" y="176" width="320" height="46" rx="14" fill="url(#tape)"/>
+  <circle cx="180" cy="300" r="46" fill="#0c0616" stroke="#00e5ff" stroke-width="8"/>
+  <circle cx="180" cy="300" r="14" fill="#00e5ff"/>
+  <circle cx="332" cy="300" r="46" fill="#0c0616" stroke="#00e5ff" stroke-width="8"/>
+  <circle cx="332" cy="300" r="14" fill="#00e5ff"/>
+  <rect x="150" y="352" width="212" height="10" rx="5" fill="#3a2261"/>
+  <circle cx="410" cy="150" r="12" fill="#ff2e9a"/>
+</svg>

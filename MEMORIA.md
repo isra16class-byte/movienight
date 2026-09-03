@@ -1676,6 +1676,44 @@ al leer una lista de emojis).
 sigue mostrando/ocultando los dos grupos juntos, como antes. El botón toggle de emojis sigue sin
 cerrar el panel al elegir un emoji (eso no se tocó, sigue siendo a propósito).
 
+## 8octogies. PWA — instalable en celular/escritorio (V22)
+
+MovieNight ahora es una **Progressive Web App**: se puede "instalar" desde el navegador (Android:
+banner automático o menú ⋮ → Instalar app; iOS: Safari → Compartir → Agregar a pantalla de inicio; es
+manual porque Safari no muestra el banner automático) y queda con ícono propio, abre en `standalone`
+(sin barra de direcciones) y con el `theme_color`/`background_color` del morado de la paleta VHS
+(`#170b27`).
+
+- `public/manifest.webmanifest`: nombre, ícono, `display: standalone`, `start_url: /`, colores.
+- `public/icons/`: ícono generado a mano (SVG propio con la cinta VHS en rosa/cian/violeta de la
+  paleta, `icon.svg` como fuente) exportado a `icon-192.png`, `icon-512.png`,
+  `icon-512-maskable.png` (para Android, con `purpose: maskable`) y `apple-touch-icon.png` (180×180,
+  para iOS). Se generaron con `cairosvg` (Python), no se versiona la herramienta, solo los PNG.
+- `public/sw.js`: service worker **deliberadamente mínimo** — el proyecto es tiempo real (Socket.io) y
+  sirve video pesado (disco o R2), así que el SW jamás cachea nada dinámico. Ignora explícitamente
+  (deja pasar directo a la red, sin `respondWith`) todo lo que empiece con `/api/`, `/room/`,
+  `/socket.io/`, `/uploads/` o `/create-room`. Lo único que cachea es el "app shell" estático
+  (`index.html`, `library.html`, `style.css`, manifest, íconos) con estrategia **network-first**: si
+  hay conexión, siempre trae la versión fresca del server y actualiza la cache; si falla la red, sirve
+  la copia cacheada como respaldo (para no dejar pantalla en blanco si el server está momentáneamente
+  inalcanzable). A propósito NO cachea `room.html` en el `SHELL_URLS` inicial (se agrega solo si se
+  visita, vía el propio fetch handler) para minimizar el riesgo de servir una versión vieja de la
+  lógica de sala más compleja del proyecto.
+- Los 3 HTML (`index.html`, `room.html`, `library.html`) suman en el `<head>`: `<link rel="manifest">`,
+  `<meta name="theme-color">`, `<link rel="apple-touch-icon">`, meta tags de
+  `apple-mobile-web-app-*`, y un `<script>` inline que registra `/sw.js` en `window.load` (con guard
+  `if ('serviceWorker' in navigator)` para no romper en navegadores viejos).
+- Probado localmente: `manifest.webmanifest` se sirve con `Content-Type: application/manifest+json`
+  (Express/`mime` lo reconoce solo), `sw.js` como `application/javascript`, íconos como `image/png` —
+  sin necesidad de tocar la config de `express.static` en `server.js`.
+- **Limitación conocida (no es bug, es de la plataforma):** en iOS, incluso instalada como PWA, Safari
+  aplica restricciones más agresivas a la reproducción de video en background que Chrome/Android — si
+  el invitado cambia de app mientras mira, el video puede pausarse solo. No hay forma de evitarlo desde
+  una PWA; requeriría una app nativa o un wrapper tipo Capacitor con permisos de background audio.
+- Nada de esto cambia `server.js` ni ninguna ruta existente — es 100% archivos nuevos en `public/` más
+  `<head>` de las páginas existentes. El modo "abrir directo en el navegador sin instalar" sigue
+  funcionando exactamente igual que siempre.
+
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 
 - El `hostToken` viaja en texto plano por HTTP (a menos que Cloudflare Tunnel lo cifre en tránsito, que sí lo hace vía HTTPS). Si alguien lo obtiene (inspeccionando `localStorage` de la persona equivocada, por ejemplo), puede hacerse pasar por host.
@@ -1713,6 +1751,9 @@ cerrar el panel al elegir un emoji (eso no se tocó, sigue siendo a propósito).
 - [x] ~~Proteger la subida de video nuevo (crear sala / cambiar cinta) para que no cualquiera pueda llenar el storage de R2 y generar costo~~ — resuelto en V19: contraseña de biblioteca + bloqueo de 15 min tras 3 intentos incorrectos por IP (ver sección 8novicies).
 - [x] ~~Auto-ocultado de controles a los 3s (badge, botones, barra de invitado, reacciones) también en escritorio~~ — resuelto en V20, acotado a pantalla completa (ver sección 8septuagies).
 - [x] ~~Bug: el desplegable de emojis en pantalla completa desaparecía en pleno uso si se tardaba más de 3s eligiendo~~ — resuelto en V21: contador de espectadores y desplegable de reacciones ahora tienen su propio timer de 5s, y mientras el panel está abierto no corre ningún reloj (se fija visible) + se oculta la barra de progreso (ver sección 8undeoctogies).
+- [x] ~~Instalable como app en celular/escritorio~~ — resuelto en V22 con una PWA completa (manifest +
+  service worker + íconos), reusando el 100% del frontend existente, sin tocar `server.js` (ver
+  sección 8octogies).
 
 ## 11. Historial de cambios
 
