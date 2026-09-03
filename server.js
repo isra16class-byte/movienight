@@ -616,7 +616,11 @@ io.on('connection', (socket) => {
     // ver room.html) refleje si esa persona ERA el host en el momento de escribirlo — el control
     // remoto puede pasar de mano en mano durante la sala, y un mensaje viejo no debería cambiar de
     // color retroactivamente solo porque el host actual es otro ahora.
-    const msg = { system: false, user: socket.username, text: text.slice(0, 500), replyTo, isHost: !!socket.isHost };
+    // userId (no solo el nombre) viaja en el mensaje para que cada cliente pueda distinguir "mis
+    // mensajes" de los de otros sin ambigüedad — dos personas pueden elegir el mismo nombre al unirse
+    // (no hay validación de unicidad), así que comparar por `user` en el cliente daría falsos
+    // positivos. userId sí es estable por navegador (ver getPersistentUserId() en room.html).
+    const msg = { system: false, user: socket.username, text: text.slice(0, 500), replyTo, isHost: !!socket.isHost, userId: socket.userId };
     pushChatHistory(room, msg);
     io.to(currentRoom).emit('chat-message', msg);
   });

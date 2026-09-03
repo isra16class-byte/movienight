@@ -1714,6 +1714,38 @@ manual porque Safari no muestra el banner automático) y queda con ícono propio
   `<head>` de las páginas existentes. El modo "abrir directo en el navegador sin instalar" sigue
   funcionando exactamente igual que siempre.
 
+## 8novogies. Chat en burbujas alineadas izquierda/derecha, tipo WhatsApp (V23)
+
+Antes todos los mensajes del chat se veían apilados del mismo lado (izquierda), solo diferenciados por
+el color del nombre — pedido del usuario: que los mensajes propios se vean a la derecha, como en
+cualquier app de mensajería.
+
+- **Cómo se decide "es mío" (la parte no trivial):** por `userId`, no por nombre de usuario. El chat
+  nunca validó que los nombres sean únicos dentro de una sala (dos personas pueden anotarse las dos
+  como "Ana"), así que comparar por `data.user === username` en el cliente daría falsos positivos —
+  a cualquiera le aparecerían a la derecha los mensajes de alguien más que eligió su mismo nombre.
+  `userId` en cambio es el id persistente por navegador que ya existía (`getPersistentUserId()`,
+  viaja en `join-room` desde V8 para el traspaso de host) — único de verdad por dispositivo/navegador.
+- `server.js`: el objeto `msg` que arma el handler de `chat-message` ahora suma `userId: socket.userId`
+  (antes solo viajaban `user`, `text`, `replyTo`, `isHost`). Se guarda tal cual en `room.chatHistory`,
+  así que sobrevive a reconexiones y al historial que se manda por `chat-history` al entrar.
+- `public/room.html` (`renderChatMessage`): calcula `isOwn = data.userId === myUserId` y le agrega la
+  clase `own` al div del mensaje. Fallback a comparar por `data.user === username` únicamente para
+  mensajes que ya estuvieran en memoria del server ANTES de aplicar este cambio (sin `userId` todavía)
+  — se resuelve solo en cuanto se reinicia el server (el chat vive solo en memoria, ver sección 1).
+- `public/style.css`: `#messages` pasa a `display:flex; flex-direction:column` para poder usar
+  `align-self` por mensaje en vez de que los `<div>` se apilen a lo ancho completo. `.msg` (ajenos)
+  queda `align-self: flex-start` con el fondo de siempre (`--bg-elevated`); `.msg.own` queda
+  `align-self: flex-end` con un tinte rosa (`--pink-dim` / borde `--pink`). El **texto** adentro de
+  cada burbuja se mantiene alineado a la izquierda (no se tocó `text-align`) — lo que cambia es la
+  posición de la burbuja completa dentro del contenedor, igual que en WhatsApp real (el globo se pega
+  a un lado, el texto adentro se lee de la forma normal).
+- No se tocó nada del gesto de swipe-para-responder ni del ícono ↩ (ambos son `position: relative` a
+  la burbuja misma, no al contenedor, así que siguen funcionando igual para mensajes propios y ajenos).
+- Probado simulando dos clientes de socket.io con el **mismo nombre pero distinto `userId`**: cada uno
+  recibe su propio mensaje marcado como propio y el del otro (mismo nombre) como ajeno — confirma que
+  la comparación por `userId` funciona incluso en el caso ambiguo que rompía comparar por nombre.
+
 ## 9. Riesgos / cosas pendientes de endurecer (seguridad)
 
 - El `hostToken` viaja en texto plano por HTTP (a menos que Cloudflare Tunnel lo cifre en tránsito, que sí lo hace vía HTTPS). Si alguien lo obtiene (inspeccionando `localStorage` de la persona equivocada, por ejemplo), puede hacerse pasar por host.
@@ -1754,6 +1786,9 @@ manual porque Safari no muestra el banner automático) y queda con ícono propio
 - [x] ~~Instalable como app en celular/escritorio~~ — resuelto en V22 con una PWA completa (manifest +
   service worker + íconos), reusando el 100% del frontend existente, sin tocar `server.js` (ver
   sección 8octogies).
+- [x] ~~Los mensajes propios en el chat no se distinguían visualmente de los de otros (todos apilados
+  del mismo lado)~~ — resuelto en V23: burbujas alineadas izquierda/derecha tipo WhatsApp, decidiendo
+  "es mío" por `userId` (no por nombre, que puede repetirse) (ver sección 8novogies).
 
 ## 11. Historial de cambios
 

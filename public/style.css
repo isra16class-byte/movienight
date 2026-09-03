@@ -727,12 +727,26 @@ video { width: 100%; height: 100%; display: block; background: black; }
 .panel { flex: 1; overflow-y: auto; display: none; min-height: 0; }
 .panel.active { display: flex; flex-direction: column; }
 
-#messages { flex: 1; overflow-y: auto; padding: 12px; font-size: 13.5px; }
+/* Chat en burbujas alineadas tipo WhatsApp (V23): #messages pasa a flex-column para poder alinear
+   cada burbuja individualmente con align-self, en vez de depender de que los <div> se apilen block
+   a lo ancho completo. Los mensajes de OTROS (sin .own) quedan pegados a la izquierda con el fondo
+   de siempre; los PROPIOS (.own, ver renderChatMessage en room.html — se decide por userId, no por
+   nombre) quedan pegados a la derecha con un tinte rosa. El texto adentro de cada burbuja sigue
+   alineado a la izquierda (así lee WhatsApp real también) — lo que cambia es la posición de la
+   burbuja completa dentro del contenedor, no la alineación del texto. */
+#messages { flex: 1; overflow-y: auto; padding: 12px; font-size: 13.5px; display: flex; flex-direction: column; }
 #messages .system {
   color: var(--text-muted); font-family: var(--font-osd); font-size: 14px;
-  margin: 6px 0; text-align: center;
+  margin: 6px 0; text-align: center; align-self: center;
 }
-#messages .msg { margin: 8px 0; line-height: 1.4; }
+#messages .msg {
+  margin: 4px 0; line-height: 1.4; max-width: 82%; align-self: flex-start;
+  background: var(--bg-elevated); border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md); padding: 6px 10px;
+}
+#messages .msg.own {
+  align-self: flex-end; background: var(--pink-dim); border-color: var(--pink);
+}
 #messages .msg b { color: var(--pink); font-weight: 600; }
 
 /* Cada mensaje de usuario es "deslizable": position:relative para el ícono de responder que aparece

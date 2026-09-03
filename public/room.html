@@ -1041,10 +1041,16 @@ function renderChatMessage(data) {
     : '';
   const html = `${quoteHtml}<span class="msg-text"><b style="color:${color}">${escapeHtml(data.user)}:</b> ${escapeHtml(data.text)}</span>` +
     `<button class="reply-icon" title="Responder" aria-label="Responder a este mensaje">↩</button>`;
+  // "Mío" se decide por userId (persistente por navegador, ver getPersistentUserId), no por nombre:
+  // dos personas pueden elegir el mismo nombre al unirse (no hay validación de unicidad), así que
+  // comparar por `user` daría falsos positivos. Fallback a comparar por nombre solo para mensajes
+  // que ya estuvieran en el historial de la sala ANTES de este cambio (sin userId todavía) — se
+  // pierde en cuanto se reinicia el server, que es cuando el chat en memoria se vacía igual.
+  const isOwn = data.userId ? data.userId === myUserId : data.user === username;
   // data-user/data-text/data-ishost quedan en el div para poder armar la respuesta (click en el
   // ícono o swipe, ver más abajo) sin tener que volver a parsear el HTML ya escapado. isHost viaja
   // como string ('true'/'false') porque los dataset del DOM solo guardan strings.
-  addMessage(html, 'msg', { user: data.user, text: data.text, ishost: !!data.isHost });
+  addMessage(html, isOwn ? 'msg own' : 'msg', { user: data.user, text: data.text, ishost: !!data.isHost });
 }
 socket.on('chat-message', (data) => {
   renderChatMessage(data);

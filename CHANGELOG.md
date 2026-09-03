@@ -6,6 +6,27 @@ Ver `MEMORIA.md` para el estado actual y contexto técnico completo — este arc
 
 ---
 
+## [2026-09-03] V23 — Chat en burbujas alineadas izquierda/derecha, tipo WhatsApp
+
+Pedido: que los mensajes propios en el chat se vean a la derecha, como en cualquier app de
+mensajería (antes todo se apilaba del mismo lado, solo diferenciado por el color del nombre).
+
+- `server.js`: el `chat-message` ahora incluye `userId` (el id persistente por navegador que ya
+  existía para el traspaso de host) además de `user`/`text`/`replyTo`/`isHost`.
+- `public/room.html`: decide "es mío" comparando `userId` (no el nombre — dos personas pueden
+  anotarse con el mismo nombre, así que comparar por nombre daría falsos positivos) y le agrega la
+  clase `own` al mensaje.
+- `public/style.css`: `#messages` pasa a flex-column; los mensajes ajenos quedan alineados a la
+  izquierda con el fondo de siempre, los propios (`.own`) a la derecha con un tinte rosa. El texto
+  adentro de cada burbuja se sigue leyendo normal (izquierda a derecha) — lo que cambia es la
+  posición de la burbuja en el contenedor, no la alineación del texto.
+- Probado simulando dos usuarios con el mismo nombre y distinto `userId`: cada uno ve su propio
+  mensaje a la derecha y el del otro (mismo nombre) a la izquierda.
+
+Ver `MEMORIA.md`, sección 8novogies, para el detalle técnico completo.
+
+---
+
 ## [2026-09-03] V22 — PWA: instalable en celular/escritorio (manifest + service worker + íconos)
 
 MovieNight ahora se puede instalar como app (ícono propio, abre sin la barra del navegador) desde
