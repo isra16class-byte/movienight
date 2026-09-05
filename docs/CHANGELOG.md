@@ -10,6 +10,45 @@ si hace falta, puede ir en el mensaje de commit).
 
 ---
 
+## 2026-09-05 — Fase 2bis (segundo paso): sesiones reales con Redis
+
+- **Sesiones de servidor**: `POST /auth/login` exitoso ahora deja una
+  sesión real en vez de solo confirmar credenciales válidas. Cookie
+  `movienight.sid` (`httpOnly`, `sameSite: lax`, `secure` por defecto,
+  30 días con `rolling: true`) vía `express-session`, respaldada en Redis
+  con un store propio (`lib/sessionStore.js`) que reusa la misma conexión
+  que ya expone `lib/roomStore.js` (`roomStore.getClient()`) — se descartó
+  `connect-redis` porque su versión moderna depende del cliente `redis`
+  oficial, no de `ioredis` (el que ya usa el proyecto), y sumar un segundo
+  cliente de Redis solo para esto no valía la pena frente a un store chico
+  y propio.
+- **Nuevas rutas**: `POST /auth/logout` (`req.session.destroy()`, borra la
+  sesión en Redis y expira la cookie) y `GET /auth/me` (para que el
+  frontend consulte el estado de sesión, ya que la cookie es `httpOnly` y
+  no se puede leer desde JS).
+- **Session fixation**: el login llama a `req.session.regenerate()` antes
+  de escribir `userId`/`email` — un `sid` que el navegador ya traía de
+  antes del login no sobrevive al login.
+- **Variables de entorno nuevas** (`.env.example`): `SESSION_SECRET`
+  (se genera al azar si falta, mismo patrón que `LIBRARY_PASSWORD`, con la
+  salvedad de que acá desloguea a todo el mundo en cada reinicio sin
+  fijarla), `SESSION_MAX_AGE_MS` (default 30 días) y
+  `SESSION_COOKIE_INSECURE=1` (escape hatch solo para desarrollo local sin
+  HTTPS — sin él, confirmado en pruebas que la cookie no se manda sobre
+  HTTP plano, comportamiento correcto del flag `secure`).
+- Si `DISABLE_REDIS=1` (desarrollo local sin Redis), el middleware cae al
+  `MemoryStore` que trae `express-session` por default, con el mismo tipo
+  de aviso por consola que ya usan `roomStore.js`/`lib/db.js`.
+- Probado end-to-end con Redis y Postgres reales: registro → login → sesión
+  visible en Redis (prefijo `movienight:sess:`) → `GET /auth/me` la
+  reconoce → `POST /auth/logout` la borra y expira la cookie → `GET
+  /auth/me` vuelve a `loggedIn: false`.
+- **Todavía no reemplaza `hostToken`** como forma de identificar al host de
+  una sala — es el siguiente punto pendiente de la Fase 2bis (ver
+  `docs/PLAN-PRODUCCION.md`).
+
+---
+
 ## 2026-09-05 — Fase 2bis (primer paso): modelo de usuario + registro/login con PostgreSQL
 
 - **Modelo de usuario**: nuevo `lib/db.js` — pool de conexiones a

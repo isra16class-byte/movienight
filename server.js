@@ -8,6 +8,7 @@ const { PassThrough } = require('stream');
 const { Server } = require('socket.io');
 const bcrypt = require('bcryptjs');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
+const session = require('express-session');
 
 // --- Carga variables desde un .env en la raíz del proyecto, si existe (V10) --------------------
 // No se agregó la librería `dotenv` a propósito: el proyecto ya se mantiene con solo 3 dependencias
@@ -51,6 +52,10 @@ const roomStore = require('./lib/roomStore');
 // responde. A diferencia de Redis, acá NO configurar DATABASE_URL es un modo válido: el resto de la
 // app (salas anónimas por hostToken) sigue funcionando igual, solo /auth/* queda deshabilitado.
 const db = require('./lib/db');
+
+// Sesiones de usuario reales (Fase 2bis del plan de producción, "Sesiones") — ver lib/sessionStore.js
+// para el detalle de por qué un store propio sobre Redis en vez de una librería como connect-redis.
+const { RedisSessionStore } = require('./lib/sessionStore');
 
 // --- Manejo de errores no capturados (Fase 1.2 del plan de producción) ---------------------------
 // Sin esto, un error que se escapa de cualquier lugar del código (una excepción sincrónica que nadie
@@ -129,6 +134,64 @@ app.use(express.static(path.join(__dirname, 'public'), {
   }
 }));
 app.use(express.json());
+
+// --- Sesiones de usuario (Fase 2bis del plan de producción, "Sesiones") --------------------------
+// Reemplaza, para quien tiene cuenta, la idea de "confiar en lo que mande el cliente" (el esquema de
+// `hostToken` en localStorage) por una sesión real de servidor: el navegador solo recibe un `sid`
+// random en una cookie `httpOnly` (JS del navegador no puede leerla ni exfiltrarla por XSS, a
+// diferencia de `localStorage`) — el contenido real (`userId`, `email`) vive en Redis, ver
+// lib/sessionStore.js. Importante: esto todavía NO reemplaza `hostToken` como forma de probar "soy el
+// dueño de esta sala" (eso es el punto siguiente de la Fase 2bis, "migración del rol de host", ver
+// docs/PLAN-PRODUCCION.md) — hoy conviven los dos esquemas: `hostToken` sigue siendo la única fuente
+// de verdad para el control de sala, y la sesión solo identifica "hay una cuenta logueada" para
+// /auth/*. Se monta SIEMPRE (no solo si DATABASE_URL está configurada): así el middleware existe de
+// entrada y las rutas de /auth/* (deshabilitadas sin Postgres, ver requireDbEnabled) simplemente no
+// llegan a tocar req.session; no hay necesidad de una rama condicional acá.
+//
+// SESSION_SECRET: usada por express-session para firmar la cookie (detecta si alguien la modificó a
+// mano, no es para cifrar el contenido — el contenido en sí vive server-side en Redis, no en la
+// cookie). Mismo patrón que LIBRARY_PASSWORD (server.js, Fase 2 vieja): si no está seteada por
+// variable de entorno, se genera una al azar y se avisa por consola — PERO a diferencia de
+// LIBRARY_PASSWORD, acá el efecto de que cambie en cada reinicio es distinto: no rompe nada del lado
+// del servidor, pero SÍ invalida de golpe todas las sesiones activas (todo el mundo queda
+// desloggeado) cada vez que el proceso reinicia. Para producción real conviene fijar SESSION_SECRET
+// en el .env, igual que se recomienda con LIBRARY_PASSWORD.
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+const sessionSecretWasGenerated = !process.env.SESSION_SECRET;
+
+// Duración de la sesión: 30 días por default, configurable. `rolling: true` (más abajo) hace que cada
+// request autenticada empuje el vencimiento hacia adelante — una cuenta que se usa seguido no se
+// desloggea sola a mitad de camino, solo si pasan SESSION_MAX_AGE_MS sin ninguna actividad.
+const SESSION_MAX_AGE_MS = parseInt(process.env.SESSION_MAX_AGE_MS, 10) || 30 * 24 * 60 * 60 * 1000;
+
+// `secure: true` en la cookie (el navegador solo la manda sobre HTTPS) es el default correcto para
+// producción (Cloudflare Tunnel siempre expone HTTPS hacia afuera, ver README) — pero cortaría las
+// sesiones en desarrollo local sobre http://localhost sin túnel. Escape hatch explícito
+// (SESSION_COOKIE_INSECURE=1), mismo criterio que DISABLE_REDIS: nombrado para que quede clarísimo en
+// los logs que es un modo degradado, nunca para producción.
+const SESSION_COOKIE_INSECURE = process.env.SESSION_COOKIE_INSECURE === '1';
+
+app.use(session({
+  // Si Redis está deshabilitado (DISABLE_REDIS=1, solo desarrollo local sin Redis a mano — ver
+  // lib/roomStore.js) no tiene sentido instanciar el store propio (que asume Redis disponible): se
+  // cae al MemoryStore que trae express-session por default, con el mismo tipo de aviso por consola
+  // que ya usan roomStore.js/lib/db.js para sus propios escape hatches (ver el aviso en startServer()).
+  // MemoryStore pierde todas las sesiones activas en cada reinicio y no sirve con más de un proceso —
+  // aceptable solo porque es exactamente el mismo modo "sin persistencia real" que ya implica
+  // DISABLE_REDIS=1 para las salas.
+  store: roomStore.isEnabled() ? new RedisSessionStore() : undefined,
+  secret: SESSION_SECRET,
+  name: 'movienight.sid', // nombre propio de cookie, no el 'connect.sid' default (no anunciar la librería usada)
+  resave: false, // el store propio no necesita "refrescar" en cada request sin cambios (evita writes de más a Redis)
+  saveUninitialized: false, // no crear ni persistir una sesión para visitas anónimas que nunca hacen login
+  rolling: true, // cada request de alguien logueado empuja el vencimiento — ver SESSION_MAX_AGE_MS arriba
+  cookie: {
+    httpOnly: true, // JS del navegador no puede leer esta cookie (mitiga robo de sesión vía XSS)
+    secure: !SESSION_COOKIE_INSECURE,
+    sameSite: 'lax', // alcanza para este caso de uso (no hay necesidad de cross-site real) y mitiga CSRF básico
+    maxAge: SESSION_MAX_AGE_MS
+  }
+}));
 
 // --- Rate limiting general de rutas HTTP (Fase 2.2 del plan de producción) -----------------------
 // Capa base sobre TODAS las rutas de la API (creación de sala, biblioteca, subtítulos, etc.), además
@@ -373,15 +436,59 @@ app.post('/auth/login', requireDbEnabled, async (req, res) => {
     }
 
     loginAuthLimiter.recordSuccess(limiterKey);
-    // NOTA: acá termina el primer paso de la Fase 2bis. Todavía no se deja una sesión iniciada en el
-    // navegador (cookie httpOnly / JWT) — eso reemplaza al hostToken actual y es el paso siguiente
-    // dentro de la misma fase (ver "Sesiones" en docs/PLAN-PRODUCCION.md). Por ahora esta respuesta
-    // solo confirma que el email/contraseña son válidos.
-    res.json({ id: user.id, email: user.email });
+
+    // `regenerate()` en vez de escribir directo sobre req.session: crea un `sid` nuevo y descarta
+    // cualquier sesión anónima previa asociada a la cookie que ya traía este navegador (si la había,
+    // aunque hoy no se usa sesión para nada estando deslogueado) — mitiga session fixation (un
+    // atacante que le hizo plantar a la víctima una cookie de sesión conocida de antemano no gana nada
+    // con eso, porque el login siempre arranca un `sid` nuevo). Después de regenerate(), `req.session`
+    // apunta a la sesión nueva (vacía) — recién ahí se le escribe el usuario logueado.
+    req.session.regenerate((err) => {
+      if (err) {
+        console.error('⚠️  Error creando la sesión tras login:', err.message);
+        return res.status(500).json({ error: 'No se pudo iniciar sesión. Intentá de nuevo en un momento.' });
+      }
+      req.session.userId = user.id;
+      req.session.email = user.email;
+      // save() explícito (en vez de confiar en que express-session guarde solo al final de la
+      // response): así, si guardar en Redis falla, se entera este handler y responde 500 en vez de
+      // devolver 200 con una cookie que en la práctica no quedó respaldada en el store.
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          console.error('⚠️  Error guardando la sesión tras login:', saveErr.message);
+          return res.status(500).json({ error: 'No se pudo iniciar sesión. Intentá de nuevo en un momento.' });
+        }
+        res.json({ id: user.id, email: user.email });
+      });
+    });
   } catch (err) {
     console.error('⚠️  Error en login:', err.message);
     res.status(500).json({ error: 'No se pudo iniciar sesión. Intentá de nuevo en un momento.' });
   }
+});
+
+// Cierra la sesión actual (si había una) — borra la entrada en Redis (lib/sessionStore.js) y expira la
+// cookie del lado del cliente. No exige estar logueado para llamarla (si no había sesión, `destroy()`
+// simplemente no tiene nada que borrar); no depende de `requireDbEnabled` a propósito, para que
+// siempre se pueda limpiar una cookie de sesión vieja aunque Postgres esté momentáneamente abajo.
+app.post('/auth/logout', (req, res) => {
+  if (!req.session) return res.json({ ok: true });
+  req.session.destroy((err) => {
+    if (err) {
+      console.error('⚠️  Error cerrando la sesión:', err.message);
+      return res.status(500).json({ error: 'No se pudo cerrar la sesión. Intentá de nuevo en un momento.' });
+    }
+    res.clearCookie('movienight.sid');
+    res.json({ ok: true });
+  });
+});
+
+// Le permite al cliente (room.html, library.html, etc.) preguntar "¿hay alguien logueado ahora?" sin
+// tener que guardar ese dato por su cuenta — la cookie httpOnly no se puede leer desde JS, así que
+// esta es la única forma de que el frontend sepa el estado de la sesión.
+app.get('/auth/me', (req, res) => {
+  if (!req.session || !req.session.userId) return res.json({ loggedIn: false });
+  res.json({ loggedIn: true, id: req.session.userId, email: req.session.email });
 });
 
 // Salas — objeto en memoria del proceso, igual que antes de la Fase 1.1, PERO ahora respaldado en
@@ -1247,7 +1354,24 @@ async function startServer() {
     console.log('');
     console.log('⚠️  DISABLE_REDIS=1: las salas viven SOLO en memoria, sin persistencia entre reinicios.');
     console.log('   Pensado solo para desarrollo local sin Redis a mano — no usar en producción.');
+    console.log('   Las sesiones de usuario (Fase 2bis) también corren en memoria en este modo: nadie');
+    console.log('   queda logueado tras un reinicio, y no sirve con más de un proceso.');
     console.log('');
+  }
+
+  if (sessionSecretWasGenerated) {
+    console.log('');
+    console.log('🔑 SESSION_SECRET no está configurada — se generó una al azar para esta corrida.');
+    console.log('   Esto NO rompe nada del servidor, pero SÍ desloguea a todo el mundo en cada reinicio');
+    console.log('   del proceso (la cookie de sesión de nadie va a validar contra un secreto nuevo).');
+    console.log('   Para que las sesiones sobrevivan a un reinicio, definí SESSION_SECRET en el .env');
+    console.log('   (cualquier string largo y random sirve, ej. el que devuelve `openssl rand -hex 32`).');
+    console.log('');
+  }
+  if (SESSION_COOKIE_INSECURE) {
+    console.log('⚠️  SESSION_COOKIE_INSECURE=1: la cookie de sesión viaja sin el flag `secure`, o sea que');
+    console.log('   el navegador la manda también por HTTP plano. Pensado solo para desarrollo local sin');
+    console.log('   HTTPS (ej. http://localhost sin túnel) — nunca en producción.');
   }
 
   // Postgres (cuentas de usuario, Fase 2bis) — a diferencia de Redis, no configurar DATABASE_URL es

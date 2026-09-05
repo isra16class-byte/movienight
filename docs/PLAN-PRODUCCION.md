@@ -364,11 +364,50 @@ Fase 2, conviene tratarlo como su propio bloque:
       ahora): esto NO deja una sesión iniciada en el navegador — `/auth/login`
       solo confirma que las credenciales son válidas y devuelve `id`/`email`,
       nada más. Login social queda evaluado pero no encarado.
-- [ ] **Sesiones**: reemplazar el `hostToken` en `localStorage` por una sesión
-      de servidor real (cookie `httpOnly` + `secure`, con una librería como
-      `express-session` respaldada en Redis, o JWT de corta duración con
-      refresh). Esto también resuelve de raíz el problema de "no hay forma de
-      revocar el token" que tenía anotado el esquema anterior.
+- [x] **Sesiones** ✅ (resuelto el 2026-09-05): reemplazado el "no dejar nada
+      iniciado en el navegador" por una sesión de servidor real. Se optó por
+      cookie `httpOnly` + `express-session`, respaldada en Redis (no JWT):
+      encaja mejor con lo que ya tiene el proyecto (Redis ya es una
+      dependencia obligatoria para las salas, ver Fase 1.1) y permite
+      revocar una sesión al toque (borrar la key), algo que un JWT de larga
+      vida no da gratis sin sumar una lista de revocación aparte. En vez de
+      sumar `connect-redis` (su versión moderna tiene como peer dependency
+      el cliente `redis` oficial, no `ioredis`, el que ya usa todo el
+      proyecto) se implementó un store propio y chico, `lib/sessionStore.js`,
+      sobre la misma conexión de Redis que ya expone `lib/roomStore.js`
+      (`roomStore.getClient()`) — mismo criterio minimalista que ya usa el
+      proyecto en otros lugares (ej. `loadDotEnv()` en vez de la librería
+      `dotenv`). Cookie `movienight.sid`: `httpOnly`, `sameSite: lax`,
+      `secure` por defecto (escape hatch `SESSION_COOKIE_INSECURE=1` solo
+      para desarrollo local sin HTTPS, mismo criterio que `DISABLE_REDIS`),
+      30 días con renovación automática en cada request de alguien logueado
+      (`rolling: true`). `SESSION_SECRET`: se genera al azar si no está en
+      el `.env` (mismo patrón que `LIBRARY_PASSWORD`), con la salvedad de
+      que acá el efecto de que cambie en cada reinicio es desloguear a todo
+      el mundo, no solo un detalle cosmético. `POST /auth/login` exitoso
+      llama a `req.session.regenerate()` (mitiga session fixation: un
+      `sid` que el navegador ya traía de antes del login no sobrevive) y
+      recién ahí guarda `userId`/`email`, con `req.session.save()` explícito
+      para responder 500 en vez de un 200 engañoso si el guardado en Redis
+      falla. Nuevas rutas: `POST /auth/logout` (`req.session.destroy()`,
+      borra la key en Redis y expira la cookie) y `GET /auth/me` (para que
+      el frontend pueda preguntar el estado de sesión sin poder leer la
+      cookie, que es `httpOnly` a propósito). Si `DISABLE_REDIS=1`
+      (desarrollo local sin Redis) el middleware cae al `MemoryStore` que
+      trae `express-session` por default, con el mismo tipo de aviso por
+      consola que ya usan `roomStore.js`/`lib/db.js` para sus propios escape
+      hatches.
+      Probado end-to-end con Redis y Postgres reales: registro → login (el
+      `Set-Cookie` de la respuesta trae los flags esperados; confirmado
+      además que **sin** `SESSION_COOKIE_INSECURE=1` la cookie efectivamente
+      no se manda sobre HTTP plano — comportamiento correcto y esperado del
+      flag `secure`, no un bug) → sesión visible en Redis con prefijo
+      `movienight:sess:` → `GET /auth/me` la reconoce → `POST /auth/logout`
+      la borra de Redis y expira la cookie → `GET /auth/me` vuelve a
+      `loggedIn: false`.
+      **Todavía no reemplaza `hostToken`** como forma de probar la identidad
+      del host — eso es exactamente el punto siguiente de esta fase, ver
+      abajo.
 - [ ] **Quién puede crear salas**: definir si cualquier cuenta registrada
       puede crear una sala (más simple) o si hace falta algún tipo de
       verificación adicional (ej. verificar el email) antes de dejar subir
@@ -378,7 +417,9 @@ Fase 2, conviene tratarlo como su propio bloque:
       verdad de "quién controla la sala ahora" (ver `docs/MEMORIA.md`, sección
       de roles) — eso no cambia. Lo que cambia es cómo se prueba "soy el
       dueño de esta sala": en vez de comparar un `hostToken` de
-      `localStorage`, se valida contra el `userId` de la sesión autenticada.
+      `localStorage`, se valida contra el `userId` de la sesión autenticada
+      (ya disponible en `req.session.userId`/`socket.request.session`, ver
+      el ítem de Sesiones arriba).
 - [ ] **La biblioteca deja de depender de una única `LIBRARY_PASSWORD`
       compartida**: con cuentas reales, tiene más sentido que el acceso a
       subir/borrar videos se valide por sesión de usuario logueado, no por una

@@ -25,7 +25,7 @@ reacciones. Repo: `https://github.com/isra16class-byte/movienight`.
 - **Subida de video**: Multer → disco local (`public/uploads/`) **o** Cloudflare R2 si está configurado (modo dual, ver `lib/r2.js` y README).
 - **Frontend**: HTML/CSS/JS vanilla, sin framework.
 - **Estado de las salas**: `rooms` sigue siendo un objeto en memoria dentro de `server.js` (las lecturas son síncronas, sensibles a latencia por el sync de video/chat en tiempo real), pero desde la Fase 1.1 cada mutación relevante se respalda en **Redis** (`lib/roomStore.js`), y al arrancar el server se repuebla desde ahí — sobrevive a un reinicio del proceso. Si Redis no responde, el server no arranca (mismo criterio "fallar rápido" que ya usaba R2); `DISABLE_REDIS=1` es un escape hatch solo para desarrollo local, nunca para producción.
-- **Cuentas de usuario**: desde la Fase 2bis, **PostgreSQL** (`lib/db.js`, vía `pg`) guarda el modelo de usuario (tabla `users`: email, password hasheado con bcrypt). Motor separado de Redis a propósito — Redis sigue siendo solo para el estado efímero de las salas. Sin `DATABASE_URL` configurada, el registro/login queda deshabilitado pero el resto de la app sigue funcionando igual (no es un escape hatch de producción, es un feature opcional todavía no activado); si SÍ está configurada y Postgres no responde al arrancar, mismo criterio de "fallar rápido" que Redis/R2.
+- **Cuentas de usuario**: desde la Fase 2bis, **PostgreSQL** (`lib/db.js`, vía `pg`) guarda el modelo de usuario (tabla `users`: email, password hasheado con bcrypt). Motor separado de Redis a propósito — Redis sigue siendo solo para el estado efímero de las salas. Sin `DATABASE_URL` configurada, el registro/login queda deshabilitado pero el resto de la app sigue funcionando igual (no es un escape hatch de producción, es un feature opcional todavía no activado); si SÍ está configurada y Postgres no responde al arrancar, mismo criterio de "fallar rápido" que Redis/R2. Con `DATABASE_URL` configurada, un login exitoso también deja una **sesión de servidor real** (`lib/sessionStore.js`, sobre la misma conexión de Redis que ya usa `roomStore.js`): cookie `movienight.sid` httpOnly/sameSite=lax, contenido (`userId`/`email`) guardado server-side, revocable con `POST /auth/logout` — ver más abajo el detalle y lo que todavía falta de esta fase.
 - **Exposición a internet**: Cloudflare Tunnel (no hay hosting propio todavía).
 
 ## Estructura de archivos
@@ -36,6 +36,7 @@ movienight/
   lib/r2.js                # Cloudflare R2 (opcional): subir/listar/borrar videos
   lib/roomStore.js          # Persistencia de salas en Redis (Fase 1.1 del plan de producción)
   lib/db.js                # Postgres: modelo de usuario, registro/login (Fase 2bis del plan de producción)
+  lib/sessionStore.js      # Sesiones de usuario sobre Redis (Fase 2bis del plan de producción)
   scripts/r2-cleanup-multipart.js
   public/
     index.html            # Crear sala / unirse por código
@@ -92,9 +93,10 @@ mover la barra de progreso — cualquier intento se revierte.
   Fase 2.1 (bcrypt, con migración transparente desde hashes viejos).
 - ~~Sin rate-limiting en `join-room` ni en el chat~~ → resuelto en Fase 2.2.
 - `hostToken` sin expiración, viaja en texto plano — con el modelo de usuario
-  y registro/login ya en pie (Fase 2bis, primer paso), sigue siendo el mismo
-  riesgo hasta que se implemente la parte de **sesiones** de esa misma fase
-  (reemplazar `hostToken` por una sesión de servidor real) — ver
+  y registro/login ya en pie (Fase 2bis) y ahora también **sesiones reales**
+  (cookie httpOnly, ver arriba), sigue siendo el mismo riesgo hasta que se
+  implemente la **migración del rol de host** de esa misma fase (validar
+  "soy el dueño de la sala" contra la sesión en vez del `hostToken`) — ver
   `docs/PLAN-PRODUCCION.md`.
 - Sin validación real de tipo de archivo (solo `Content-Type` del navegador).
 - Las salas nunca expiran — se acumulan en memoria y en R2 indefinidamente.
@@ -225,13 +227,42 @@ cuentas registradas), y el rate limiting bloqueando tras 3 intentos fallidos
 min, mismo comportamiento que `join-room`).
 
 **Lo que falta de la Fase 2bis** (sin tocar todavía, a propósito — ver
-`docs/PLAN-PRODUCCION.md` para el detalle de cada uno): **sesiones reales**
-(reemplazar `hostToken` en `localStorage` por una sesión de servidor con
-cookie `httpOnly`/JWT — hoy `/auth/login` solo confirma que las credenciales
-son válidas, no deja nada iniciado en el navegador), **migración del rol de
-host** (validar "soy el dueño de la sala" contra la sesión en vez del
+`docs/PLAN-PRODUCCION.md` para el detalle de cada uno): **migración del rol
+de host** (validar "soy el dueño de la sala" contra la sesión en vez del
 `hostToken`), **biblioteca por sesión de usuario** en vez de
-`LIBRARY_PASSWORD` única, y **recuperación de contraseña**.
+`LIBRARY_PASSWORD` única, **quién puede crear salas** (definir si hace falta
+algo más que tener cuenta registrada), y **recuperación de contraseña**.
+
+**Fase 2bis — sesiones reales ✅ (2026-09-05)**: `POST /auth/login` exitoso
+ahora deja una sesión de servidor real, en vez de solo confirmar que las
+credenciales son válidas. `lib/sessionStore.js` implementa el `Store` que
+pide `express-session` sobre la misma conexión de Redis que ya usa
+`lib/roomStore.js` (se evaluó `connect-redis`, pero su versión moderna tiene
+como peer dependency el cliente `redis` oficial, no `ioredis` — más simple
+un store propio, chico, que reusar dos clientes de Redis distintos en el
+mismo proceso). Cookie `movienight.sid`: `httpOnly` (no accesible desde JS,
+a diferencia de `hostToken` en `localStorage`), `sameSite: lax`, `secure`
+por defecto (con escape hatch `SESSION_COOKIE_INSECURE=1` solo para
+desarrollo local sin HTTPS — confirmado en pruebas que, sin el escape
+hatch, la cookie efectivamente no se manda sobre HTTP plano, comportamiento
+esperado y correcto), 30 días con renovación automática en cada request de
+alguien logueado (`rolling: true`). `req.session.regenerate()` en el login
+(mitiga session fixation) y `POST /auth/logout` para cerrar sesión
+(`req.session.destroy()`, borra la entrada en Redis). Nuevo
+`GET /auth/me` para que el frontend pueda preguntar el estado de sesión sin
+poder leer la cookie directamente (es httpOnly a propósito). Si Redis está
+deshabilitado (`DISABLE_REDIS=1`, desarrollo local) el middleware cae al
+`MemoryStore` que trae `express-session` por default, con el mismo tipo de
+aviso por consola que ya usan `roomStore.js`/`lib/db.js` para sus propios
+escape hatches. Probado end-to-end con Redis y Postgres reales: registro →
+login (cookie `Set-Cookie` con los flags esperados, sesión visible en Redis
+con prefijo `movienight:sess:`) → `GET /auth/me` reconoce la sesión →
+`POST /auth/logout` la borra de Redis y expira la cookie → `GET /auth/me`
+vuelve a `loggedIn: false`. **Todavía NO reemplaza `hostToken`** como forma
+de probar la identidad del host — eso es el siguiente punto pendiente de
+esta fase (ver arriba y `docs/PLAN-PRODUCCION.md`).
+
+**Lo que falta de la Fase 2bis** (sin tocar todavía, a propósito — ver
 
 **Fase 1.1 (persistencia externa) ya resuelta (2026-09-05)**: `lib/roomStore.js`
 respalda en Redis lo esencial de cada sala (cinta, posición, contraseñas,
