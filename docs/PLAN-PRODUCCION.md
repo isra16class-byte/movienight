@@ -131,12 +131,27 @@ secundario.
       sostengan al menos 30s, PM2 deja de reintentar y lo marca `errored` en vez
       de loopear para siempre.
 
-### 1.4 Graceful shutdown
-- [ ] Capturar `SIGTERM`/`SIGINT`: avisar a los clientes conectados (evento de
-      socket tipo `server-restarting`) antes de cerrar, en vez de cortar las
-      conexiones de golpe.
-- [ ] Dar un pequeño margen (unos segundos) para que Socket.io termine de mandar
-      mensajes en vuelo antes de cerrar el proceso.
+### 1.4 Graceful shutdown ✅ (resuelta el 2026-09-05)
+- [x] Capturar `SIGTERM`/`SIGINT`: `server.js` avisa a todos los clientes
+      conectados con `io.emit('server-restarting')` antes de cerrar nada, y
+      deja de aceptar conexiones HTTP nuevas de inmediato (`server.close()`)
+      — pero sin cortar los sockets ya abiertos todavía. El cliente
+      (`room.html`) escucha ese evento y muestra un banner ("🔄 El servidor
+      se está reiniciando...") en vez de que el video se trabe sin
+      explicación.
+- [x] Dar un pequeño margen (`SHUTDOWN_GRACE_MS`, default 5000ms, configurable
+      por variable de entorno) para que Socket.io termine de mandar mensajes
+      en vuelo antes de cerrar el proceso: recién pasado ese margen se llama
+      `io.close()` (corta los sockets activos), `roomStore.closeConnection()`
+      (cierra Redis con `QUIT`, no de un hachazo) y `process.exit(0)`. Un
+      segundo `SIGTERM`/`SIGINT` mientras ya se está cerrando no reinicia el
+      timer (flag `shuttingDown`).
+      Probado end-to-end con un cliente Socket.io real: conecta, recibe
+      `server-restarting`, y se desconecta (`transport close`) exactamente al
+      cumplirse el margen configurado — sin margen extra ni corte prematuro.
+      Al reconectar (el cliente de Socket.io reintenta solo por default), el
+      `join-room` de siempre recupera el estado de la sala; no hizo falta
+      lógica nueva de reconexión.
 
 ### 1.5 Healthcheck
 - [ ] Agregar `GET /health` (o `/healthz`) que devuelva 200 si el server puede

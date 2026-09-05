@@ -900,3 +900,48 @@ async function startServer() {
 }
 
 startServer();
+
+// --- Graceful shutdown (Fase 1.4 del plan de producción) -----------------------------------------
+// Sin esto, un SIGTERM/SIGINT (ej. `pm2 stop`/`pm2 restart`, un deploy que mata el proceso, Ctrl+C
+// en desarrollo) corta todas las conexiones de Socket.io de golpe — a quien esté viendo algo en ese
+// momento el video se le traba sin ninguna explicación, y del lado del servidor no queda margen para
+// que nada en vuelo (ej. un `chat-message` recién emitido) termine de salir.
+//
+// Con esto: (1) se avisa a todos los clientes conectados con un evento dedicado, para que la UI
+// pueda mostrar algo mejor que un corte mudo; (2) se deja de aceptar conexiones HTTP nuevas de
+// inmediato (no tiene sentido sumar gente a mitad de un shutdown); (3) recién después de un margen
+// (`SHUTDOWN_GRACE_MS`, default 5s) se cierran los sockets de verdad y termina el proceso — tiempo
+// de sobra para que el aviso llegue y para que Socket.io despache cualquier mensaje que ya estaba en
+// camino.
+const SHUTDOWN_GRACE_MS = parseInt(process.env.SHUTDOWN_GRACE_MS, 10) || 5000;
+let shuttingDown = false; // evita que un segundo SIGTERM/SIGINT mientras ya estamos cerrando reinicie el timer o duplique el cierre
+
+function gracefulShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  console.log('');
+  console.log(`🛑 ${signal} recibido — cerrando MovieNight (margen de ${SHUTDOWN_GRACE_MS / 1000}s para avisar a los clientes conectados)...`);
+
+  // Evento dedicado (no reutilizamos 'room-error' ni similares: esto no es un error de la sala, es
+  // el servidor entero bajando) — el cliente (room.html) lo escucha para mostrar un banner en vez de
+  // dejar que el video se trabe sin explicación cuando el socket se corte en unos segundos.
+  io.emit('server-restarting');
+
+  // Deja de aceptar conexiones HTTP nuevas ya mismo. Esto NO corta las conexiones de Socket.io ya
+  // abiertas (quedan vivas hasta el io.close() de abajo) — el callback recién dispara cuando ya no
+  // quede ninguna conexión abierta, así que no bloquea el timeout de más abajo.
+  server.close((err) => {
+    if (err) console.error('⚠️  Error cerrando el servidor HTTP:', err.message);
+  });
+
+  setTimeout(async () => {
+    io.close(); // corta todas las conexiones de Socket.io activas
+    await roomStore.closeConnection(); // cierra la conexión a Redis prolijamente (QUIT en vez de matar el socket)
+    console.log('👋 MovieNight cerrado.');
+    process.exit(0);
+  }, SHUTDOWN_GRACE_MS);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM')); // lo que manda `pm2 stop`/`pm2 restart`, y la mayoría de los hostings al redeployar
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));   // Ctrl+C en una terminal (desarrollo local)

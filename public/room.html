@@ -67,6 +67,7 @@ if ('serviceWorker' in navigator) {
           <button id="fsBtn" title="Pantalla completa">⛶</button>
         </div>
         <div class="muted-banner" id="mutedBanner" style="display:none;">🔇 Te silenciaron el chat</div>
+        <div class="restart-banner" id="restartBanner" style="display:none;">🔄 El servidor se está reiniciando — la conexión se corta unos segundos y vuelve sola</div>
       </div>
     </div>
 
@@ -437,6 +438,19 @@ enterRoom();
 socket.on('connect', () => {
   myId = socket.id;
   socket.emit('join-room', { roomId, username, hostToken, userId: myUserId, password: roomPassword });
+  // Si se reconectó después de un reinicio, el banner de abajo ya cumplió su función — Socket.io
+  // reconecta solo por default, así que este 'connect' también dispara en cada reconexión, no solo
+  // en la entrada inicial a la sala.
+  document.getElementById('restartBanner').style.display = 'none';
+});
+
+// Graceful shutdown del server (Fase 1.4 del plan de producción, ver server.js): el server manda
+// este evento a todos los conectados justo antes de cerrar, con un margen de unos segundos antes de
+// cortar el socket de verdad. No hace nada más que mostrar el aviso — Socket.io ya reconecta solo
+// cuando el server vuelva a estar arriba (dispara 'connect' de nuevo, que oculta el banner), y el
+// `join-room` en ese reconnect ya trae de vuelta la posición/estado de la sala.
+socket.on('server-restarting', () => {
+  document.getElementById('restartBanner').style.display = 'block';
 });
 
 socket.on('room-error', async (msg) => {

@@ -10,6 +10,35 @@ si hace falta, puede ir en el mensaje de commit).
 
 ---
 
+## 2026-09-05 — Fase 1.4 del plan de producción: graceful shutdown
+
+- `server.js`: se agregaron handlers de `SIGTERM`/`SIGINT` (`gracefulShutdown`)
+  que, en orden: (1) avisan a todos los clientes conectados con
+  `io.emit('server-restarting')`; (2) dejan de aceptar conexiones HTTP nuevas
+  (`server.close()`) sin cortar los sockets ya abiertos; (3) esperan un margen
+  configurable (`SHUTDOWN_GRACE_MS`, default 5000ms) para que Socket.io
+  termine de mandar cualquier mensaje en vuelo; (4) recién ahí cierran los
+  sockets activos (`io.close()`), cierran la conexión a Redis prolijamente
+  (`roomStore.closeConnection()`, `QUIT` en vez de matar el socket) y hacen
+  `process.exit(0)`. Un flag (`shuttingDown`) evita que un segundo
+  `SIGTERM`/`SIGINT` mientras ya se está cerrando reinicie el timer.
+- `lib/roomStore.js`: nueva función `closeConnection()` — cierra el cliente
+  de `ioredis` con `QUIT` (espera a que terminen los comandos en curso) si
+  llegó a crearse; no hace nada si Redis está deshabilitado o nunca se
+  conectó, y no tira si falla (en un shutdown ya se está cerrando el proceso
+  de todos modos).
+- `public/room.html` / `public/style.css`: nuevo banner (`#restartBanner`,
+  arriba y centrado sobre el video) que se muestra al recibir
+  `server-restarting` y se oculta solo al reconectar (`connect` ya dispara de
+  nuevo en cada reconexión de Socket.io). No hizo falta lógica nueva de
+  reconexión: Socket.io reintenta solo por default, y el `join-room` de
+  siempre recupera el estado de la sala al reconectar.
+- Probado end-to-end con un cliente Socket.io real conectado: recibió
+  `server-restarting` y se desconectó (`transport close`) exactamente al
+  cumplirse el margen configurado (5s), sin corte prematuro ni margen extra.
+- Pendiente el healthcheck (1.5) para cerrar la Fase 1 completa — ver
+  `docs/PLAN-PRODUCCION.md`.
+
 ## 2026-09-05 — Fase 1.3 del plan de producción: proceso supervisado
 
 - Se agregó `ecosystem.config.js` con configuración de **PM2**, pensada para
