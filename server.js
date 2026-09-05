@@ -39,6 +39,38 @@ loadDotEnv();
 // recién se manifestó con un usuario real usando un archivo .env.
 const r2 = require('./lib/r2');
 
+// --- Manejo de errores no capturados (Fase 1.2 del plan de producción) ---------------------------
+// Sin esto, un error que se escapa de cualquier lugar del código (una excepción sincrónica que nadie
+// atrapó, o una Promise rechazada sin `.catch`) tira abajo el proceso Node entero sin dejar rastro
+// útil más que lo que imprima Node por defecto — y con él, todas las salas activas y sus conexiones.
+//
+// 'uncaughtException': después de una excepción no capturada, el estado interno del proceso queda en
+// una condición desconocida (puede haber quedado a mitad de escribir un archivo, un handler a medio
+// ejecutar, etc.) — seguir corriendo como si nada puede esconder problemas peores. Por eso la práctica
+// recomendada de Node es loguear y salir con código de error (1), no intentar "seguir vivo".
+// Esto SÍ significa que, sin la Fase 1.3 (proceso supervisado, ej. PM2) todavía implementada, el
+// servidor se queda caído hasta que alguien lo reinicie a mano — es la razón por la que el plan de
+// producción ordena 1.2 y 1.3 juntas dentro de la misma fase.
+process.on('uncaughtException', (err) => {
+  console.error('');
+  console.error('💥 Excepción no capturada — el proceso va a cerrarse (revisar logs arriba):');
+  console.error(err);
+  console.error('');
+  process.exit(1);
+});
+
+// 'unhandledRejection': una Promise que rechazó sin que nadie le haya puesto `.catch` (ej. un
+// `await` faltante en alguna ruta async, o un error de red de R2 no atrapado). A diferencia de una
+// excepción sincrónica, el estado del proceso en general sigue siendo válido — por eso acá solo se
+// loguea, sin salir, para no reiniciar el servidor (y cortar todas las salas activas) por errores que
+// pueden ser puntuales de una sola operación (ej. una subida a R2 que falló para un solo usuario).
+process.on('unhandledRejection', (reason) => {
+  console.error('');
+  console.error('⚠️  Promesa rechazada sin manejar (revisar si falta un try/catch o un .catch):');
+  console.error(reason);
+  console.error('');
+});
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
@@ -517,10 +549,29 @@ function setHost(room, roomId, socket) {
   socket.emit('host-status', { isHost: true, hostToken: room.hostToken });
 }
 
+// Envuelve un handler de evento de socket en try/catch (Fase 1.2 del plan de producción). Antes de
+// esto, un error dentro de cualquier handler (ej. un mensaje malformado que rompe alguna asunción del
+// código) se propagaba como excepción no capturada y tiraba abajo el proceso entero — con él, TODAS
+// las salas activas, no solo la conexión que disparó el error. Con el wrapper, el error queda
+// contenido a esa única invocación: se loguea (con el nombre del evento y el roomId, para poder
+// rastrearlo) y el resto del servidor sigue funcionando con normalidad.
+function safeSocketHandler(eventName, handler) {
+  return function (...args) {
+    try {
+      handler.apply(this, args);
+    } catch (err) {
+      // `this` es el socket que disparó el evento (así es como Socket.io invoca los listeners) —
+      // socket.id siempre está disponible; username puede no estarlo todavía si el error pasa antes
+      // del join-room exitoso.
+      console.error(`⚠️  Error en el handler de socket '${eventName}' (socket.id: ${this.id}, username: ${this.username || 'sin asignar'}):`, err);
+    }
+  };
+}
+
 io.on('connection', (socket) => {
   let currentRoom = null;
 
-  socket.on('join-room', ({ roomId, username, hostToken, userId, password }) => {
+  socket.on('join-room', safeSocketHandler('join-room', ({ roomId, username, hostToken, userId, password }) => {
     const room = rooms[roomId];
     if (!room) { socket.emit('room-error', 'La sala no existe.'); return; }
 
@@ -577,10 +628,10 @@ io.on('connection', (socket) => {
 
     io.to(roomId).emit('viewer-count', room.viewers);
     broadcastViewerList(roomId);
-  });
+  }));
 
   // Solo el host puede mover el video
-  socket.on('sync', (data) => {
+  socket.on('sync', safeSocketHandler('sync', (data) => {
     if (!socket.isHost || !currentRoom) return;
     const room = rooms[currentRoom];
     // Guarda la última posición conocida (V18) para poder mandársela a quien se conecte después —
@@ -593,9 +644,9 @@ io.on('connection', (socket) => {
       else if (data.type === 'heartbeat' && typeof data.paused === 'boolean') room.videoPosition.paused = data.paused;
     }
     socket.to(currentRoom).emit('sync', data);
-  });
+  }));
 
-  socket.on('chat-message', (payload) => {
+  socket.on('chat-message', safeSocketHandler('chat-message', (payload) => {
     const room = rooms[currentRoom];
     if (!room) return;
     if (room.mutedUserIds.has(socket.userId)) { socket.emit('mute-status', { muted: true }); return; }
@@ -623,27 +674,27 @@ io.on('connection', (socket) => {
     const msg = { system: false, user: socket.username, text: text.slice(0, 500), replyTo, isHost: !!socket.isHost, userId: socket.userId };
     pushChatHistory(room, msg);
     io.to(currentRoom).emit('chat-message', msg);
-  });
+  }));
 
-  socket.on('typing', () => {
+  socket.on('typing', safeSocketHandler('typing', () => {
     if (currentRoom) socket.to(currentRoom).emit('typing', { username: socket.username });
-  });
+  }));
 
-  socket.on('reaction', (emoji) => {
+  socket.on('reaction', safeSocketHandler('reaction', (emoji) => {
     if (currentRoom) io.to(currentRoom).emit('reaction', emoji);
-  });
+  }));
 
   // Buffering compartido: se muestra un indicador junto al nombre de quien está cargando
-  socket.on('buffering-status', (isBuffering) => {
+  socket.on('buffering-status', safeSocketHandler('buffering-status', (isBuffering) => {
     const room = rooms[currentRoom];
     if (!room) return;
     if (isBuffering) room.bufferingSockets.add(socket.id);
     else room.bufferingSockets.delete(socket.id);
     broadcastViewerList(currentRoom);
-  });
+  }));
 
   // --- Controles exclusivos del host ---
-  socket.on('kick-user', (targetId) => {
+  socket.on('kick-user', safeSocketHandler('kick-user', (targetId) => {
     if (!socket.isHost || !currentRoom) return;
     const target = io.sockets.sockets.get(targetId);
     if (target) {
@@ -651,9 +702,9 @@ io.on('connection', (socket) => {
       target.leave(currentRoom);
       target.disconnect(true);
     }
-  });
+  }));
 
-  socket.on('toggle-mute', (targetId) => {
+  socket.on('toggle-mute', safeSocketHandler('toggle-mute', (targetId) => {
     const room = rooms[currentRoom];
     if (!socket.isHost || !room) return;
     const target = io.sockets.sockets.get(targetId);
@@ -662,10 +713,10 @@ io.on('connection', (socket) => {
     else room.mutedUserIds.add(target.userId);
     target.emit('mute-status', { muted: room.mutedUserIds.has(target.userId) });
     broadcastViewerList(currentRoom);
-  });
+  }));
 
   // Traspaso manual del control remoto a otro espectador
-  socket.on('make-host', (targetId) => {
+  socket.on('make-host', safeSocketHandler('make-host', (targetId) => {
     const room = rooms[currentRoom];
     if (!socket.isHost || !room) return;
     const target = io.sockets.sockets.get(targetId);
@@ -677,9 +728,9 @@ io.on('connection', (socket) => {
     pushChatHistory(room, transferMsg);
     io.to(currentRoom).emit('chat-message', transferMsg);
     broadcastViewerList(currentRoom);
-  });
+  }));
 
-  socket.on('disconnect', () => {
+  socket.on('disconnect', safeSocketHandler('disconnect', () => {
     const room = rooms[currentRoom];
     if (!room) return;
 
@@ -693,11 +744,18 @@ io.on('connection', (socket) => {
     const userId = socket.userId;
     const username = socket.username || 'Alguien';
     const timer = setTimeout(() => {
-      room.recentDisconnects.delete(userId);
-      room.mutedUserIds.delete(userId); // ya pasó el margen de gracia, se limpia el estado de silencio
-      const leftMsg = { system: true, text: `${username} salió de la sala` };
-      pushChatHistory(room, leftMsg);
-      io.to(currentRoom).emit('chat-message', leftMsg);
+      // Este callback corre en un tick aparte (setTimeout), fuera del try/catch de safeSocketHandler
+      // que envuelve el resto del handler de 'disconnect' — un error acá se escaparía como excepción
+      // no capturada igual, así que se le agrega su propio try/catch para no perder solo esta sala.
+      try {
+        room.recentDisconnects.delete(userId);
+        room.mutedUserIds.delete(userId); // ya pasó el margen de gracia, se limpia el estado de silencio
+        const leftMsg = { system: true, text: `${username} salió de la sala` };
+        pushChatHistory(room, leftMsg);
+        io.to(currentRoom).emit('chat-message', leftMsg);
+      } catch (err) {
+        console.error(`⚠️  Error en el timer de "salió de la sala" (roomId: ${currentRoom}):`, err);
+      }
     }, RECONNECT_GRACE_MS);
     room.recentDisconnects.set(userId, { timer, username });
 
@@ -717,7 +775,7 @@ io.on('connection', (socket) => {
         }
       }
     }
-  });
+  }));
 });
 
 const PORT = process.env.PORT || 3000;

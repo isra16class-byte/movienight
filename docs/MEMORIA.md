@@ -110,3 +110,11 @@ agnóstico de proveedor mientras tanto).
 Orden recomendado: persistencia externa + manejo de errores + supervisión de
 proceso (Fase 1) → hashing de contraseñas + rate limiting (Fase 2.1/2.2) →
 sistema de cuentas reales (Fase 2bis) → expiración de salas/storage (Fase 2.6).
+
+**Fase 1.2 (manejo de errores no capturados) ya resuelta (2026-09-05)**:
+`process.on('uncaughtException'/'unhandledRejection')` a nivel global, y un
+wrapper genérico (`safeSocketHandler`) envolviendo los handlers de
+`io.on('connection', ...)` en `server.js` — un error en un solo evento de socket
+ya no tira abajo el proceso ni afecta a las demás salas activas. Sigue pendiente
+el resto de la Fase 1 (persistencia externa 1.1, proceso supervisado 1.3,
+graceful shutdown 1.4, healthcheck 1.5).

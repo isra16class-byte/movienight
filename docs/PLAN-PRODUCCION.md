@@ -74,15 +74,26 @@ secundario.
       formato compatible con Redis (JSON, ya que Redis no tiene Sets/Maps nativos
       de JS — sí tiene sus propios tipos `SET`/`HASH` si se quiere aprovechar eso).
 
-### 1.2 Manejo de errores no capturados
-- [ ] Agregar handlers globales:
+### 1.2 Manejo de errores no capturados ✅ (resuelto el 2026-09-05)
+- [x] Agregar handlers globales:
   ```js
   process.on('uncaughtException', (err) => { /* log + salir controlado */ });
   process.on('unhandledRejection', (reason) => { /* log */ });
   ```
-- [ ] Envolver cada handler de socket (`io.on('connection', ...)`) en try/catch, o
+  `uncaughtException` loguea y hace `process.exit(1)` (el estado del proceso queda
+  en condición desconocida tras una excepción sincrónica no capturada — sin la
+  Fase 1.3 todavía implementada, esto deja el server caído hasta un reinicio
+  manual, es la razón por la que 1.2 y 1.3 van juntas en el orden del plan).
+  `unhandledRejection` solo loguea, sin salir (el proceso en general sigue en un
+  estado válido tras una Promise rechazada suelta).
+- [x] Envolver cada handler de socket (`io.on('connection', ...)`) en try/catch, o
       un wrapper genérico — hoy un error en cualquier evento puede tirar abajo el
       proceso entero y con él **todas** las salas activas, no solo la que falló.
+      Implementado con un wrapper genérico `safeSocketHandler(eventName, handler)`
+      que envuelve los 10 `socket.on(...)` de la conexión; loguea el evento y el
+      `socket.id` sin tirar el proceso. El callback de `setTimeout` dentro de
+      `disconnect` (fuera del try/catch del wrapper, por correr en otro tick) tiene
+      su propio try/catch aparte.
 
 ### 1.3 Proceso supervisado (no depender de una terminal abierta)
 - [ ] Reemplazar "correr `npm start` en una terminal" por un supervisor real:

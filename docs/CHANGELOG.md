@@ -10,6 +10,29 @@ si hace falta, puede ir en el mensaje de commit).
 
 ---
 
+## 2026-09-05 — Fase 1.2 del plan de producción: manejo de errores no capturados
+
+- Se agregaron handlers globales `process.on('uncaughtException', ...)` y
+  `process.on('unhandledRejection', ...)` en `server.js`. El primero loguea y
+  hace `process.exit(1)` (estado del proceso queda indefinido tras una
+  excepción sincrónica sin capturar); el segundo solo loguea, sin salir.
+- Se agregó un wrapper genérico `safeSocketHandler(eventName, handler)` que
+  envuelve los 10 `socket.on(...)` dentro de `io.on('connection', ...)` en
+  try/catch — un error en un solo evento (ej. un payload malformado de un
+  cliente) ya no tira abajo el proceso completo ni afecta a las demás salas
+  activas; se loguea con el nombre del evento y el `socket.id` para poder
+  rastrearlo.
+- El callback de `setTimeout` dentro de `disconnect` (el margen de 15s antes
+  de anunciar "salió de la sala") corre en un tick aparte, fuera del alcance
+  del try/catch del wrapper — se le agregó su propio try/catch.
+- Probado manualmente: un `join-room` con payload `null` (que antes tiraba
+  `TypeError: Cannot destructure property 'roomId' of 'null'` y mataba el
+  proceso) ahora queda contenido — el servidor sigue respondiendo a nuevas
+  conexiones.
+- Pendiente el resto de la Fase 1 (persistencia externa 1.1, proceso
+  supervisado 1.3, graceful shutdown 1.4, healthcheck 1.5) — ver
+  `docs/PLAN-PRODUCCION.md`.
+
 ## 2026-09-05 — Fase 0 del plan de producción resuelta
 
 Decisiones de arquitectura tomadas (ver `docs/PLAN-PRODUCCION.md`, Fase 0):
