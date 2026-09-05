@@ -10,6 +10,31 @@ si hace falta, puede ir en el mensaje de commit).
 
 ---
 
+## 2026-09-05 — Fase 1.3 del plan de producción: proceso supervisado
+
+- Se agregó `ecosystem.config.js` con configuración de **PM2**, pensada para
+  el caso de VPS propio (el hosting todavía no está decidido — Fase 0 — así
+  que se mantiene agnóstico: si se termina usando Railway/Render/Fly.io, este
+  archivo simplemente no se usa, esas plataformas ya reinician el proceso
+  solas con `npm start` como comando de arranque).
+- `instances: 1` / `exec_mode: 'fork'` a propósito: `rooms` vive en memoria
+  por proceso (ver arriba), así que correr más de una instancia con PM2 en
+  modo cluster no compartiría las salas activas entre sí — coherente con la
+  decisión de Fase 0 de que una sola instancia alcanza por ahora.
+- Backoff para no reintentar en loop infinito si el problema es persistente
+  (ej. Redis caído, ver Fase 1.1): `exp_backoff_restart_delay: 100` (arranca
+  en 100ms, se duplica en cada caída seguida hasta el tope de 15s que pone
+  PM2 por default) combinado con `min_uptime: '30s'` + `max_restarts: 10` —
+  si el proceso no logra 10 reinicios seguidos que se sostengan al menos 30s,
+  PM2 deja de reintentar y lo marca `errored` en vez de loopear para siempre.
+- Se agregaron scripts de `npm`: `pm2:start`, `pm2:stop`, `pm2:restart`,
+  `pm2:logs`, `pm2:status`.
+- Se agregó al README una sección "Proceso supervisado" explicando los dos
+  caminos (PM2 en VPS propio vs. mecanismo nativo de una plataforma de
+  hosting) y cómo usar cada uno.
+- Pendiente el resto de la Fase 1 (graceful shutdown 1.4, healthcheck 1.5) —
+  ver `docs/PLAN-PRODUCCION.md`.
+
 ## 2026-09-05 — Fase 1.1 del plan de producción: persistencia externa del estado de las salas
 
 - Se creó `lib/roomStore.js`: guarda/recupera el estado de las salas en **Redis**

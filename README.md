@@ -197,12 +197,38 @@ reutilizar un video, borrar) va a fallar con un mensaje de error legible en vez 
 silencio — a propósito no hay "modo de emergencia" que caiga solo a disco si R2 falla, para no
 terminar con videos mezclados entre disco y bucket sin darte cuenta.
 
+## Proceso supervisado (para no depender de una terminal abierta)
+
+Correr `npm start` en una terminal funciona para probar, pero si esa terminal se cierra
+(o el proceso crashea por cualquier motivo) el servidor se queda caído hasta que alguien
+lo note y lo reinicie a mano. Qué conviene depende de dónde lo hospedes:
+
+- **VPS propio** (una máquina tuya, sin plataforma de hosting de por medio): usar
+  [PM2](https://pm2.keymetrics.io/). Ya viene configurado en `ecosystem.config.js`:
+  ```bash
+  npm install -g pm2      # una sola vez en el servidor
+  npm run pm2:start       # arranca movienight supervisado por PM2
+  npm run pm2:logs        # ver logs en vivo
+  npm run pm2:status      # ver si está corriendo
+  npm run pm2:restart     # reiniciar manualmente (ej. después de un deploy)
+  pm2 save && pm2 startup # (opcional, una sola vez) para que PM2 levante movienight solo
+                           # si se reinicia la máquina — `pm2 startup` imprime un comando
+                           # a copiar y correr, distinto según el sistema
+  ```
+  Si el proceso se cae, PM2 lo reinicia solo, con backoff exponencial (para no reintentar en
+  loop si el problema es persistente, ej. Redis caído) y un tope de reinicios seguidos antes
+  de rendirse y avisar — el detalle de esos números está comentado en `ecosystem.config.js`.
+- **Railway / Render / Fly.io o similar**: no hace falta nada de lo de arriba. Estas
+  plataformas ya reinician el proceso solas si crashea, usando `npm start` como comando de
+  arranque — `ecosystem.config.js` no se usa en este caso.
+
 ## Estructura del proyecto
 
 ```
 movienight/
   server.js              # Servidor Express + Socket.io
   package.json
+  ecosystem.config.js    # Configuración de PM2 para proceso supervisado (solo VPS propio, ver sección arriba)
   cloudflared-config.example.yml  # Plantilla para túnel con nombre / dominio fijo (opcional, ver README)
   lib/
     r2.js                 # Cloudflare R2 (opcional, ver sección arriba) — subir/listar/borrar videos en R2

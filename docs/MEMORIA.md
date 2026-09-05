@@ -112,6 +112,16 @@ Orden recomendado: persistencia externa + manejo de errores + supervisión de
 proceso (Fase 1) → hashing de contraseñas + rate limiting (Fase 2.1/2.2) →
 sistema de cuentas reales (Fase 2bis) → expiración de salas/storage (Fase 2.6).
 
+**Fase 1.3 (proceso supervisado) ya resuelta (2026-09-05)**: `ecosystem.config.js`
+con configuración de **PM2** para el caso de VPS propio (`npm run pm2:start`,
+`pm2:stop`, `pm2:restart`, `pm2:logs`, `pm2:status` — ver README, sección
+"Proceso supervisado"), con reinicio automático y backoff exponencial
+(`exp_backoff_restart_delay`) más un tope de reinicios seguidos
+(`min_uptime` + `max_restarts`) para no loopear infinito si el problema es
+persistente (ej. Redis caído). Si en cambio se hostea en Railway/Render/Fly.io,
+no hace falta nada de esto — ya reinician el proceso solos usando `npm start`.
+Sigue pendiente el resto de la Fase 1 (graceful shutdown 1.4, healthcheck 1.5).
+
 **Fase 1.2 (manejo de errores no capturados) ya resuelta (2026-09-05)**:
 `process.on('uncaughtException'/'unhandledRejection')` a nivel global, y un
 wrapper genérico (`safeSocketHandler`) envolviendo los handlers de
@@ -123,5 +133,5 @@ respalda en Redis lo esencial de cada sala (cinta, posición, contraseñas,
 muteos, chat) y lo repuebla al arrancar — una sala sobrevive a un reinicio del
 proceso. Fail-fast si Redis está configurado y no responde (no arranca el
 server); `DISABLE_REDIS=1` para desarrollo local sin Redis, nunca en
-producción. Sigue pendiente el resto de la Fase 1 (proceso supervisado 1.3,
-graceful shutdown 1.4, healthcheck 1.5).
+producción. Sigue pendiente el resto de la Fase 1 (graceful shutdown 1.4,
+healthcheck 1.5).

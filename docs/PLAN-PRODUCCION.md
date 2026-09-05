@@ -114,13 +114,22 @@ secundario.
       `disconnect` (fuera del try/catch del wrapper, por correr en otro tick) tiene
       su propio try/catch aparte.
 
-### 1.3 Proceso supervisado (no depender de una terminal abierta)
-- [ ] Reemplazar "correr `npm start` en una terminal" por un supervisor real:
-  **PM2** (`pm2 start server.js --name movienight`) si es un VPS propio, o el
-  mecanismo nativo del hosting (Railway/Render/Fly reinician el proceso solos si
-  crashea, sin necesitar PM2).
-- [ ] Configurar reinicio automático con backoff (no reintentar en loop infinito
-      si el problema es persistente, ej. Redis caído).
+### 1.3 Proceso supervisado ✅ (resuelta el 2026-09-05)
+- [x] Reemplazar "correr `npm start` en una terminal" por un supervisor real:
+  se agregó `ecosystem.config.js` para **PM2**, pensado para el caso de VPS
+  propio (`npm run pm2:start`, ver README sección "Proceso supervisado"). Para
+  el caso de Railway/Render/Fly.io no hace falta nada de esto — esas
+  plataformas ya reinician el proceso solas si crashea usando `npm start`
+  como comando de arranque, y `ecosystem.config.js` no se usa en ese camino.
+  Como el hosting todavía no está decidido (Fase 0), quedan documentados y
+  soportados ambos caminos en vez de asumir uno.
+- [x] Configurar reinicio automático con backoff (no reintentar en loop infinito
+      si el problema es persistente, ej. Redis caído): `exp_backoff_restart_delay`
+      en `ecosystem.config.js` (arranca en 100ms, duplica en cada caída seguida
+      hasta el tope de 15s de PM2), combinado con `min_uptime: '30s'` +
+      `max_restarts: 10` — si el proceso no logra 10 reinicios seguidos que se
+      sostengan al menos 30s, PM2 deja de reintentar y lo marca `errored` en vez
+      de loopear para siempre.
 
 ### 1.4 Graceful shutdown
 - [ ] Capturar `SIGTERM`/`SIGINT`: avisar a los clientes conectados (evento de
