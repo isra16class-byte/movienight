@@ -2,7 +2,8 @@
 
 Este documento junta, en un solo lugar, todo lo que habría que resolver para pasar
 MovieNight de "proyecto casero para un grupo de amigos" (estado actual, ver
-`MEMORIA.md`) a una app en **producción real**: con usuarios que no controlás vos,
+`docs/CONTEXTO.md` y, para el detalle completo, `docs/historico/MEMORIA.md`) a
+una app en **producción real**: con usuarios que no controlás vos,
 sin depender de que tu compu esté prendida, y sin sorpresas de costo o de caída de
 servicio.
 
@@ -91,7 +92,7 @@ secundario.
 ---
 
 ## Fase 2 — Seguridad (la mayoría ya está documentada como riesgo conocido en
-`MEMORIA.md`, sección 9 — acá se detalla cómo resolver cada una)
+`docs/historico/MEMORIA.md`, sección 9 — acá se detalla cómo resolver cada una)
 
 ### 2.1 Hashing de contraseñas
 - [ ] Migrar `passwordHash` (sala) y `libraryPasswordHash` de `sha256` sin salt a
@@ -138,7 +139,7 @@ secundario.
       estructura de subtítulo válida antes de aceptarlo, no solo la extensión.
 
 ### 2.6 Expiración de salas y limpieza de storage
-- [ ] Las salas hoy **nunca expiran** (`MEMORIA.md`, sección 9). Definir una
+- [ ] Las salas hoy **nunca expiran** (`docs/historico/MEMORIA.md`, sección 9). Definir una
       política (ej. TTL de 24-48h sin actividad) y aplicarla:
   - Si se migra a Redis (Fase 1.1), usar el TTL nativo de Redis para expirar la
     sala sola.
@@ -191,14 +192,14 @@ una instancia)
 
 - [ ] Tests, al menos para lo más crítico y menos obvio a simple vista:
   - `setHost()` (traspaso de host — ya tuvo un bug serio de hosts duplicados,
-    ver `MEMORIA.md` 5bis, justo el tipo de lógica que se rompe fácil sin red
+    ver `docs/historico/MEMORIA.md` 5bis, justo el tipo de lógica que se rompe fácil sin red
     de seguridad).
   - Autenticación de sala/biblioteca (contraseñas, rate limiting).
   - El modo dual disco/R2 (`isValidUploadReference`, `displayNameFor`).
 - [ ] CI básico (GitHub Actions): correr los tests y un lint en cada cambio, antes
       de fusionar.
 - [ ] Documentar y automatizar el despliegue — hoy el flujo es manual
-      (`git format-patch` → `git am` → `git push`, ver `MEMORIA.md` sección 11).
+      (`git format-patch` → `git am` → `git push`, ver `docs/historico/MEMORIA.md` sección 11).
       Para producción conviene un pipeline: push a `main` → deploy automático
       (o al menos un solo comando), para que desplegar no dependa de recordar
       los pasos.
@@ -241,6 +242,7 @@ Si hay que elegir un orden mínimo viable:
 ---
 
 *Este documento es un plan, no un estado — a medida que se vaya resolviendo cada
-punto, tacharlo acá y reflejar el cambio en `MEMORIA.md` (que describe el estado
-*actual* del proyecto) y en `CHANGELOG.md` (que acumula el historial), siguiendo
-el mismo criterio que ya usa el proyecto para el resto de los cambios.*
+punto, tacharlo acá y reflejar el cambio en `docs/CONTEXTO.md` (que describe el
+estado *actual* del proyecto, pensado para lectura rápida) y en
+`docs/historico/CHANGELOG.md` (que acumula el historial completo), siguiendo el
+mismo criterio que ya usa el proyecto para el resto de los cambios.*

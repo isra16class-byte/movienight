@@ -1,4 +1,17 @@
-# 🧠 MEMORIA DEL PROYECTO — MovieNight
+# 🧠 MEMORIA DEL PROYECTO — MovieNight (ARCHIVO HISTÓRICO)
+
+> ⚠️ **Este archivo quedó como registro histórico y ya no se actualiza como
+> punto de entrada principal.** Es largo (pensado para ir creciendo sección por
+> sección con cada feature) y por eso ya no conviene leerlo de primera al
+> arrancar una sesión nueva.
+>
+> Para tener contexto rápido del proyecto, empezá por
+> **[`docs/CONTEXTO.md`](../CONTEXTO.md)** — es un resumen corto pensado
+> específicamente para retomar el trabajo (incluyendo el plan de producción en
+> `docs/PLAN-PRODUCCION.md`) sin tener que leer las ~1850 líneas de este
+> archivo. Este documento sigue sirviendo para el **detalle histórico**: por qué
+> se tomó cada decisión, la secuencia completa de versiones (V1 a V24+), y los
+> bugs puntuales que se fueron resolviendo.
 
 Este archivo es un resumen de contexto para retomar el desarrollo en cualquier momento (por ti mismo o pegándoselo a una IA). Explica qué es el proyecto, cómo está armado, qué decisiones se tomaron y por qué, y qué falta.
 
@@ -1828,7 +1841,9 @@ visual ni espacial. Pedido del usuario: que en los mensajes propios el gesto sea
 
 ## 11. Historial de cambios
 
-Ver `CHANGELOG.md` — ahí se registra cronológicamente cada cambio importante, versión por versión. Este archivo (`MEMORIA.md`) solo describe el estado **actual** del proyecto; se sobreescribe cada vez que la arquitectura cambia. El changelog, en cambio, se va acumulando (nunca se borra lo viejo).
+Ver `docs/historico/CHANGELOG.md` — ahí se registra cronológicamente cada cambio importante, versión por versión. Este archivo (`MEMORIA.md`) solo describe el estado **actual** del proyecto; se sobreescribe cada vez que la arquitectura cambia. El changelog, en cambio, se va acumulando (nunca se borra lo viejo).
+
+*(Nota: desde que este archivo se archivó como histórico, el resumen "vivo" del estado actual pasó a `docs/CONTEXTO.md` — ver aviso al principio de este documento.)*
 
 ---
 

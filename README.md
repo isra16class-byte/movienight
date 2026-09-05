@@ -210,6 +210,12 @@ movienight/
     index.html            # Página para crear sala
     room.html              # Página de la sala (reproductor, chat, controles)
     uploads/                # Videos subidos (se genera solo, no se sube a git)
+  docs/
+    CONTEXTO.md            # Resumen corto para retomar el proyecto rápido (arquitectura, roles, riesgos)
+    PLAN-PRODUCCION.md      # Plan por fases de todo lo pendiente para llevar esto a producción real
+    historico/
+      MEMORIA.md            # Registro histórico detallado, versión por versión (largo, ya no es el punto de entrada)
+      CHANGELOG.md           # Historial cronológico completo de cambios
 ```
 
 ## Cómo funciona por dentro

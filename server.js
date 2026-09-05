@@ -108,7 +108,7 @@ function requireLibraryAuth(req, res, next) {
 // de requireLibraryAuth (que protege leer/borrar la biblioteca y ya alcanzaba con "correcta o no"),
 // acá el costo de un intento de más es mucho más alto: dejar pasar la SUBIDA REAL de un archivo
 // pesado es peor que dejar pasar un GET. Por eso, además de reusar la misma LIBRARY_PASSWORD (un solo
-// secreto para todo el server, no hace falta uno nuevo — ver sección de riesgos en MEMORIA.md), esto
+// secreto para todo el server, no hace falta uno nuevo — ver sección de riesgos en docs/historico/MEMORIA.md), esto
 // suma un límite de intentos por IP: 3 contraseñas incorrectas seguidas bloquean esa IP por 15 minutos
 // antes de poder volver a intentar, para que probar contraseñas al azar no sea gratis.
 //
@@ -222,7 +222,7 @@ const r2VideoStorage = {
 
 // Se decide una sola vez al arrancar el server (según las variables de entorno ya cargadas por
 // loadDotEnv arriba): si R2 está configurado, TODAS las subidas de video van a R2, no hay mezcla por
-// request. Ver sección "Cloudflare R2 — Fase 2" en MEMORIA.md para el porqué de este modo dual.
+// request. Ver sección "Cloudflare R2 — Fase 2" en docs/historico/MEMORIA.md para el porqué de este modo dual.
 const videoStorage = r2.isR2Enabled() ? r2VideoStorage : storage;
 const upload = multer({ storage: videoStorage, limits: { fileSize: 8 * 1024 * 1024 * 1024 } });
 
@@ -728,7 +728,7 @@ server.listen(PORT, () => {
   // arrancar) en vez de dejar que el primer error confuso aparezca recién cuando alguien intente
   // crear una sala o cambiar de cinta. A propósito NO hay modo de emergencia a disco si esto falla:
   // mezclar "a veces disco, a veces R2" según si R2 respondió en ese momento sería más confuso que un
-  // error claro al subir. Ver sección "Cloudflare R2 — Fase 2" en MEMORIA.md.
+  // error claro al subir. Ver sección "Cloudflare R2 — Fase 2" en docs/historico/MEMORIA.md.
   if (r2.isR2Enabled()) {
     r2.testConnection()
       .then(() => {
