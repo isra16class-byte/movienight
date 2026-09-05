@@ -39,6 +39,11 @@ loadDotEnv();
 // recién se manifestó con un usuario real usando un archivo .env.
 const r2 = require('./lib/r2');
 
+// Persistencia externa del estado de las salas (Fase 1.1 del plan de producción) — ver
+// lib/roomStore.js para el detalle de qué se persiste, por qué, y el criterio de "fallar rápido" si
+// Redis está configurado pero no responde.
+const roomStore = require('./lib/roomStore');
+
 // --- Manejo de errores no capturados (Fase 1.2 del plan de producción) ---------------------------
 // Sin esto, un error que se escapa de cualquier lugar del código (una excepción sincrónica que nadie
 // atrapó, o una Promise rechazada sin `.catch`) tira abajo el proceso Node entero sin dejar rastro
@@ -193,7 +198,13 @@ function requireUploadAuth(req, res, next) {
   });
 }
 
-// Salas en memoria
+// Salas — objeto en memoria del proceso, igual que antes de la Fase 1.1, PERO ahora respaldado en
+// Redis (lib/roomStore.js): cada mutación relevante llama a roomStore.saveRoom(roomId, room) para
+// que sobreviva a un reinicio del proceso, y al arrancar el server se repuebla desde ahí (ver
+// startServer() al final del archivo). Seguir usando un objeto plano en memoria como fuente de
+// verdad para LEER (en vez de ir a Redis en cada acceso) es a propósito: la lógica de sync de video/
+// chat es sensible a latencia y corre por Socket.io en el mismo proceso, así que cada lectura sigue
+// siendo síncrona; Redis solo entra de "escritura" para que el estado no se pierda si el proceso cae.
 // roomId -> { videoFile, subtitleFile, viewers, hostToken, passwordHash,
 //             mutedUserIds:Set<userId>, userNames:Map(socketId->name),
 //             bufferingSockets:Set<socketId>, recentDisconnects:Map(userId->{timer,username}),
@@ -339,11 +350,15 @@ function makeRoom(videoFile, password) {
   };
 }
 
-app.post('/create-room', requireUploadAuth, upload.single('video'), (req, res) => {
+app.post('/create-room', requireUploadAuth, upload.single('video'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No llegó ningún video' });
   const roomId = makeRoomId();
   const room = makeRoom(videoUrlForUploadedFile(req.file), (req.body.password || '').trim());
   rooms[roomId] = room;
+  // Se espera a que la sala quede guardada en Redis antes de responder con el roomId/hostToken: si
+  // el proceso se cayera justo entre responder y persistir, la sala existiría para el creador (que
+  // ya tiene el link) pero no sobreviviría a un reinicio — mejor la request tarda un poco más.
+  await roomStore.saveRoom(roomId, room);
   res.json({ roomId, hostToken: room.hostToken });
 });
 
@@ -354,6 +369,7 @@ app.post('/create-room-from-upload', async (req, res) => {
     const roomId = makeRoomId();
     const room = makeRoom(videoUrlForExistingFile(filename), (password || '').trim());
     rooms[roomId] = room;
+    await roomStore.saveRoom(roomId, room);
     res.json({ roomId, hostToken: room.hostToken });
   } catch (err) {
     console.error('Error creando sala desde biblioteca (R2):', err.message);
@@ -361,7 +377,7 @@ app.post('/create-room-from-upload', async (req, res) => {
   }
 });
 
-app.post('/room/:id/change-video', requireUploadAuth, upload.single('video'), (req, res) => {
+app.post('/room/:id/change-video', requireUploadAuth, upload.single('video'), async (req, res) => {
   const room = rooms[req.params.id];
   if (!room) return res.status(404).json({ error: 'Sala no existe' });
   if (req.body.hostToken !== room.hostToken) return res.status(403).json({ error: 'No autorizado' });
@@ -372,6 +388,7 @@ app.post('/room/:id/change-video', requireUploadAuth, upload.single('video'), (r
   pushChatHistory(room, changedMsg);
   io.to(req.params.id).emit('chat-message', changedMsg);
   io.to(req.params.id).emit('video-changed', { videoFile: room.videoFile });
+  await roomStore.saveRoom(req.params.id, room);
   res.json({ ok: true });
 });
 
@@ -393,6 +410,7 @@ app.post('/room/:id/change-video-from-upload', async (req, res) => {
   pushChatHistory(room, changedMsg);
   io.to(req.params.id).emit('chat-message', changedMsg);
   io.to(req.params.id).emit('video-changed', { videoFile: room.videoFile });
+  await roomStore.saveRoom(req.params.id, room);
   res.json({ ok: true });
 });
 
@@ -419,6 +437,7 @@ app.post('/room/:id/upload-subtitle', subtitleUpload.single('subtitle'), (req, r
 
   room.subtitleFile = '/uploads/' + filename;
   io.to(req.params.id).emit('subtitle-changed', { subtitleFile: room.subtitleFile });
+  roomStore.saveRoom(req.params.id, room); // fire-and-forget: no bloquea la respuesta por un round-trip a Redis
   res.json({ ok: true, subtitleFile: room.subtitleFile });
 });
 
@@ -604,6 +623,7 @@ io.on('connection', (socket) => {
       const loadedMsg = { system: true, text: `🎬 Cinta cargada: ${videoDisplayName(room.videoFile)}` };
       pushChatHistory(room, loadedMsg);
       io.to(roomId).emit('chat-message', loadedMsg);
+      roomStore.saveRoom(roomId, room); // fire-and-forget: no vale la pena bloquear el join por esto
     }
 
     // Reconexión rápida (ej. wifi que se cae un segundo): no repetir "se unió a la sala"
@@ -642,6 +662,19 @@ io.on('connection', (socket) => {
       if (data.type === 'play') room.videoPosition.paused = false;
       else if (data.type === 'pause') room.videoPosition.paused = true;
       else if (data.type === 'heartbeat' && typeof data.paused === 'boolean') room.videoPosition.paused = data.paused;
+      // Throttle de escritura a Redis: 'heartbeat' llega cada 4s por sala mientras dura la sala
+      // entera (ver comentario de room.html), escribir la posición en cada uno sería un round-trip
+      // a Redis constante sin necesidad real — un reinicio del proceso que pierda unos pocos segundos
+      // de posición exacta no es un problema práctico. 'play'/'pause'/'seek' sí son cambios de estado
+      // puntuales (no se repiten solos) y se persisten al toque. `_lastPositionSaveAt` es un campo
+      // fuera del shape que persiste roomStore.serializeRoom (solo lee los campos que le interesan),
+      // así que agregarlo directo sobre el objeto `room` en memoria no ensucia lo que se guarda.
+      const now = Date.now();
+      const isHeartbeat = data.type === 'heartbeat';
+      if (!isHeartbeat || !room._lastPositionSaveAt || now - room._lastPositionSaveAt > 5000) {
+        room._lastPositionSaveAt = now;
+        roomStore.saveRoom(currentRoom, room); // fire-and-forget
+      }
     }
     socket.to(currentRoom).emit('sync', data);
   }));
@@ -674,6 +707,7 @@ io.on('connection', (socket) => {
     const msg = { system: false, user: socket.username, text: text.slice(0, 500), replyTo, isHost: !!socket.isHost, userId: socket.userId };
     pushChatHistory(room, msg);
     io.to(currentRoom).emit('chat-message', msg);
+    roomStore.saveRoom(currentRoom, room); // fire-and-forget: guarda el chatHistory actualizado
   }));
 
   socket.on('typing', safeSocketHandler('typing', () => {
@@ -713,6 +747,7 @@ io.on('connection', (socket) => {
     else room.mutedUserIds.add(target.userId);
     target.emit('mute-status', { muted: room.mutedUserIds.has(target.userId) });
     broadcastViewerList(currentRoom);
+    roomStore.saveRoom(currentRoom, room); // fire-and-forget: persiste el nuevo mutedUserIds
   }));
 
   // Traspaso manual del control remoto a otro espectador
@@ -728,6 +763,7 @@ io.on('connection', (socket) => {
     pushChatHistory(room, transferMsg);
     io.to(currentRoom).emit('chat-message', transferMsg);
     broadcastViewerList(currentRoom);
+    roomStore.saveRoom(currentRoom, room); // fire-and-forget: guarda el mensaje del traspaso en el chatHistory
   }));
 
   socket.on('disconnect', safeSocketHandler('disconnect', () => {
@@ -753,6 +789,7 @@ io.on('connection', (socket) => {
         const leftMsg = { system: true, text: `${username} salió de la sala` };
         pushChatHistory(room, leftMsg);
         io.to(currentRoom).emit('chat-message', leftMsg);
+        roomStore.saveRoom(currentRoom, room); // fire-and-forget: refleja el mutedUserIds actualizado
       } catch (err) {
         console.error(`⚠️  Error en el timer de "salió de la sala" (roomId: ${currentRoom}):`, err);
       }
@@ -772,6 +809,7 @@ io.on('connection', (socket) => {
           pushChatHistory(room, autoTransferMsg);
           io.to(currentRoom).emit('chat-message', autoTransferMsg);
           broadcastViewerList(currentRoom);
+          roomStore.saveRoom(currentRoom, room); // fire-and-forget: guarda el mensaje del traspaso automático
         }
       }
     }
@@ -779,39 +817,86 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`MovieNight corriendo en http://localhost:${PORT}`);
 
-  // Cloudflare R2 — Fase 2: si está configurado, se valida la conexión ACÁ (una sola vez, al
-  // arrancar) en vez de dejar que el primer error confuso aparezca recién cuando alguien intente
-  // crear una sala o cambiar de cinta. A propósito NO hay modo de emergencia a disco si esto falla:
-  // mezclar "a veces disco, a veces R2" según si R2 respondió en ese momento sería más confuso que un
-  // error claro al subir. Ver sección "Cloudflare R2 — Fase 2" en docs/historico/MEMORIA.md.
-  if (r2.isR2Enabled()) {
-    r2.testConnection()
-      .then(() => {
-        console.log('☁️  Cloudflare R2: conectado. Las cintas nuevas se suben directo al bucket (no a disco local).');
-      })
-      .catch((err) => {
-        console.log('');
-        console.log('⚠️  Cloudflare R2 está configurado en .env pero la conexión de prueba falló:');
-        console.log(`   ${err.message}`);
-        console.log('   Revisá R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET_NAME.');
-        console.log('   Mientras esto no se arregle, crear sala o cambiar de cinta va a fallar (no hay respaldo a disco).');
-        console.log('');
-      });
+// --- Arranque del server (Fase 1.1 del plan de producción) ---------------------------------------
+// Se envuelve en una función async (en vez de llamar a server.listen directo) porque ahora hay un
+// paso previo que sí puede fallar de verdad y debe frenar el arranque: la conexión a Redis. Mismo
+// criterio que ya se aplicaba a R2 (ver más abajo), pero más estricto: R2 solo afecta subir/cambiar
+// cintas si falla, así que el server igual arranca y avisa por consola. Redis en cambio es la fuente
+// de verdad de que las salas sobrevivan a un reinicio — si está configurado y no responde, arrancar
+// igual en modo "memoria nomás" sería exactamente el problema que esta fase busca resolver, sin que
+// nadie se entere hasta el próximo crash. Por eso acá SÍ se corta el arranque con process.exit(1).
+async function startServer() {
+  if (roomStore.isEnabled()) {
+    try {
+      await roomStore.testConnection();
+      console.log('🗄️  Redis: conectado. El estado de las salas persiste entre reinicios.');
+    } catch (err) {
+      console.error('');
+      console.error('💥 No se pudo conectar a Redis — el server NO va a arrancar:');
+      console.error(`   ${err.message}`);
+      console.error('   Revisá REDIS_URL (o que haya un Redis corriendo en redis://127.0.0.1:6379, el valor');
+      console.error('   por defecto si no se define REDIS_URL).');
+      console.error('   Si es desarrollo local y no tenés Redis instalado, corré con DISABLE_REDIS=1 —');
+      console.error('   pero OJO: en ese modo las salas vuelven a vivir solo en memoria, sin persistencia');
+      console.error('   real, exactamente el problema que esta fase resuelve. No usar en producción.');
+      console.error('');
+      process.exit(1);
+    }
+
+    try {
+      const recovered = await roomStore.loadAllRooms();
+      Object.assign(rooms, recovered); // repuebla el objeto `rooms` ya declarado (const, no se reasigna)
+      const count = Object.keys(recovered).length;
+      if (count > 0) console.log(`🔄 ${count} sala(s) recuperada(s) desde Redis (sobrevivieron al reinicio).`);
+    } catch (err) {
+      // Redis respondió al ping (testConnection ya pasó) pero algo falló leyendo las salas — se
+      // arranca igual (en 0 salas) en vez de bloquear el server entero por esto, pero bien visible.
+      console.error('⚠️  Redis conectó pero no se pudieron recuperar las salas guardadas (se arranca sin ellas):', err.message);
+    }
   } else {
-    console.log('💾 Cloudflare R2 no está configurado — los videos se siguen guardando en disco local (public/uploads).');
+    console.log('');
+    console.log('⚠️  DISABLE_REDIS=1: las salas viven SOLO en memoria, sin persistencia entre reinicios.');
+    console.log('   Pensado solo para desarrollo local sin Redis a mano — no usar en producción.');
+    console.log('');
   }
 
-  if (libraryPasswordWasGenerated) {
-    console.log('');
-    console.log('🔒 Contraseña de biblioteca (protege /library.html — listar y borrar cintas):');
-    console.log(`   ${LIBRARY_PASSWORD}`);
-    console.log('   Se generó al azar porque no definiste LIBRARY_PASSWORD como variable de entorno.');
-    console.log('   Compártela con tu grupo por otro canal (no por el link de la sala) y va a cambiar');
-    console.log('   cada vez que reinicies el servidor. Para que sea fija, copiá ".env.example" a ".env"');
-    console.log('   y completá LIBRARY_PASSWORD ahí (se carga solo, no hace falta escribirla cada vez).');
-    console.log('');
-  }
-});
+  server.listen(PORT, () => {
+    console.log(`MovieNight corriendo en http://localhost:${PORT}`);
+
+    // Cloudflare R2 — Fase 2: si está configurado, se valida la conexión ACÁ (una sola vez, al
+    // arrancar) en vez de dejar que el primer error confuso aparezca recién cuando alguien intente
+    // crear una sala o cambiar de cinta. A propósito NO hay modo de emergencia a disco si esto falla:
+    // mezclar "a veces disco, a veces R2" según si R2 respondió en ese momento sería más confuso que un
+    // error claro al subir. Ver sección "Cloudflare R2 — Fase 2" en docs/historico/MEMORIA.md.
+    if (r2.isR2Enabled()) {
+      r2.testConnection()
+        .then(() => {
+          console.log('☁️  Cloudflare R2: conectado. Las cintas nuevas se suben directo al bucket (no a disco local).');
+        })
+        .catch((err) => {
+          console.log('');
+          console.log('⚠️  Cloudflare R2 está configurado en .env pero la conexión de prueba falló:');
+          console.log(`   ${err.message}`);
+          console.log('   Revisá R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET_NAME.');
+          console.log('   Mientras esto no se arregle, crear sala o cambiar de cinta va a fallar (no hay respaldo a disco).');
+          console.log('');
+        });
+    } else {
+      console.log('💾 Cloudflare R2 no está configurado — los videos se siguen guardando en disco local (public/uploads).');
+    }
+
+    if (libraryPasswordWasGenerated) {
+      console.log('');
+      console.log('🔒 Contraseña de biblioteca (protege /library.html — listar y borrar cintas):');
+      console.log(`   ${LIBRARY_PASSWORD}`);
+      console.log('   Se generó al azar porque no definiste LIBRARY_PASSWORD como variable de entorno.');
+      console.log('   Compártela con tu grupo por otro canal (no por el link de la sala) y va a cambiar');
+      console.log('   cada vez que reinicies el servidor. Para que sea fija, copiá ".env.example" a ".env"');
+      console.log('   y completá LIBRARY_PASSWORD ahí (se carga solo, no hace falta escribirla cada vez).');
+      console.log('');
+    }
+  });
+}
+
+startServer();

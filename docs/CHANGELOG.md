@@ -10,6 +10,51 @@ si hace falta, puede ir en el mensaje de commit).
 
 ---
 
+## 2026-09-05 — Fase 1.1 del plan de producción: persistencia externa del estado de las salas
+
+- Se creó `lib/roomStore.js`: guarda/recupera el estado de las salas en **Redis**
+  (vía `ioredis`), con el mismo criterio de "fallar rápido" que ya usa
+  `lib/r2.js` — si Redis está configurado (o el default `redis://127.0.0.1:6379`)
+  y no responde al arrancar, el server **no arranca** (`process.exit(1)`), en vez
+  de degradar en silencio a memoria pura.
+- Escape hatch explícito `DISABLE_REDIS=1`, documentado como **solo para
+  desarrollo local** sin Redis instalado — nunca para producción.
+- Solo se persiste la parte del estado de `room` que tiene sentido después de
+  un reinicio real del proceso: `videoFile`, `subtitleFile`, `videoPosition`,
+  `hostToken`, `passwordHash`, `mutedUserIds`, `chatHistory` e
+  `initialVideoAnnounced`. Todo lo indexado por `socket.id` (hostSocketId,
+  userNames, bufferingSockets) o con temporizadores en curso
+  (`recentDisconnects`, que además tiene un `setTimeout` real, no
+  serializable) se deja fuera a propósito: no sobrevive a un reinicio de
+  Socket.io de todos modos, así que arranca limpio solo con cada reconexión.
+- `server.js`: al arrancar, si Redis está habilitado, se prueba la conexión
+  (`roomStore.testConnection()`) y se repuebla `rooms` desde Redis
+  (`roomStore.loadAllRooms()`) antes de `server.listen`. Cada mutación
+  relevante (`create-room`, `create-room-from-upload`, `change-video`,
+  `change-video-from-upload`, subir subtítulo, `join-room` en el primer
+  anuncio de cinta, `chat-message`, `toggle-mute`, traspaso de host manual y
+  automático, limpieza de mute tras el margen de reconexión) llama a
+  `roomStore.saveRoom(...)`. El evento `sync` (heartbeat cada 4s del host) se
+  persiste con throttle de 5s — solo se escribe al toque en `play`/`pause`/
+  `seek`, que son cambios de estado puntuales.
+- Los escritos desde eventos de socket y del endpoint de subtítulos son
+  fire-and-forget (no bloquean la respuesta ni el evento en tiempo real por un
+  round-trip a Redis); `create-room`/`create-room-from-upload`/
+  `change-video`/`change-video-from-upload` sí esperan (`await`) a que
+  Redis confirme antes de responder, porque son el punto donde se le entrega
+  al usuario el `roomId`/`hostToken` que va a depender de que la sala
+  realmente exista después.
+- Probado manualmente end-to-end: crear una sala (con contraseña), confirmar
+  el JSON guardado en Redis, matar el proceso (`kill -9`, no un shutdown
+  prolijo), levantar un proceso nuevo apuntando al mismo Redis, y confirmar
+  que `GET /api/room/:id` sigue respondiendo con el estado correcto
+  (`passwordProtected: true`) sin haber creado la sala de nuevo. También se
+  probó el camino de fallo: `REDIS_URL` apuntando a un puerto sin nada
+  escuchando → el server loguea el error y termina con código 1, sin llegar
+  a abrir el puerto HTTP.
+- Pendiente el resto de la Fase 1 (proceso supervisado 1.3, graceful shutdown
+  1.4, healthcheck 1.5) — ver `docs/PLAN-PRODUCCION.md`.
+
 ## 2026-09-05 — Fase 1.2 del plan de producción: manejo de errores no capturados
 
 - Se agregaron handlers globales `process.on('uncaughtException', ...)` y

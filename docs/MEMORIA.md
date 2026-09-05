@@ -24,7 +24,7 @@ reacciones. Repo: `https://github.com/isra16class-byte/movienight`.
 - **Backend**: Node + Express + Socket.io (sync de video, chat, presencia, todo en tiempo real).
 - **Subida de video**: Multer → disco local (`public/uploads/`) **o** Cloudflare R2 si está configurado (modo dual, ver `lib/r2.js` y README).
 - **Frontend**: HTML/CSS/JS vanilla, sin framework.
-- **Sin base de datos**: todo el estado (`rooms`) vive en un objeto en memoria dentro de `server.js` — se pierde si el proceso se reinicia. Es una decisión consciente para el uso actual (casero), pero es el punto #1 a resolver para producción (ver `docs/PLAN-PRODUCCION.md`, Fase 1).
+- **Estado de las salas**: `rooms` sigue siendo un objeto en memoria dentro de `server.js` (las lecturas son síncronas, sensibles a latencia por el sync de video/chat en tiempo real), pero desde la Fase 1.1 cada mutación relevante se respalda en **Redis** (`lib/roomStore.js`), y al arrancar el server se repuebla desde ahí — sobrevive a un reinicio del proceso. Si Redis no responde, el server no arranca (mismo criterio "fallar rápido" que ya usaba R2); `DISABLE_REDIS=1` es un escape hatch solo para desarrollo local, nunca para producción.
 - **Exposición a internet**: Cloudflare Tunnel (no hay hosting propio todavía).
 
 ## Estructura de archivos
@@ -33,6 +33,7 @@ reacciones. Repo: `https://github.com/isra16class-byte/movienight`.
 movienight/
   server.js              # Todo el backend: rutas HTTP + lógica de sockets
   lib/r2.js                # Cloudflare R2 (opcional): subir/listar/borrar videos
+  lib/roomStore.js          # Persistencia de salas en Redis (Fase 1.1 del plan de producción)
   scripts/r2-cleanup-multipart.js
   public/
     index.html            # Crear sala / unirse por código
@@ -46,7 +47,7 @@ movienight/
     historico/               # Registro archivado (MEMORIA.md, CHANGELOG.md viejos) — consultar solo si hace falta el porqué histórico de algo
 ```
 
-## Modelo de datos (en memoria, `server.js`)
+## Modelo de datos (en memoria, `server.js`, respaldado en Redis desde Fase 1.1)
 
 ```js
 rooms = {
@@ -115,6 +116,12 @@ sistema de cuentas reales (Fase 2bis) → expiración de salas/storage (Fase 2.6
 `process.on('uncaughtException'/'unhandledRejection')` a nivel global, y un
 wrapper genérico (`safeSocketHandler`) envolviendo los handlers de
 `io.on('connection', ...)` en `server.js` — un error en un solo evento de socket
-ya no tira abajo el proceso ni afecta a las demás salas activas. Sigue pendiente
-el resto de la Fase 1 (persistencia externa 1.1, proceso supervisado 1.3,
+ya no tira abajo el proceso ni afecta a las demás salas activas.
+
+**Fase 1.1 (persistencia externa) ya resuelta (2026-09-05)**: `lib/roomStore.js`
+respalda en Redis lo esencial de cada sala (cinta, posición, contraseñas,
+muteos, chat) y lo repuebla al arrancar — una sala sobrevive a un reinicio del
+proceso. Fail-fast si Redis está configurado y no responde (no arranca el
+server); `DISABLE_REDIS=1` para desarrollo local sin Redis, nunca en
+producción. Sigue pendiente el resto de la Fase 1 (proceso supervisado 1.3,
 graceful shutdown 1.4, healthcheck 1.5).

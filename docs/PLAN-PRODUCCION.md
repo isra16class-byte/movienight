@@ -62,17 +62,36 @@ El objetivo de esta fase es que el servidor **no pierda todo si se cae**, y que 
 se cae, **se entere alguien y se reinicie solo**. Sin esto, todo lo demás es
 secundario.
 
-### 1.1 Persistencia externa del estado de las salas
-- [ ] Reemplazar el objeto `rooms` en memoria (`server.js`) por una store externa:
-  **Redis** es la opción natural (rápido, soporta TTL nativo para expirar salas
-  solo, y es lo que después hace falta igual para el Socket.io adapter en Fase 3).
-- [ ] Definir qué pasa si Redis no responde: ¿el server cae, o degrada a memoria
-      con un aviso? (Recomendado: fallar rápido y claro, igual que hace hoy R2 —
-      "a propósito no hay modo de emergencia silencioso", mismo criterio que ya
-      usaron para R2 en `lib/r2.js`).
-- [ ] Serializar `mutedUserIds` (Set) y `userNames`/`recentDisconnects` (Map) a un
-      formato compatible con Redis (JSON, ya que Redis no tiene Sets/Maps nativos
-      de JS — sí tiene sus propios tipos `SET`/`HASH` si se quiere aprovechar eso).
+### 1.1 Persistencia externa del estado de las salas ✅ (resuelta el 2026-09-05)
+- [x] Reemplazar el objeto `rooms` en memoria (`server.js`) por una store externa:
+  se agregó `lib/roomStore.js` sobre **Redis** (vía `ioredis`). `rooms` en
+  memoria se mantiene como fuente de verdad para LECTURAS (síncronas, por la
+  sensibilidad a latencia del sync de video/chat en tiempo real), pero cada
+  mutación relevante escribe también a Redis, y al arrancar el server se
+  repuebla `rooms` leyendo de ahí — así sobrevive a un reinicio del proceso.
+- [x] Definir qué pasa si Redis no responde: **falla rápido y claro** — si
+      Redis está configurado (o el default `redis://127.0.0.1:6379`) y no
+      responde al arrancar, el server no llega a abrir el puerto HTTP
+      (`process.exit(1)`), mismo criterio que ya usa `lib/r2.js`. Escape hatch
+      explícito `DISABLE_REDIS=1` solo para desarrollo local (documentado como
+      "nunca en producción").
+- [x] Serializar `mutedUserIds` (Set) a JSON (array) para guardarlo en Redis.
+      `userNames`/`bufferingSockets`/`recentDisconnects`/`hostSocketId` (todo lo
+      indexado por `socket.id` o con un `setTimeout` en curso) se dejó
+      deliberadamente fuera de lo que se persiste: no sobrevive a un reinicio
+      de Socket.io de todos modos (todas las conexiones se cortan igual), así
+      que se reconstruye solo a medida que la gente se reconecta — no hacía
+      falta ni tenía sentido serializarlo. El host se reasigna solo al
+      reconectar con el mismo `hostToken` (lógica ya existente en `join-room`).
+- [x] Throttle de escritura para el evento `sync` (heartbeat cada 4s del host):
+      se persiste al toque en `play`/`pause`/`seek`, pero como mucho una vez
+      cada 5s para los heartbeats — evita un round-trip a Redis constante sin
+      necesidad real.
+- [x] Probado manualmente end-to-end: crear sala → confirmar el JSON en Redis →
+      matar el proceso (`kill -9`) → proceso nuevo apuntando al mismo Redis →
+      `GET /api/room/:id` responde con el estado correcto sin recrear la sala.
+      También el camino de fallo (Redis inalcanzable → el server no arranca,
+      código de salida 1).
 
 ### 1.2 Manejo de errores no capturados ✅ (resuelto el 2026-09-05)
 - [x] Agregar handlers globales:
