@@ -222,6 +222,10 @@ lo note y lo reinicie a mano. Qué conviene depende de dónde lo hospedes:
   plataformas ya reinician el proceso solas si crashea, usando `npm start` como comando de
   arranque — `ecosystem.config.js` no se usa en este caso.
 
+El servidor expone además `GET /health` (alias `GET /healthz`): devuelve `200` si todo
+responde bien (incluyendo Redis y R2, si están configurados) o `503` con el detalle si algo
+falla — útil como healthcheck para el hosting/orquestador que elijas, o para un monitor externo.
+
 ## Estructura del proyecto
 
 ```

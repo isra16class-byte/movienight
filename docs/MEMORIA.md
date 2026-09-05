@@ -112,6 +112,23 @@ Orden recomendado: persistencia externa + manejo de errores + supervisión de
 proceso (Fase 1) → hashing de contraseñas + rate limiting (Fase 2.1/2.2) →
 sistema de cuentas reales (Fase 2bis) → expiración de salas/storage (Fase 2.6).
 
+**Fase 1 completa (2026-09-05)**: los cinco puntos (persistencia externa 1.1,
+manejo de errores no capturados 1.2, proceso supervisado 1.3, graceful
+shutdown 1.4, healthcheck 1.5) ya están resueltos — el detalle de cada uno
+está más abajo. Sigue el orden recomendado: **Fase 2.1/2.2** (hashing +
+rate limiting) es el próximo paso.
+
+**Fase 1.5 (healthcheck) ya resuelta (2026-09-05)**: `GET /health` (alias
+`/healthz`) en `server.js` — 200 solo si el proceso responde Y cada
+dependencia externa *habilitada* (Redis vía `roomStore.ping()`, R2 vía
+`r2.testConnection()`) respondió dentro de un timeout corto (3s); 503 con el
+detalle si alguna falla, o si el server está en medio de un graceful
+shutdown. Una dependencia deshabilitada (`DISABLE_REDIS=1`, o R2 no
+configurado) no cuenta como falla, pero se reporta igual en la respuesta.
+Probado con Redis real: apagarlo **sin reiniciar el proceso Node** hace que
+la siguiente consulta a `/health` pase de 200 a 503 — confirma que detecta
+una caída en caliente, no solo el estado del arranque.
+
 **Fase 1.4 (graceful shutdown) ya resuelta (2026-09-05)**: `server.js` captura
 `SIGTERM`/`SIGINT`, avisa a todos los conectados (`io.emit('server-restarting')`,
 manejado en `room.html` con un banner) y deja de aceptar conexiones HTTP
@@ -120,7 +137,7 @@ configurable (`SHUTDOWN_GRACE_MS`, default 5s) se cierran los sockets, se
 cierra Redis prolijamente (`roomStore.closeConnection()`, `QUIT` en vez de
 matar la conexión) y termina el proceso. Al reconectar, el flujo normal de
 `join-room` ya recupera el estado — no hizo falta lógica nueva para eso.
-Sigue pendiente solo el healthcheck (1.5) para cerrar la Fase 1 completa.
+Con esto queda cerrada la Fase 1 completa (ver arriba).
 
 **Fase 1.3 (proceso supervisado) ya resuelta (2026-09-05)**: `ecosystem.config.js`
 con configuración de **PM2** para el caso de VPS propio (`npm run pm2:start`,
@@ -130,7 +147,6 @@ con configuración de **PM2** para el caso de VPS propio (`npm run pm2:start`,
 (`min_uptime` + `max_restarts`) para no loopear infinito si el problema es
 persistente (ej. Redis caído). Si en cambio se hostea en Railway/Render/Fly.io,
 no hace falta nada de esto — ya reinician el proceso solos usando `npm start`.
-Sigue pendiente solo el healthcheck (1.5) para cerrar la Fase 1 completa.
 
 **Fase 1.2 (manejo de errores no capturados) ya resuelta (2026-09-05)**:
 `process.on('uncaughtException'/'unhandledRejection')` a nivel global, y un
@@ -143,5 +159,4 @@ respalda en Redis lo esencial de cada sala (cinta, posición, contraseñas,
 muteos, chat) y lo repuebla al arrancar — una sala sobrevive a un reinicio del
 proceso. Fail-fast si Redis está configurado y no responde (no arranca el
 server); `DISABLE_REDIS=1` para desarrollo local sin Redis, nunca en
-producción. Sigue pendiente solo el healthcheck (1.5) para cerrar la Fase 1
-completa.
+producción.

@@ -446,6 +446,73 @@ app.get('/room/:id', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'room.html'));
 });
 
+// --- Healthcheck (Fase 1.5 del plan de producción) ------------------------------------------------
+// Pensado para que el hosting/orquestador (PM2, Railway/Render/Fly.io, un load balancer, lo que sea)
+// sepa cuándo reiniciar el proceso — no alcanza con "el proceso Node responde": el server puede estar
+// arriba y aceptando conexiones y aun así ser inútil si Redis (persistencia de salas, Fase 1.1) o R2
+// (donde viven los videos, si está configurado) dejaron de responder. Se registra ANTES que
+// `gracefulShutdown` (ver el final del archivo) porque `shuttingDown` se declara ahí abajo con
+// `let` — la referencia de la clausura se resuelve recién cuando llega una request real, momento en
+// el que el módulo entero ya terminó de cargar, así que el orden de declaración no importa acá.
+//
+// Cada dependencia habilitada se chequea con un timeout corto (no queremos que un Redis/R2 colgado
+// deje la respuesta del healthcheck colgada también — un healthcheck que nunca responde es en la
+// práctica indistinguible de uno que devuelve "no estoy sano", pero peor: bloquea al orquestador).
+const HEALTH_CHECK_TIMEOUT_MS = 3000;
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`timeout de ${ms}ms esperando a ${label}`)), ms))
+  ]);
+}
+
+app.get(['/health', '/healthz'], async (req, res) => {
+  // Durante un graceful shutdown en curso (Fase 1.4) ya se dejaron de aceptar conexiones nuevas
+  // (`server.close()`), así que en la práctica esta rama casi no se llega a ejecutar — queda como
+  // red de seguridad para alguna request que ya estaba en camino cuando arrancó el shutdown.
+  if (shuttingDown) {
+    return res.status(503).json({ status: 'shutting_down', uptime: process.uptime() });
+  }
+
+  const checks = {};
+  let healthy = true;
+
+  if (roomStore.isEnabled()) {
+    try {
+      const result = await withTimeout(roomStore.ping(), HEALTH_CHECK_TIMEOUT_MS, 'Redis');
+      checks.redis = result;
+      if (!result.ok) healthy = false;
+    } catch (err) {
+      checks.redis = { enabled: true, ok: false, error: err.message };
+      healthy = false;
+    }
+  } else {
+    // DISABLE_REDIS=1: escape hatch solo de desarrollo local (ver lib/roomStore.js) — no cuenta
+    // como una falla del healthcheck, pero se reporta igual para que quede visible en qué modo
+    // está corriendo el proceso.
+    checks.redis = { enabled: false, ok: true };
+  }
+
+  if (r2.isR2Enabled()) {
+    try {
+      await withTimeout(r2.testConnection(), HEALTH_CHECK_TIMEOUT_MS, 'R2');
+      checks.r2 = { enabled: true, ok: true };
+    } catch (err) {
+      checks.r2 = { enabled: true, ok: false, error: err.message };
+      healthy = false;
+    }
+  } else {
+    // R2 no configurado es un modo válido (se sube a disco local, ver README) — no es una falla.
+    checks.r2 = { enabled: false, ok: true };
+  }
+
+  res.status(healthy ? 200 : 503).json({
+    status: healthy ? 'ok' : 'error',
+    uptime: process.uptime(),
+    checks
+  });
+});
+
 // Solo confirma existencia y si pide contraseña. videoFile/subtitleFile viajan por socket tras un join válido,
 // para no exponer la ubicación real del archivo antes de validar la contraseña.
 app.get('/api/room/:id', (req, res) => {

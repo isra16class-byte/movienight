@@ -56,7 +56,7 @@ siguientes:
 
 ---
 
-## Fase 1 — Estabilidad básica (lo más urgente, hacer primero)
+## Fase 1 — Estabilidad básica ✅ (completa el 2026-09-05)
 
 El objetivo de esta fase es que el servidor **no pierda todo si se cae**, y que si
 se cae, **se entere alguien y se reinicie solo**. Sin esto, todo lo demás es
@@ -153,11 +153,29 @@ secundario.
       `join-room` de siempre recupera el estado de la sala; no hizo falta
       lógica nueva de reconexión.
 
-### 1.5 Healthcheck
-- [ ] Agregar `GET /health` (o `/healthz`) que devuelva 200 si el server puede
-      responder Y la conexión a Redis/R2 está viva — no solo "el proceso Node
-      responde".
-- [ ] Necesario para que el hosting/orquestador sepa cuándo reiniciar el proceso.
+### 1.5 Healthcheck ✅ (resuelta el 2026-09-05)
+- [x] Se agregó `GET /health` (alias `GET /healthz`) en `server.js`: devuelve
+      200 solo si el server puede responder Y cada dependencia externa
+      *habilitada* respondió al chequeo — no solo "el proceso Node
+      responde". Redis se chequea con `roomStore.ping()` (reusa el cliente
+      ya conectado, distinto de `testConnection()` que además conecta y solo
+      tiene sentido al arrancar); R2 con `r2.testConnection()` (mismo
+      `HeadBucketCommand` que ya se usaba al arrancar). Cada chequeo tiene un
+      timeout corto (3s) para que un Redis/R2 colgado no deje la respuesta
+      del healthcheck colgada también. Si una dependencia está deshabilitada
+      (`DISABLE_REDIS=1`, o R2 no configurado — ambos modos válidos, ver
+      `docs/MEMORIA.md`) no cuenta como falla, pero se reporta igual en la
+      respuesta para que quede visible en qué modo está corriendo el
+      proceso. Durante un graceful shutdown en curso (Fase 1.4) responde
+      503 `shutting_down` de una — aunque en la práctica casi no se llega a
+      ejecutar, porque `server.close()` ya dejó de aceptar conexiones nuevas
+      para ese momento.
+- [x] Necesario para que el hosting/orquestador sepa cuándo reiniciar el
+      proceso: probado con un Redis real levantado aparte del arranque del
+      server — `/health` responde 200 con Redis arriba, y al apagar Redis
+      **sin reiniciar el proceso Node**, la siguiente consulta a `/health`
+      responde 503 con el detalle del error (confirma que detecta una falla
+      en caliente, no solo el estado en el momento del arranque).
 
 ---
 

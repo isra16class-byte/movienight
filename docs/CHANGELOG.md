@@ -10,6 +10,38 @@ si hace falta, puede ir en el mensaje de commit).
 
 ---
 
+## 2026-09-05 — Fase 1.5 del plan de producción: healthcheck (cierra la Fase 1 completa)
+
+- `server.js`: nuevo endpoint `GET /health` (alias `GET /healthz`) — 200 solo
+  si el proceso responde Y cada dependencia externa *habilitada* respondió al
+  chequeo dentro de un timeout corto (3s, `withTimeout()`), 503 con el
+  detalle si alguna falla. Redis se chequea con `roomStore.ping()` (liviano,
+  reusa el cliente ya conectado — distinto de `testConnection()`, que además
+  conecta y solo tiene sentido llamarla una vez al arrancar); R2 con
+  `r2.testConnection()` (el mismo `HeadBucketCommand` que ya se usaba al
+  arrancar el server).
+- Una dependencia deshabilitada (`DISABLE_REDIS=1`, o R2 no configurado —
+  ambos son modos válidos de correr el proyecto, ver arriba) no cuenta como
+  falla del healthcheck, pero se reporta igual en la respuesta
+  (`{ enabled: false, ok: true }`) para que quede visible en qué modo está
+  corriendo el proceso.
+- Si el server está en medio de un graceful shutdown (Fase 1.4, flag
+  `shuttingDown`), `/health` responde 503 `shutting_down` de una, sin hacer
+  los chequeos — aunque en la práctica casi no llega a ejecutarse, porque
+  `server.close()` ya dejó de aceptar conexiones nuevas para ese momento.
+- `lib/roomStore.js`: nueva función `ping()` para este uso específico
+  (chequeo liviano de vida, sin conectar ni reintentar como sí hace
+  `testConnection()`).
+- Probado con un Redis real levantado aparte (no con `DISABLE_REDIS=1`):
+  `/health` responde 200 con Redis arriba, y **sin reiniciar el proceso
+  Node**, apagar Redis hace que la siguiente consulta responda 503 con el
+  mensaje de error de `ioredis` — confirma que el chequeo detecta una caída
+  en caliente, no solo el estado que había al arrancar.
+- Con esto se completan los 5 puntos de la **Fase 1 del plan de producción**
+  (persistencia externa, manejo de errores, proceso supervisado, graceful
+  shutdown, healthcheck). Próximo paso recomendado: Fase 2.1/2.2 (hashing de
+  contraseñas + rate limiting) — ver `docs/PLAN-PRODUCCION.md`.
+
 ## 2026-09-05 — Fase 1.4 del plan de producción: graceful shutdown
 
 - `server.js`: se agregaron handlers de `SIGTERM`/`SIGINT` (`gracefulShutdown`)
