@@ -10,6 +10,57 @@ si hace falta, puede ir en el mensaje de commit).
 
 ---
 
+## 2026-09-05 — Fase 2bis (primer paso): modelo de usuario + registro/login con PostgreSQL
+
+- **Modelo de usuario**: nuevo `lib/db.js` — pool de conexiones a
+  **PostgreSQL** (vía `pg`), separado de Redis a propósito (Redis sigue
+  siendo solo para el estado efímero de las salas). Migraciones idempotentes
+  (`CREATE TABLE IF NOT EXISTS`) corridas al arrancar, antes de aceptar
+  tráfico. Tabla `users`: `id` UUID (vía `pgcrypto`, evita exponer
+  cantidad/orden de registro), `email`, `password_hash`, `created_at`.
+  Índice único **case-insensitive** sobre `email` (`LOWER(email)`) — dos
+  emails que solo difieren en mayúsculas son la misma cuenta.
+  Mismo criterio de "fallar rápido" que ya usan Redis/R2: si `DATABASE_URL`
+  está configurada y Postgres no responde al arrancar, el server no arranca.
+  Sin `DATABASE_URL`, las cuentas de usuario quedan deshabilitadas (404
+  explícito en `/auth/*`) pero el resto de la app sigue funcionando
+  exactamente igual que antes — no es un escape hatch de producción como
+  `DISABLE_REDIS`, es un feature opcional todavía no activado.
+  Integrado en el healthcheck (`checks.postgres`, `GET /health`) y en el
+  graceful shutdown (`pool.end()` prolijo antes de cerrar el proceso).
+- **Registro y login**: `POST /auth/register` y `POST /auth/login` en
+  `server.js`. Contraseña hasheada con bcrypt reusando `hashPassword()`/
+  `verifyPassword()` (misma función de la Fase 2.1, sin duplicar lógica de
+  hashing). Validación de formato de email y mínimo 8 caracteres de
+  contraseña en registro. Login devuelve el mismo mensaje genérico ("Email o
+  contraseña incorrectos") tanto si el email no existe como si la
+  contraseña está mal, para no dejar enumerar qué emails tienen cuenta
+  registrada. Rate limiting reusando `makeAttemptLimiter()` (Fase 2.2, 3
+  intentos → bloqueo 15 min), con clave `ip:email` (distinto de `join-room`,
+  que usa `ip:roomId`): errar la contraseña de una cuenta no bloquea el
+  intento de otra cuenta desde la misma IP, y probar el mismo email desde
+  IPs distintas no permite saltarse el límite.
+  **Todavía no implementado a propósito**: esto NO deja una sesión iniciada
+  en el navegador (cookie httpOnly/JWT) — eso, junto con la migración del
+  rol de host y el acceso a la biblioteca por sesión, es el paso siguiente
+  dentro de la misma Fase 2bis (ver `docs/PLAN-PRODUCCION.md`).
+- Probado end-to-end con Postgres y Redis reales: registro con email
+  duplicado (incluso con mayúsculas/minúsculas distintas) → 409; email
+  inválido → 400; contraseña corta → 400; login case-insensitive; email
+  inexistente → mismo mensaje genérico que contraseña incorrecta; 3
+  contraseñas incorrectas seguidas → bloqueo, y la contraseña CORRECTA
+  inmediatamente después del bloqueo también queda bloqueada durante la
+  ventana de 15 min (mismo comportamiento ya esperado de `join-room`);
+  healthcheck reportando Postgres arriba; graceful shutdown cerrando el
+  pool sin errores.
+- `package.json`: agregada dependencia `pg`. `.env.example`: agregada
+  `DATABASE_URL` (documentada como opcional).
+- `docs/PLAN-PRODUCCION.md`: tachados "Modelo de usuario" y "Registro y
+  login" dentro de la Fase 2bis. `docs/MEMORIA.md`: actualizado el stack,
+  la estructura de archivos, riesgos conocidos y "por dónde seguir" (qué
+  falta de la Fase 2bis: sesiones, migración del rol de host, biblioteca
+  por sesión, recuperación de contraseña).
+
 ## 2026-09-05 — Hallazgo: Cloudflare bloquea subida de video real (413 Payload Too Large)
 
 - Probando en producción real (`sala.movienight-palomitasjuntos.uk`, detrás

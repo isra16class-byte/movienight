@@ -322,14 +322,48 @@ Fase 6 — al confirmarse en Fase 0 que sí va a haber login, este es trabajo
 real, no opcional. Es un cambio de arquitectura más grande que el resto de la
 Fase 2, conviene tratarlo como su propio bloque:
 
-- [ ] **Modelo de usuario**: tabla/colección `users` (necesita la base de
-      datos real de todos modos por la Fase 1.1 — aprovechar el mismo motor
-      si es Postgres, o uno separado si se prefiere Mongo/otro para esto y
-      Redis solo para las salas efímeras).
-- [ ] **Registro y login**: email + contraseña como mínimo (hasheada con
-      bcrypt/argon2, mismo criterio que 2.1). Evaluar si conviene sumar login
-      social (Google, etc.) o dejarlo para más adelante — no es necesario para
-      el primer corte.
+- [x] **Modelo de usuario** ✅ (resuelto el 2026-09-05): tabla `users` en
+      **PostgreSQL** (motor separado de Redis — Redis sigue siendo solo para
+      el estado efímero de las salas, ver `docs/MEMORIA.md`). Nuevo
+      `lib/db.js`: pool de conexiones (`pg`), migraciones idempotentes
+      (`CREATE TABLE IF NOT EXISTS`, corridas al arrancar antes de aceptar
+      tráfico), `id` UUID (vía `pgcrypto`, para no exponer cantidad/orden de
+      registro a través de un id autoincremental), índice único
+      case-insensitive sobre `email` (`LOWER(email)` — dos emails que solo
+      difieren en mayúsculas son la misma cuenta). Mismo criterio de "fallar
+      rápido" que ya usan Redis/R2: si `DATABASE_URL` está configurada y
+      Postgres no responde al arrancar, el server no arranca; sin
+      `DATABASE_URL`, las cuentas de usuario quedan deshabilitadas pero el
+      resto de la app (salas anónimas por `hostToken`) sigue funcionando
+      igual que antes — no es un escape hatch de producción como
+      `DISABLE_REDIS`, es simplemente un feature opcional todavía no
+      activado. Integrado también en el healthcheck (`checks.postgres`) y en
+      el graceful shutdown (cierra el pool con `pool.end()`).
+- [x] **Registro y login** ✅ (resuelto el 2026-09-05, sin login social todavía):
+      `POST /auth/register` y `POST /auth/login` en `server.js`. Contraseña
+      hasheada con **bcrypt** (reusa `hashPassword()`/`verifyPassword()`, la
+      misma función de la Fase 2.1 — no hizo falta duplicar lógica de
+      hashing). Validación de formato de email y mínimo 8 caracteres de
+      contraseña en registro; mensaje de error **genérico** en login
+      ("Email o contraseña incorrectos") tanto si el email no existe como si
+      la contraseña está mal, para no dejar enumerar qué emails tienen
+      cuenta registrada. Rate limiting con el mismo `makeAttemptLimiter()` de
+      la Fase 2.2 (3 intentos fallidos → bloqueo 15 min), pero con clave
+      `ip:email` — distinto de `join-room` (`ip:roomId`) y de
+      `requireUploadAuth` (`ip` solo): así errar la contraseña de una cuenta
+      no bloquea el intento de otra cuenta desde la misma IP, y probar el
+      mismo email desde IPs distintas no permite saltarse el límite.
+      Probado end-to-end: registro con email duplicado (incluso con
+      may/min distinta, ej. `Ana@Test.com` vs `ana@test.com`) → 409; email
+      inválido → 400; contraseña corta → 400; login con email en mayúsculas
+      → funciona igual (case-insensitive); 3 contraseñas incorrectas
+      seguidas → bloqueo, y la contraseña CORRECTA inmediatamente después
+      del bloqueo también queda bloqueada durante la ventana de 15 min
+      (mismo comportamiento ya esperado de `join-room`, Fase 2.2).
+      **Todavía no implementado** (ver puntos siguientes, sin tocar por
+      ahora): esto NO deja una sesión iniciada en el navegador — `/auth/login`
+      solo confirma que las credenciales son válidas y devuelve `id`/`email`,
+      nada más. Login social queda evaluado pero no encarado.
 - [ ] **Sesiones**: reemplazar el `hostToken` en `localStorage` por una sesión
       de servidor real (cookie `httpOnly` + `secure`, con una librería como
       `express-session` respaldada en Redis, o JWT de corta duración con

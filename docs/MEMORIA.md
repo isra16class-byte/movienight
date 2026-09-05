@@ -25,6 +25,7 @@ reacciones. Repo: `https://github.com/isra16class-byte/movienight`.
 - **Subida de video**: Multer → disco local (`public/uploads/`) **o** Cloudflare R2 si está configurado (modo dual, ver `lib/r2.js` y README).
 - **Frontend**: HTML/CSS/JS vanilla, sin framework.
 - **Estado de las salas**: `rooms` sigue siendo un objeto en memoria dentro de `server.js` (las lecturas son síncronas, sensibles a latencia por el sync de video/chat en tiempo real), pero desde la Fase 1.1 cada mutación relevante se respalda en **Redis** (`lib/roomStore.js`), y al arrancar el server se repuebla desde ahí — sobrevive a un reinicio del proceso. Si Redis no responde, el server no arranca (mismo criterio "fallar rápido" que ya usaba R2); `DISABLE_REDIS=1` es un escape hatch solo para desarrollo local, nunca para producción.
+- **Cuentas de usuario**: desde la Fase 2bis, **PostgreSQL** (`lib/db.js`, vía `pg`) guarda el modelo de usuario (tabla `users`: email, password hasheado con bcrypt). Motor separado de Redis a propósito — Redis sigue siendo solo para el estado efímero de las salas. Sin `DATABASE_URL` configurada, el registro/login queda deshabilitado pero el resto de la app sigue funcionando igual (no es un escape hatch de producción, es un feature opcional todavía no activado); si SÍ está configurada y Postgres no responde al arrancar, mismo criterio de "fallar rápido" que Redis/R2.
 - **Exposición a internet**: Cloudflare Tunnel (no hay hosting propio todavía).
 
 ## Estructura de archivos
@@ -34,6 +35,7 @@ movienight/
   server.js              # Todo el backend: rutas HTTP + lógica de sockets
   lib/r2.js                # Cloudflare R2 (opcional): subir/listar/borrar videos
   lib/roomStore.js          # Persistencia de salas en Redis (Fase 1.1 del plan de producción)
+  lib/db.js                # Postgres: modelo de usuario, registro/login (Fase 2bis del plan de producción)
   scripts/r2-cleanup-multipart.js
   public/
     index.html            # Crear sala / unirse por código
@@ -89,8 +91,11 @@ mover la barra de progreso — cualquier intento se revierte.
 - ~~Contraseñas (sala y biblioteca) con `sha256` sin salt~~ → resuelto en
   Fase 2.1 (bcrypt, con migración transparente desde hashes viejos).
 - ~~Sin rate-limiting en `join-room` ni en el chat~~ → resuelto en Fase 2.2.
-- `hostToken` sin expiración, viaja en texto plano — se resuelve en Fase 2bis
-  (cuentas reales), no con un parche al esquema actual (ver Fase 0).
+- `hostToken` sin expiración, viaja en texto plano — con el modelo de usuario
+  y registro/login ya en pie (Fase 2bis, primer paso), sigue siendo el mismo
+  riesgo hasta que se implemente la parte de **sesiones** de esa misma fase
+  (reemplazar `hostToken` por una sesión de servidor real) — ver
+  `docs/PLAN-PRODUCCION.md`.
 - Sin validación real de tipo de archivo (solo `Content-Type` del navegador).
 - Las salas nunca expiran — se acumulan en memoria y en R2 indefinidamente.
 - **Nuevo (2026-09-05, encontrado probando en producción real)**: subir un
@@ -200,6 +205,33 @@ chat (8 msj/10s), y persistencia en Redis (una sala vieja responde con su
 `videoFile`/`position` correctos). Queda anotado como Fase 2.7 en
 `docs/PLAN-PRODUCCION.md`, con la subida directa a R2 vía URL prefirmada como
 camino a evaluar — no implementado todavía.
+
+**Fase 2bis en curso — modelo de usuario + registro/login completos (2026-09-05)**:
+primer paso de la fase resuelto — `lib/db.js` (Postgres, motor separado de
+Redis) con la tabla `users` y migraciones idempotentes al arrancar, más
+`POST /auth/register` y `POST /auth/login` en `server.js` (bcrypt reusando
+`hashPassword()`/`verifyPassword()` de la Fase 2.1, rate limiting reusando
+`makeAttemptLimiter()` de la Fase 2.2 con clave `ip:email`). Sin
+`DATABASE_URL` configurada, estas dos rutas quedan deshabilitadas (404
+explícito) pero el resto de la app sigue funcionando exactamente igual que
+antes — no es un cambio disruptivo para quien todavía no quiere cuentas de
+usuario. Integrado en el healthcheck (`checks.postgres`) y en el graceful
+shutdown (cierra el pool de conexiones prolijamente). Probado end-to-end con
+Postgres real: alta con email duplicado (case-insensitive) → 409, validación
+de formato de email y longitud mínima de contraseña, login case-insensitive,
+mensaje de error genérico ante email inexistente (no permite enumerar
+cuentas registradas), y el rate limiting bloqueando tras 3 intentos fallidos
+(incluso la contraseña correcta queda bloqueada durante la ventana de 15
+min, mismo comportamiento que `join-room`).
+
+**Lo que falta de la Fase 2bis** (sin tocar todavía, a propósito — ver
+`docs/PLAN-PRODUCCION.md` para el detalle de cada uno): **sesiones reales**
+(reemplazar `hostToken` en `localStorage` por una sesión de servidor con
+cookie `httpOnly`/JWT — hoy `/auth/login` solo confirma que las credenciales
+son válidas, no deja nada iniciado en el navegador), **migración del rol de
+host** (validar "soy el dueño de la sala" contra la sesión en vez del
+`hostToken`), **biblioteca por sesión de usuario** en vez de
+`LIBRARY_PASSWORD` única, y **recuperación de contraseña**.
 
 **Fase 1.1 (persistencia externa) ya resuelta (2026-09-05)**: `lib/roomStore.js`
 respalda en Redis lo esencial de cada sala (cinta, posición, contraseñas,

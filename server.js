@@ -46,6 +46,12 @@ const r2 = require('./lib/r2');
 // Redis está configurado pero no responde.
 const roomStore = require('./lib/roomStore');
 
+// Modelo de usuario (registro/login) — Fase 2bis del plan de producción. Ver lib/db.js para el
+// detalle de qué se persiste y el criterio de "fallar rápido" si Postgres está configurado y no
+// responde. A diferencia de Redis, acá NO configurar DATABASE_URL es un modo válido: el resto de la
+// app (salas anónimas por hostToken) sigue funcionando igual, solo /auth/* queda deshabilitado.
+const db = require('./lib/db');
+
 // --- Manejo de errores no capturados (Fase 1.2 del plan de producción) ---------------------------
 // Sin esto, un error que se escapa de cualquier lugar del código (una excepción sincrónica que nadie
 // atrapó, o una Promise rechazada sin `.catch`) tira abajo el proceso Node entero sin dejar rastro
@@ -279,6 +285,104 @@ async function requireUploadAuth(req, res, next) {
     res.status(500).json({ error: 'Error interno verificando la contraseña.' });
   }
 }
+
+// --- Cuentas de usuario: registro y login (Fase 2bis del plan de producción) ---------------------
+// Primer paso de la Fase 2bis: modelo de usuario + registro/login. Todavía NO reemplaza el hostToken
+// ni el acceso a la biblioteca (eso es el paso siguiente, sesiones — ver docs/PLAN-PRODUCCION.md) —
+// por ahora /auth/login solo confirma que el email/contraseña son válidos, no deja una sesión
+// iniciada en el navegador. Las dos rutas quedan deshabilitadas (404 explícito, no un 500 confuso) si
+// no hay DATABASE_URL configurada, para que quede claro que es un feature opcional todavía no
+// activado, no un error del server.
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MIN_PASSWORD_LENGTH = 8;
+
+function requireDbEnabled(req, res, next) {
+  if (!db.isEnabled()) {
+    return res.status(404).json({ error: 'Las cuentas de usuario no están habilitadas en este servidor (falta configurar DATABASE_URL).' });
+  }
+  next();
+}
+
+// Mismo criterio de rate limiting que ya usa el proyecto (Fase 2.2: makeAttemptLimiter, 3 intentos →
+// bloqueo 15 min) — clave = ip+email (no solo ip, como requireUploadAuth): así errar la contraseña de
+// una cuenta no bloquea el intento de otra persona (u otra cuenta) desde la misma IP compartida, y
+// tampoco alcanza con probar el mismo email desde IPs distintas para saltarse el límite.
+const loginAuthLimiter = makeAttemptLimiter();
+
+app.post('/auth/register', requireDbEnabled, async (req, res) => {
+  const { email, password } = req.body || {};
+  if (typeof email !== 'string' || typeof password !== 'string' || !email.trim() || !password) {
+    return res.status(400).json({ error: 'Faltan email y/o contraseña.' });
+  }
+  const trimmedEmail = email.trim();
+  if (!EMAIL_REGEX.test(trimmedEmail)) {
+    return res.status(400).json({ error: 'El email no tiene un formato válido.' });
+  }
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    return res.status(400).json({ error: `La contraseña necesita al menos ${MIN_PASSWORD_LENGTH} caracteres.` });
+  }
+  try {
+    const passwordHash = await hashPassword(password); // misma hashPassword() que ya usa el proyecto (bcrypt, Fase 2.1) para passwordHash de sala y LIBRARY_PASSWORD
+    const user = await db.createUser(trimmedEmail, passwordHash);
+    res.status(201).json({ id: user.id, email: user.email });
+  } catch (err) {
+    // '23505' = unique_violation de Postgres — el índice users_email_lower_idx (lib/db.js) es quien
+    // realmente garantiza que no haya dos cuentas con el mismo email (no solo este chequeo aplicativo,
+    // que además tiene una condición de carrera si dos registros llegan al mismo tiempo con el mismo
+    // email — el índice de la base es la fuente de verdad última).
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Ya existe una cuenta con ese email.' });
+    }
+    console.error('⚠️  Error registrando usuario:', err.message);
+    res.status(500).json({ error: 'No se pudo completar el registro. Intentá de nuevo en un momento.' });
+  }
+});
+
+app.post('/auth/login', requireDbEnabled, async (req, res) => {
+  const { email, password } = req.body || {};
+  if (typeof email !== 'string' || typeof password !== 'string' || !email.trim() || !password) {
+    return res.status(400).json({ error: 'Faltan email y/o contraseña.' });
+  }
+  const trimmedEmail = email.trim();
+  const limiterKey = `${clientIp(req)}:${trimmedEmail.toLowerCase()}`;
+  const lockedMinutes = loginAuthLimiter.lockedMinutes(limiterKey);
+  if (lockedMinutes !== null) {
+    return res.status(429).json({
+      error: `Demasiados intentos fallidos. Esperá ${lockedMinutes} min y volvé a intentar.`,
+      lockedMinutes
+    });
+  }
+
+  try {
+    const user = await db.findUserByEmail(trimmedEmail);
+    // Mismo mensaje genérico tanto si el email no existe como si la contraseña es incorrecta —
+    // distinguir "ese email no existe" de "esa contraseña está mal" le regala a un atacante una forma
+    // barata de enumerar qué emails tienen cuenta registrada, probando uno por uno.
+    if (!user) {
+      loginAuthLimiter.recordFailure(limiterKey);
+      return res.status(401).json({ error: 'Email o contraseña incorrectos.' });
+    }
+
+    const { valid } = await verifyPassword(password, user.password_hash);
+    if (!valid) {
+      const { locked } = loginAuthLimiter.recordFailure(limiterKey);
+      if (locked) {
+        return res.status(429).json({ error: 'Demasiados intentos fallidos. Esperá 15 min y volvé a intentar.' });
+      }
+      return res.status(401).json({ error: 'Email o contraseña incorrectos.' });
+    }
+
+    loginAuthLimiter.recordSuccess(limiterKey);
+    // NOTA: acá termina el primer paso de la Fase 2bis. Todavía no se deja una sesión iniciada en el
+    // navegador (cookie httpOnly / JWT) — eso reemplaza al hostToken actual y es el paso siguiente
+    // dentro de la misma fase (ver "Sesiones" en docs/PLAN-PRODUCCION.md). Por ahora esta respuesta
+    // solo confirma que el email/contraseña son válidos.
+    res.json({ id: user.id, email: user.email });
+  } catch (err) {
+    console.error('⚠️  Error en login:', err.message);
+    res.status(500).json({ error: 'No se pudo iniciar sesión. Intentá de nuevo en un momento.' });
+  }
+});
 
 // Salas — objeto en memoria del proceso, igual que antes de la Fase 1.1, PERO ahora respaldado en
 // Redis (lib/roomStore.js): cada mutación relevante llama a roomStore.saveRoom(roomId, room) para
@@ -658,6 +762,20 @@ app.get(['/health', '/healthz'], async (req, res) => {
   } else {
     // R2 no configurado es un modo válido (se sube a disco local, ver README) — no es una falla.
     checks.r2 = { enabled: false, ok: true };
+  }
+
+  if (db.isEnabled()) {
+    try {
+      const result = await withTimeout(db.ping(), HEALTH_CHECK_TIMEOUT_MS, 'Postgres');
+      checks.postgres = result;
+      if (!result.ok) healthy = false;
+    } catch (err) {
+      checks.postgres = { enabled: true, ok: false, error: err.message };
+      healthy = false;
+    }
+  } else {
+    // DATABASE_URL no configurada: modo válido (cuentas de usuario deshabilitadas, ver requireDbEnabled) — no es una falla.
+    checks.postgres = { enabled: false, ok: true };
   }
 
   res.status(healthy ? 200 : 503).json({
@@ -1132,6 +1250,28 @@ async function startServer() {
     console.log('');
   }
 
+  // Postgres (cuentas de usuario, Fase 2bis) — a diferencia de Redis, no configurar DATABASE_URL es
+  // un modo válido (el resto de la app sigue funcionando igual, solo /auth/* queda deshabilitado, ver
+  // requireDbEnabled más arriba). Pero SI está configurada, aplica el mismo criterio de "fallar
+  // rápido" que Redis: un login/registro roto en silencio es peor que frenar el arranque.
+  if (db.isEnabled()) {
+    try {
+      await db.testConnection();
+      await db.runMigrations();
+      console.log('🐘 Postgres: conectado y migraciones al día. Registro/login habilitados.');
+    } catch (err) {
+      console.error('');
+      console.error('💥 No se pudo conectar a Postgres (o correr las migraciones) — el server NO va a arrancar:');
+      console.error(`   ${err.message}`);
+      console.error('   Revisá DATABASE_URL, o quitala del .env si todavía no querés habilitar cuentas de usuario.');
+      console.error('');
+      process.exit(1);
+    }
+  } else {
+    console.log('👤 DATABASE_URL no configurada — las cuentas de usuario (registro/login) están deshabilitadas.');
+    console.log('   El resto de la app sigue funcionando igual (salas anónimas por hostToken, como hasta ahora).');
+  }
+
   server.listen(PORT, () => {
     console.log(`MovieNight corriendo en http://localhost:${PORT}`);
 
@@ -1209,6 +1349,7 @@ function gracefulShutdown(signal) {
   setTimeout(async () => {
     io.close(); // corta todas las conexiones de Socket.io activas
     await roomStore.closeConnection(); // cierra la conexión a Redis prolijamente (QUIT en vez de matar el socket)
+    await db.closeConnection(); // cierra el pool de Postgres prolijamente (Fase 2bis)
     console.log('👋 MovieNight cerrado.');
     process.exit(0);
   }, SHUTDOWN_GRACE_MS);
