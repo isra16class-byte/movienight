@@ -1,9 +1,15 @@
-# 📎 Contexto rápido — MovieNight
+# 📎 Memoria del proyecto (activa) — MovieNight
 
 **Leé esto primero** al retomar el proyecto (vos o una IA). Es un resumen corto a
-propósito — el detalle completo, versión por versión, está en
+propósito, y es el que se sigue actualizando de ahora en adelante — el detalle
+histórico completo, versión por versión, quedó archivado en
 `docs/historico/MEMORIA.md` (largo, ~1850 líneas) y `docs/historico/CHANGELOG.md`,
 pero para arrancar a trabajar no hace falta leer eso de entrada.
+
+Cada cambio importante que se haga de ahora en adelante debería:
+1. Actualizar este archivo si cambia algo de lo esencial (arquitectura, roles, riesgos).
+2. Agregar una entrada en `docs/CHANGELOG.md` (el nuevo, no el archivado).
+
 
 ---
 
@@ -34,9 +40,10 @@ movienight/
     room.html              # La sala: reproductor, chat, controles (la mayoría de la lógica de cliente vive acá)
     style.css, sw.js, manifest.webmanifest
   docs/
-    CONTEXTO.md            # Este archivo
+    MEMORIA.md              # Este archivo (resumen activo — se actualiza)
+    CHANGELOG.md             # Historial de cambios activo (nuevas entradas van acá)
     PLAN-PRODUCCION.md      # Roadmap de robustez/seguridad/infra para producción
-    historico/               # Registro detallado (MEMORIA.md, CHANGELOG.md) — consultar solo si hace falta el porqué histórico de algo
+    historico/               # Registro archivado (MEMORIA.md, CHANGELOG.md viejos) — consultar solo si hace falta el porqué histórico de algo
 ```
 
 ## Modelo de datos (en memoria, `server.js`)
@@ -86,7 +93,7 @@ mover la barra de progreso — cualquier intento se revierte.
 ## Cómo se trabaja en este repo
 
 - El asistente (IA) no hace push directo. Flujo real: clona el repo → hace el cambio → commit local → genera un patch con `git format-patch -1 HEAD` → lo entrega como archivo descargable → el usuario lo aplica con `git am nombre.patch` y hace `git push` él mismo.
-- Cada cambio importante debería reflejarse en `docs/CONTEXTO.md` (este archivo, si cambia algo de lo esencial) y, si se quiere dejar registro detallado del porqué, ampliarse en `docs/historico/MEMORIA.md` / `docs/historico/CHANGELOG.md`.
+- Cada cambio importante debería reflejarse acá (este archivo, `docs/MEMORIA.md`, si cambia algo esencial) y como entrada nueva en `docs/CHANGELOG.md` — no en los archivos de `docs/historico/`, que quedaron congelados como registro del estado anterior a esta reorganización.
 
 ## Por dónde seguir
 

@@ -2,7 +2,7 @@
 
 Este documento junta, en un solo lugar, todo lo que habría que resolver para pasar
 MovieNight de "proyecto casero para un grupo de amigos" (estado actual, ver
-`docs/CONTEXTO.md` y, para el detalle completo, `docs/historico/MEMORIA.md`) a
+`docs/MEMORIA.md` y, para el detalle completo, `docs/historico/MEMORIA.md`) a
 una app en **producción real**: con usuarios que no controlás vos,
 sin depender de que tu compu esté prendida, y sin sorpresas de costo o de caída de
 servicio.
@@ -242,7 +242,7 @@ Si hay que elegir un orden mínimo viable:
 ---
 
 *Este documento es un plan, no un estado — a medida que se vaya resolviendo cada
-punto, tacharlo acá y reflejar el cambio en `docs/CONTEXTO.md` (que describe el
+punto, tacharlo acá y reflejar el cambio en `docs/MEMORIA.md` (que describe el
 estado *actual* del proyecto, pensado para lectura rápida) y en
-`docs/historico/CHANGELOG.md` (que acumula el historial completo), siguiendo el
+`docs/CHANGELOG.md` (donde van las nuevas entradas de ahora en adelante), siguiendo el
 mismo criterio que ya usa el proyecto para el resto de los cambios.*

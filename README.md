@@ -211,11 +211,12 @@ movienight/
     room.html              # Página de la sala (reproductor, chat, controles)
     uploads/                # Videos subidos (se genera solo, no se sube a git)
   docs/
-    CONTEXTO.md            # Resumen corto para retomar el proyecto rápido (arquitectura, roles, riesgos)
+    MEMORIA.md              # Resumen activo para retomar el proyecto rápido (arquitectura, roles, riesgos) — leer primero
+    CHANGELOG.md             # Historial de cambios activo (nuevas entradas van acá)
     PLAN-PRODUCCION.md      # Plan por fases de todo lo pendiente para llevar esto a producción real
     historico/
-      MEMORIA.md            # Registro histórico detallado, versión por versión (largo, ya no es el punto de entrada)
-      CHANGELOG.md           # Historial cronológico completo de cambios
+      MEMORIA.md            # Registro histórico detallado, versión por versión (largo, archivado)
+      CHANGELOG.md           # Historial cronológico completo hasta la reorganización de docs (archivado)
 ```
 
 ## Cómo funciona por dentro
