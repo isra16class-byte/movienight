@@ -36,6 +36,21 @@ module.exports = {
       min_uptime: '30s',
       max_restarts: 10,
 
+      // --- kill_timeout: no matar el proceso antes de que termine su propio graceful shutdown ----
+      // Por default PM2 espera solo ~1600ms tras SIGTERM antes de mandar SIGKILL. `server.js` tiene
+      // su propio margen prolijo (`SHUTDOWN_GRACE_MS`, default 5000ms — ver sección "Graceful
+      // shutdown" más abajo) para avisarle a los clientes conectados y cerrar Redis con `QUIT` en vez
+      // de cortar la conexión de un hachazo. Sin este valor, PM2 mata el proceso a la fuerza en medio
+      // de ese margen: el banner llega a los clientes, pero el cierre prolijo de Redis nunca llega a
+      // ejecutarse. 8000ms deja margen de sobra sobre los 5000ms default de SHUTDOWN_GRACE_MS (y
+      // sobre el valor que se le pase por variable de entorno, si se cambia) para que el proceso
+      // termine solo con `process.exit(0)` antes de que PM2 tenga que intervenir.
+      //
+      // Si se cambia SHUTDOWN_GRACE_MS por variable de entorno a un valor mayor a ~6-7s, subir este
+      // número también — no se leen automáticamente el uno al otro porque ecosystem.config.js corre
+      // en el proceso de PM2, separado del proceso de Node que lee la variable de entorno.
+      kill_timeout: 8000,
+
       // Logs: PM2 ya junta stdout/stderr por su cuenta (`pm2 logs`) — no hace falta redirigir a
       // archivos acá para el alcance actual del proyecto (la Fase 4, observabilidad, es donde
       // correspondería pensar en logs estructurados/rotación si hiciera falta).

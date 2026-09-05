@@ -10,6 +10,31 @@ si hace falta, puede ir en el mensaje de commit).
 
 ---
 
+## 2026-09-05 — Fix: PM2 mataba el proceso antes de que terminara el graceful shutdown
+
+- `ecosystem.config.js`: agregado `kill_timeout: 8000` (PM2). Sin esto, PM2
+  manda `SIGKILL` a los ~1.6s por default tras un `pm2 stop`/`pm2 restart`/
+  `pm2 reload`, muy por debajo del margen prolijo de `SHUTDOWN_GRACE_MS`
+  (5000ms por default, ver Fase 1.4) que usa `server.js` para avisar a los
+  clientes conectados y cerrar Redis con `QUIT` en vez de cortar la conexión
+  de golpe. En la práctica: el banner de "servidor reiniciando" llegaba a
+  los clientes, pero el cierre prolijo de Redis nunca alcanzaba a ejecutarse
+  — PM2 mataba el proceso primero.
+- Encontrado probando manualmente en Windows (PM2 + `pm2:stop`/`pm2:restart`)
+  durante una verificación de la Fase 1 ya completa. Si se cambia
+  `SHUTDOWN_GRACE_MS` por variable de entorno a más de ~6-7s, hay que subir
+  `kill_timeout` en `ecosystem.config.js` también — son dos configuraciones
+  independientes, en procesos distintos (PM2 vs Node), y no se leen una a la
+  otra automáticamente.
+- `README.md`: agregada nota en la sección "Proceso supervisado" explicando
+  esto mismo, para que no se pierda la próxima vez que se toque
+  `SHUTDOWN_GRACE_MS`.
+- Pendiente de confirmar en Linux (donde señales POSIX son más confiables
+  que en Windows — ver nota de la sesión anterior en el detalle de abajo):
+  repetir la prueba de `pm2 stop`/`pm2 restart` verificando que el proceso
+  ahora sí espera el margen completo antes de cerrar, en vez de asumir que
+  el comportamiento en Windows es representativo del servidor real.
+
 ## 2026-09-05 — Fase 1.5 del plan de producción: healthcheck (cierra la Fase 1 completa)
 
 - `server.js`: nuevo endpoint `GET /health` (alias `GET /healthz`) — 200 solo

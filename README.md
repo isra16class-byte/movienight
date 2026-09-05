@@ -218,6 +218,12 @@ lo note y lo reinicie a mano. Qué conviene depende de dónde lo hospedes:
   Si el proceso se cae, PM2 lo reinicia solo, con backoff exponencial (para no reintentar en
   loop si el problema es persistente, ej. Redis caído) y un tope de reinicios seguidos antes
   de rendirse y avisar — el detalle de esos números está comentado en `ecosystem.config.js`.
+  También trae `kill_timeout: 8000` — sin esto, PM2 mata el proceso con `SIGKILL` a los
+  ~1.6s por default tras un `pm2 stop`/`pm2 restart`, antes de que el servidor termine su
+  propio cierre prolijo (`SHUTDOWN_GRACE_MS`, 5s por default — ver sección de graceful
+  shutdown abajo), dejando la conexión a Redis sin cerrarse bien. Si cambiás
+  `SHUTDOWN_GRACE_MS` a un valor mayor a ~6-7s, subí `kill_timeout` en `ecosystem.config.js`
+  también (son dos configuraciones independientes, en procesos distintos).
 - **Railway / Render / Fly.io o similar**: no hace falta nada de lo de arriba. Estas
   plataformas ya reinician el proceso solas si crashea, usando `npm start` como comando de
   arranque — `ecosystem.config.js` no se usa en este caso.

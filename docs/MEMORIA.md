@@ -147,6 +147,14 @@ con configuración de **PM2** para el caso de VPS propio (`npm run pm2:start`,
 (`min_uptime` + `max_restarts`) para no loopear infinito si el problema es
 persistente (ej. Redis caído). Si en cambio se hostea en Railway/Render/Fly.io,
 no hace falta nada de esto — ya reinician el proceso solos usando `npm start`.
+**Fix agregado (2026-09-05, encontrado verificando la Fase 1 en Windows)**:
+faltaba `kill_timeout: 8000` en `ecosystem.config.js` — sin esto, el
+`SIGKILL` por default de PM2 (~1.6s) llegaba antes que el margen prolijo de
+`SHUTDOWN_GRACE_MS` (5s, ver Fase 1.4 abajo), matando el proceso a mitad del
+cierre ordenado de Redis. Si se cambia `SHUTDOWN_GRACE_MS`, hay que subir
+`kill_timeout` en consecuencia (son dos configs independientes). Falta
+confirmar en Linux — el comportamiento de señales en Windows es menos fiable
+y esto se detectó ahí.
 
 **Fase 1.2 (manejo de errores no capturados) ya resuelta (2026-09-05)**:
 `process.on('uncaughtException'/'unhandledRejection')` a nivel global, y un
