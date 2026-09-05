@@ -1012,3 +1012,17 @@ function gracefulShutdown(signal) {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM')); // lo que manda `pm2 stop`/`pm2 restart`, y la mayoría de los hostings al redeployar
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));   // Ctrl+C en una terminal (desarrollo local)
+
+// Windows no entrega señales POSIX reales: Node y PM2 documentan que ahí SIGTERM/SIGINT pueden
+// terminar el proceso incondicionalmente en vez de disparar los handlers de arriba (PM2 termina
+// forzando el cierre con `taskkill /T /F`) — confirmado en este proyecto: probando en Windows,
+// `pm2 stop`/`pm2 restart` cortaban el proceso sin loguear nada del shutdown, mientras que un
+// SIGTERM directo en Linux sí disparaba `gracefulShutdown` normalmente. La solución oficial de PM2
+// para este caso es IPC en vez de señales: `shutdown_with_message: true` en ecosystem.config.js hace
+// que, en vez de (o adicionalmente a) la señal, PM2 mande un mensaje de proceso con
+// `{ data: {}, action: 'shutdown' }`, que si el proceso corre bajo PM2 (`process.send` existe) sí le
+// llega de forma confiable en cualquier plataforma. Sin este listener, activar
+// `shutdown_with_message` en la config no alcanza por sí solo (PM2 mandaría el mensaje al vacío).
+process.on('message', (msg) => {
+  if (msg === 'shutdown' || (msg && msg.action === 'shutdown')) gracefulShutdown('mensaje IPC de PM2 (shutdown_with_message)');
+});

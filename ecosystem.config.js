@@ -51,6 +51,18 @@ module.exports = {
       // en el proceso de PM2, separado del proceso de Node que lee la variable de entorno.
       kill_timeout: 8000,
 
+      // --- shutdown_with_message: necesario en Windows, donde las señales no alcanzan --------------
+      // Windows no entrega señales POSIX reales — Node y PM2 documentan que ahí SIGTERM/SIGINT pueden
+      // terminar el proceso incondicionalmente en vez de disparar `process.on('SIGTERM', ...)` (PM2
+      // termina forzando el cierre con `taskkill /T /F`). Confirmado en este proyecto probando en
+      // Windows: `pm2 stop`/`pm2 restart` cortaban el proceso sin loguear nada del shutdown prolijo.
+      // `shutdown_with_message: true` hace que PM2 le mande al proceso un mensaje IPC
+      // (`process.on('message', ...)`, ya implementado en server.js) en vez de depender de la señal —
+      // eso sí funciona igual en Windows y Linux. No reemplaza los listeners de SIGTERM/SIGINT (siguen
+      // ahí, y son los que se disparan si se corre el server sin PM2, ej. `node server.js` +
+      // Ctrl+C/kill directo) — es una vía adicional, más confiable bajo PM2 en cualquier plataforma.
+      shutdown_with_message: true,
+
       // Logs: PM2 ya junta stdout/stderr por su cuenta (`pm2 logs`) — no hace falta redirigir a
       // archivos acá para el alcance actual del proyecto (la Fase 4, observabilidad, es donde
       // correspondería pensar en logs estructurados/rotación si hiciera falta).

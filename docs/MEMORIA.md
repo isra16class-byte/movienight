@@ -152,9 +152,19 @@ faltaba `kill_timeout: 8000` en `ecosystem.config.js` — sin esto, el
 `SIGKILL` por default de PM2 (~1.6s) llegaba antes que el margen prolijo de
 `SHUTDOWN_GRACE_MS` (5s, ver Fase 1.4 abajo), matando el proceso a mitad del
 cierre ordenado de Redis. Si se cambia `SHUTDOWN_GRACE_MS`, hay que subir
-`kill_timeout` en consecuencia (son dos configs independientes). Falta
-confirmar en Linux — el comportamiento de señales en Windows es menos fiable
-y esto se detectó ahí.
+`kill_timeout` en consecuencia (son dos configs independientes). **Ese fix
+no alcanzaba en Windows**: confirmado (con ayuda de GitHub Copilot
+investigando issues del propio repo de PM2) que Windows no entrega señales
+POSIX reales — `pm2 stop`/`pm2 restart` ahí terminan forzando el cierre con
+`taskkill /T /F` sin disparar nunca `process.on('SIGTERM', ...)`, así que
+ningún valor de `kill_timeout` lo iba a arreglar. Se agregó la vía oficial
+de PM2 para este caso: `shutdown_with_message: true` en
+`ecosystem.config.js` + un listener `process.on('message', ...)` en
+`server.js` que reacciona al mensaje IPC `shutdown` llamando a la misma
+`gracefulShutdown()` — probado con `child_process.fork` simulando el
+mensaje de PM2: cierre prolijo en 5.02s, igual que un `SIGTERM` directo en
+Linux. Los listeners de `SIGTERM`/`SIGINT` siguen intactos para cuando se
+corre sin PM2.
 
 **Fase 1.2 (manejo de errores no capturados) ya resuelta (2026-09-05)**:
 `process.on('uncaughtException'/'unhandledRejection')` a nivel global, y un

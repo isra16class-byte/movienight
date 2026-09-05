@@ -10,6 +10,28 @@ si hace falta, puede ir en el mensaje de commit).
 
 ---
 
+## 2026-09-05 — Fix real: graceful shutdown en Windows vía IPC (shutdown_with_message)
+
+- El fix anterior de `kill_timeout` (ver entrada de más abajo) era correcto
+  pero no alcanzaba en Windows: confirmado (investigado con ayuda de GitHub
+  Copilot contra issues del repo oficial de PM2 — PM2 #3555, #4469, #5914)
+  que Windows no entrega señales POSIX reales. `pm2 stop`/`pm2 restart` ahí
+  terminan forzando el cierre del proceso (`taskkill /T /F`) sin que
+  `process.on('SIGTERM', ...)` llegue a dispararse nunca — ningún valor de
+  `kill_timeout` iba a arreglar eso, porque el handler ni siquiera corre.
+- `server.js`: nuevo listener `process.on('message', ...)` que reacciona al
+  mensaje IPC `shutdown` (la vía oficial de PM2 para este caso, que sí
+  funciona igual en Windows y Linux) llamando a la misma `gracefulShutdown()`
+  que ya usaban `SIGTERM`/`SIGINT` — sin duplicar lógica.
+- `ecosystem.config.js`: activado `shutdown_with_message: true`. Los
+  listeners de señales siguen intactos, para cuando se corre el proceso sin
+  PM2 (`node server.js` + Ctrl+C/kill directo).
+- Probado con `child_process.fork` simulando el mensaje IPC que manda PM2:
+  cierre prolijo confirmado en 5.02s (igual que un `SIGTERM` directo en
+  Linux, ya probado antes). Queda pendiente la confirmación end-to-end con
+  PM2 real en Windows (`pm2 stop`/`pm2 restart` + mirar los logs con
+  `--timestamp`).
+
 ## 2026-09-05 — Fix: PM2 mataba el proceso antes de que terminara el graceful shutdown
 
 - `ecosystem.config.js`: agregado `kill_timeout: 8000` (PM2). Sin esto, PM2
