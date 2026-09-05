@@ -10,6 +10,27 @@ si hace falta, puede ir en el mensaje de commit).
 
 ---
 
+## 2026-09-05 — Hallazgo: Cloudflare bloquea subida de video real (413 Payload Too Large)
+
+- Probando en producción real (`sala.movienight-palomitasjuntos.uk`, detrás
+  de Cloudflare): un archivo de prueba de 1KB sube sin problema, pero un
+  video real (mp4 de tamaño normal) devuelve `413 Payload Too Large` con
+  página de error de **Cloudflare** — el request no llega al server.
+  Cloudflare limita el tamaño de request según el plan (100MB en Free/Pro,
+  200MB en Business), independiente de cualquier límite configurado en
+  Multer/Express.
+- Bloqueante para el caso de uso central del proyecto (subir películas de
+  varios GB). Documentado como **Fase 2.7** en `docs/PLAN-PRODUCCION.md`, con
+  la subida directa a R2 vía URL prefirmada (bypasseando el Tunnel para el
+  binario del video) como camino a evaluar — todavía no implementado.
+- De paso, se confirmó que sí funcionan bien en producción real: rate
+  limiting de `join-room` (3 intentos → bloqueo 15min, incluso con la
+  contraseña correcta después de bloqueado) y de chat (8 msj/10s, 4
+  bloqueados de 12 enviados), y persistencia en Redis (sala vieja responde
+  con `videoFile`/`position` correctos).
+- `docs/MEMORIA.md`: agregado a riesgos de seguridad/infra conocidos y a
+  "por dónde seguir".
+
 ## 2026-09-05 — Fase 2.1/2.2 del plan de producción: hashing con bcrypt + rate limiting
 
 - **Hashing de contraseñas (2.1)**: `passwordHash` (sala) y `libraryPasswordHash`

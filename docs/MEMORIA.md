@@ -93,6 +93,13 @@ mover la barra de progreso — cualquier intento se revierte.
   (cuentas reales), no con un parche al esquema actual (ver Fase 0).
 - Sin validación real de tipo de archivo (solo `Content-Type` del navegador).
 - Las salas nunca expiran — se acumulan en memoria y en R2 indefinidamente.
+- **Nuevo (2026-09-05, encontrado probando en producción real)**: subir un
+  video real vía `create-room` devuelve `413 Payload Too Large` de
+  **Cloudflare** (no del server) — el proxy corta el request antes de que
+  llegue a Node. Bloqueante para el caso de uso central del proyecto (subir
+  películas de varios GB). Detalle y camino a evaluar (subida directa a R2
+  con URL prefirmada, sin pasar por el Tunnel) en la Fase 2.7 de
+  `docs/PLAN-PRODUCCION.md`.
 
 ## Cómo se trabaja en este repo
 
@@ -182,6 +189,17 @@ corre sin PM2.
 wrapper genérico (`safeSocketHandler`) envolviendo los handlers de
 `io.on('connection', ...)` en `server.js` — un error en un solo evento de socket
 ya no tira abajo el proceso ni afecta a las demás salas activas.
+
+**Hallazgo bloqueante (2026-09-05)**: probando en producción real
+(`sala.movienight-palomitasjuntos.uk`, detrás de Cloudflare) se confirmó que
+la subida de un video real falla con `413 Payload Too Large` — de Cloudflare,
+no del server — mientras que un archivo de 1KB de prueba sube sin problema.
+El resto del pipeline probado funciona bien: rate limiting de `join-room`
+(3 intentos → bloqueo 15 min, incluso con contraseña correcta después) y de
+chat (8 msj/10s), y persistencia en Redis (una sala vieja responde con su
+`videoFile`/`position` correctos). Queda anotado como Fase 2.7 en
+`docs/PLAN-PRODUCCION.md`, con la subida directa a R2 vía URL prefirmada como
+camino a evaluar — no implementado todavía.
 
 **Fase 1.1 (persistencia externa) ya resuelta (2026-09-05)**: `lib/roomStore.js`
 respalda en Redis lo esencial de cada sala (cinta, posición, contraseñas,

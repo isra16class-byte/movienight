@@ -270,6 +270,49 @@ secundario.
 - [ ] Límite de storage total o de cantidad de videos por biblioteca, para que el
       costo de R2 no crezca sin control con más usuarios.
 
+### 2.7 Límite de tamaño de subida vía Cloudflare Tunnel/Proxy (hallazgo — bloqueante, 2026-09-05)
+- [ ] **Encontrado probando en producción real** (dominio
+      `sala.movienight-palomitasjuntos.uk`, detrás de Cloudflare): un archivo
+      de prueba de 1KB sube sin problema, pero un video real (mp4 de tamaño
+      normal) devuelve `413 Payload Too Large` con página de error de
+      **Cloudflare**, no de Express/Multer — el request ni siquiera llega al
+      server.
+- [ ] **Causa**: Cloudflare (proxied, no solo como túnel "gris") limita el
+      tamaño máximo de request que deja pasar según el plan de la cuenta —
+      100MB en Free/Pro, 200MB en Business, configurable hasta más en
+      Enterprise. Esto es independiente de cualquier límite que se configure
+      en Multer o en Express — el corte pasa *antes* de que el tráfico
+      llegue al proceso Node.
+- [ ] **Por qué es bloqueante**: el caso de uso central del proyecto
+      (`docs/MEMORIA.md`, "Qué es") es subir películas completas — un video
+      de 2 horas en calidad decente pesa varios GB, muy por encima de
+      cualquier límite de Cloudflare en un plan pago razonable. Mientras esto
+      no se resuelva, **la subida de video real no funciona en producción**
+      aunque el resto del pipeline (R2, rate limiting, persistencia) esté
+      correcto.
+- [ ] **Camino a evaluar (no implementado todavía)**: subida **directa a R2**
+      desde el navegador vía **URL prefirmada** (`PutObjectCommand` +
+      `getSignedUrl` de `@aws-sdk/s3-request-presigner`, R2 es compatible con
+      S3), en vez de que el archivo pase por `multer` → server → R2. Así el
+      binario del video nunca atraviesa el Cloudflare Tunnel/proxy que sirve
+      `sala.movienight-palomitasjuntos.uk`, y el límite de payload deja de
+      aplicar (solo viajan por ahí las rutas HTTP livianas: pedir la URL
+      prefirmada, confirmar el upload, crear la sala). Implica cambiar el
+      flujo de `POST /create-room` (hoy recibe el archivo directo) a algo
+      tipo: 1) el cliente pide una URL prefirmada, 2) sube directo a R2 con
+      esa URL, 3) confirma al server que terminó para crear la sala con la
+      key ya subida. Repensar también qué pasa con el modo "disco local"
+      (sin R2 configurado, ver `lib/r2.js`) — ese camino seguiría
+      necesitando pasar por el server, así que probablemente el límite de
+      Cloudflare seguiría aplicando ahí a menos que se resuelva aparte (ej.
+      excluyendo esa ruta del proxy, o aceptando que el modo disco local
+      queda limitado a videos chicos).
+- [ ] Alternativa más simple pero menos flexible: si el dominio se sirve como
+      túnel "gris" (DNS only, sin el proxy naranja de Cloudflare) en vez de
+      proxied, el límite de payload no aplica — a evaluar el trade-off
+      (se pierden protecciones de Cloudflare como DDoS/WAF delante del
+      server).
+
 ---
 
 ## Fase 2bis — Cuentas de usuario reales (agregada tras la decisión de Fase 0)
