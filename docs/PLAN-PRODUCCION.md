@@ -18,25 +18,41 @@ estado mejor y usable, sin necesitar la fase siguiente para funcionar.
 
 ---
 
-## Fase 0 — Antes de tocar código: decisiones de arquitectura
+## Fase 0 — Decisiones de arquitectura ✅ (resuelta el 2026-09-05)
 
-Estas preguntas cambian *cómo* se resuelve todo lo de abajo, conviene responderlas
-primero:
+Estas preguntas cambiaban *cómo* se resuelve todo lo de abajo. Ya están
+respondidas — quedan documentadas acá para no perder el porqué de las fases
+siguientes:
 
-- [ ] **¿Una sola instancia de servidor alcanza, o necesitás escalar horizontalmente
-      (varias instancias detrás de un load balancer)?** Si la respuesta es "una
-      instancia potente alcanza por ahora", te ahorrás toda la sección de Socket.io
-      + Redis adapter de la Fase 3 y podés posponerla.
-- [ ] **¿Va a haber cuentas de usuario reales (login) o se mantiene el modelo actual
-      (nombre + token, sin registro)?** Define si hace falta un sistema de auth
-      completo o alcanza con endurecer el esquema actual (tokens firmados,
-      expiración, etc.).
-- [ ] **¿Multi-tenant (varios "servidores" o "espacios" independientes) o sigue
-      siendo un único servidor con una sola `LIBRARY_PASSWORD` para todos?** Esto
-      determina si hace falta modelar "cuentas"/"organizaciones" en la base de
-      datos o no.
-- [ ] **¿Dónde se hostea?** (VPS propio, Railway, Render, Fly.io, etc.) — condiciona
-      cómo se hace el proceso supervisado, los health checks, y el CI/CD.
+- [x] **¿Una sola instancia alcanza, o hace falta escalar horizontalmente?**
+      → **Una sola instancia alcanza por ahora.** Consecuencia: la **Fase 3
+      completa (Redis adapter de Socket.io, sticky sessions) queda pospuesta**
+      — no hace falta planificarla ni implementarla todavía. Si el uso crece y
+      hace falta escalar más adelante, se retoma esa fase, pero no bloquea nada
+      de lo que sigue.
+- [x] **¿Cuentas reales (login) o se mantiene el modelo actual (nombre + token)?**
+      → **Se agregan cuentas reales.** Esto es el cambio de mayor impacto de
+      esta ronda de decisiones: bastante de lo que estaba anotado como
+      "opcional a futuro" (Fase 6) pasa a ser parte del trabajo real, y
+      **cambia el enfoque de la Fase 2.3** (que hablaba de "endurecer" el
+      `hostToken` actual) — con cuentas reales, tiene más sentido resolver la
+      identidad del host a través de la sesión autenticada del usuario, en vez
+      de parchear el esquema de token anónimo actual. Ver el detalle agregado
+      en Fase 2.3 y la nueva Fase 2bis más abajo.
+- [x] **¿Multi-tenant o un solo servidor con una biblioteca compartida?**
+      → **Sigue siendo un solo servidor, biblioteca compartida entre todos los
+      usuarios.** Aunque haya cuentas reales, no hace falta modelar
+      organizaciones/espacios separados — todo el mundo con cuenta ve la misma
+      biblioteca de videos. Esto simplifica bastante el modelo de datos
+      respecto a lo que se había anotado como posible en Fase 6 (que ese ítem
+      de multi-tenancy queda descartado, no solo pospuesto).
+- [ ] **¿Dónde se hostea?** → **Todavía no decidido.** Mientras tanto, conviene
+      mantener el trabajo de infraestructura (Fase 1) **agnóstico de
+      proveedor**: un `Dockerfile` simple corre igual en un VPS propio que en
+      Railway/Render/Fly.io, y evita atarse a configuración específica de un
+      proveedor antes de tiempo. Retomar este punto antes de la Fase 1.3
+      (proceso supervisado) y 1.5 (healthcheck), que sí tienen detalles que
+      cambian según el hosting elegido.
 
 ---
 
@@ -111,18 +127,12 @@ secundario.
 - [ ] Rutas HTTP en general: agregar `express-rate-limit` como capa base sobre
       todas las rutas públicas, no solo las de upload.
 
-### 2.3 Endurecer el `hostToken`
-- [ ] Hoy es una cadena random sin expiración ni forma de revocación — si se
-      filtra, sirve para siempre. Opciones (de más simple a más robusta):
-  - Agregar expiración (ej. el token vence a las N horas de creada la sala,
-    coherente con que las salas tampoco deberían vivir para siempre — ver 2.6).
-  - Firmarlo como JWT con expiración incluida, en vez de una cadena random +
-    lookup en el store.
-- [ ] Evaluar mover el token de `localStorage` (accesible por cualquier script
-      que corra en esa página, ej. una extensión de navegador maliciosa) a una
-      cookie `httpOnly` — trade-off: más seguro contra XSS, pero requiere manejar
-      el envío distinto en los eventos de socket (hoy se manda explícito en el
-      payload).
+### 2.3 Identidad del host — reemplazada por Fase 2bis (cuentas reales)
+- ~~Endurecer el `hostToken` actual (expiración, JWT, cookie httpOnly)~~ — con
+  la decisión de Fase 0 de agregar **cuentas reales**, no tiene sentido
+  invertir en parchear el esquema de token anónimo actual: la identidad del
+  host pasa a resolverse a través de la sesión autenticada del usuario. Ver
+  **Fase 2bis** más abajo, que reemplaza este ítem.
 
 ### 2.4 Headers de seguridad
 - [ ] Agregar `helmet` (`app.use(helmet())`) para headers estándar (X-Frame-Options,
@@ -156,8 +166,51 @@ secundario.
 
 ---
 
-## Fase 3 — Escalado horizontal (solo si Fase 0 determinó que hace falta más de
-una instancia)
+## Fase 2bis — Cuentas de usuario reales (agregada tras la decisión de Fase 0)
+
+Esto reemplaza lo que antes estaba anotado como "posible, a futuro" en la
+Fase 6 — al confirmarse en Fase 0 que sí va a haber login, este es trabajo
+real, no opcional. Es un cambio de arquitectura más grande que el resto de la
+Fase 2, conviene tratarlo como su propio bloque:
+
+- [ ] **Modelo de usuario**: tabla/colección `users` (necesita la base de
+      datos real de todos modos por la Fase 1.1 — aprovechar el mismo motor
+      si es Postgres, o uno separado si se prefiere Mongo/otro para esto y
+      Redis solo para las salas efímeras).
+- [ ] **Registro y login**: email + contraseña como mínimo (hasheada con
+      bcrypt/argon2, mismo criterio que 2.1). Evaluar si conviene sumar login
+      social (Google, etc.) o dejarlo para más adelante — no es necesario para
+      el primer corte.
+- [ ] **Sesiones**: reemplazar el `hostToken` en `localStorage` por una sesión
+      de servidor real (cookie `httpOnly` + `secure`, con una librería como
+      `express-session` respaldada en Redis, o JWT de corta duración con
+      refresh). Esto también resuelve de raíz el problema de "no hay forma de
+      revocar el token" que tenía anotado el esquema anterior.
+- [ ] **Quién puede crear salas**: definir si cualquier cuenta registrada
+      puede crear una sala (más simple) o si hace falta algún tipo de
+      verificación adicional (ej. verificar el email) antes de dejar subir
+      videos — relevante porque cada sala nueva implica storage en R2, que
+      tiene costo.
+- [ ] **Migración del rol de host**: `room.hostSocketId` ya es la fuente de
+      verdad de "quién controla la sala ahora" (ver `docs/MEMORIA.md`, sección
+      de roles) — eso no cambia. Lo que cambia es cómo se prueba "soy el
+      dueño de esta sala": en vez de comparar un `hostToken` de
+      `localStorage`, se valida contra el `userId` de la sesión autenticada.
+- [ ] **La biblioteca deja de depender de una única `LIBRARY_PASSWORD`
+      compartida**: con cuentas reales, tiene más sentido que el acceso a
+      subir/borrar videos se valide por sesión de usuario logueado, no por una
+      contraseña de servidor única. (Sigue siendo una sola biblioteca
+      compartida entre todos — eso ya se decidió en Fase 0 — pero el *control
+      de acceso* a esa biblioteca puede ser por cuenta en vez de por
+      contraseña única.)
+- [ ] **Recuperación de contraseña**: flujo mínimo de "olvidé mi contraseña"
+      (requiere poder mandar emails — evaluar un servicio simple tipo
+      Resend/Postmark/SES en vez de armar SMTP propio).
+
+---
+
+## Fase 3 — Escalado horizontal (pospuesta — ver decisión de Fase 0: una sola
+instancia alcanza por ahora. Queda documentada para cuando haga falta retomarla)
 
 - [ ] Adoptar `@socket.io/redis-adapter` para que los eventos de Socket.io
       (sync, chat, reacciones) se propaguen entre instancias — sin esto, dos
@@ -209,35 +262,41 @@ una instancia)
 
 ---
 
-## Fase 6 — Producto (solo si aplica según las respuestas de la Fase 0)
+## Fase 6 — Producto (actualizada tras la decisión de Fase 0)
 
-Estas son más grandes y dependen de qué tan lejos se quiera llevar el proyecto —
-no son necesarias para "producción estable", pero sí para "producto real" con
-usuarios que no se conocen entre sí:
-
-- [ ] Sistema de cuentas real (login), si el modelo "nombre + token en
-      localStorage" deja de alcanzar.
-- [ ] Multi-tenancy, si va a haber más de un "servidor lógico" con su propia
-      biblioteca/contraseña independiente.
-- [ ] Términos de uso / política de privacidad, si hay usuarios que no son
-      conocidos personales — sobre todo relevante porque se almacenan videos que
-      podrían tener derechos de autor de terceros.
+- ~~Sistema de cuentas real (login)~~ → **decidido en Fase 0: sí.** Movido a
+  la **Fase 2bis**, ya no es un "posible a futuro".
+- ~~Multi-tenancy~~ → **decidido en Fase 0: no hace falta.** Sigue siendo un
+  solo servidor con una biblioteca compartida entre todos los usuarios,
+  incluso con cuentas reales. Descartado de este plan (no solo pospuesto).
+- [ ] **Términos de uso / política de privacidad** — sigue pendiente de
+      decidir. Se vuelve más relevante ahora que va a haber cuentas reales
+      (hay datos personales de por medio: email, contraseña) y sigue siendo
+      relevante por el tema de derechos de autor de los videos almacenados.
 
 ---
 
 ## Resumen — por dónde empezar
 
-Si hay que elegir un orden mínimo viable:
+Con las decisiones de Fase 0 ya tomadas, el orden recomendado queda así:
 
 1. **Fase 1 completa** (persistencia + manejo de errores + supervisión + healthcheck)
    — sin esto, cualquier otra mejora es sobre una base que se puede caer sin aviso
-   y perder todo.
-2. **Fase 2.1 y 2.2** (hashing con bcrypt + rate limiting) — son cambios acotados
-   y cierran los riesgos de seguridad más baratos de explotar.
-3. **Fase 2.6** (expiración de salas/storage) — antes de que haya usuarios reales
+   y perder todo. La base de datos que se elija acá (Fase 1.1) conviene pensarla
+   ya teniendo en cuenta que también va a alojar el modelo de usuarios de la
+   Fase 2bis.
+2. **Fase 2.1 y 2.2** (hashing con bcrypt + rate limiting) — cambios acotados
+   que cierran los riesgos de seguridad más baratos de explotar, y el hashing
+   con bcrypt se reutiliza directo para las contraseñas de cuentas de usuario.
+3. **Fase 2bis** (cuentas reales) — es el cambio de mayor superficie de esta
+   ronda; conviene encararlo después de tener persistencia sólida (Fase 1) y
+   antes de invertir más en el esquema de sala/host actual, ya que cambia
+   cómo se identifica al host.
+4. **Fase 2.6** (expiración de salas/storage) — antes de que haya usuarios reales
    generando costo de R2 sin control.
-4. El resto (Fase 3 en adelante) según necesidad real de escala y alcance del
-   producto, no por adelantado.
+5. **Fase 3 queda pospuesta** (una instancia alcanza por ahora, según Fase 0) y
+   **Fase 6 de multi-tenancy queda descartada** — no vuelven a este orden salvo
+   que cambie la necesidad real de escala.
 
 ---
 

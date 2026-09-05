@@ -98,7 +98,15 @@ mover la barra de progreso — cualquier intento se revierte.
 ## Por dónde seguir
 
 Ver `docs/PLAN-PRODUCCION.md` para el roadmap completo de qué falta para
-producción, con las fases priorizadas. El resumen: primero persistencia externa
-+ manejo de errores + supervisión de proceso (Fase 1), después hashing de
-contraseñas + rate limiting + expiración de salas (Fase 2), y el resto según la
-escala real que se necesite.
+producción, con las fases priorizadas. Decisiones de arquitectura ya tomadas
+(Fase 0, 2026-09-05): **una sola instancia alcanza** (no hace falta escalar
+horizontalmente todavía — Fase 3 pospuesta), **va a haber cuentas reales de
+usuario** (login — esto es ahora la Fase 2bis del plan, y reemplaza la idea
+original de solo "endurecer" el `hostToken` anónimo), **sigue siendo un solo
+servidor con una biblioteca compartida** (no hace falta multi-tenancy), y el
+**hosting todavía no está decidido** (mantener el trabajo de infraestructura
+agnóstico de proveedor mientras tanto).
+
+Orden recomendado: persistencia externa + manejo de errores + supervisión de
+proceso (Fase 1) → hashing de contraseñas + rate limiting (Fase 2.1/2.2) →
+sistema de cuentas reales (Fase 2bis) → expiración de salas/storage (Fase 2.6).

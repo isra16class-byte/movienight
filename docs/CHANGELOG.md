@@ -10,6 +10,26 @@ si hace falta, puede ir en el mensaje de commit).
 
 ---
 
+## 2026-09-05 — Fase 0 del plan de producción resuelta
+
+Decisiones de arquitectura tomadas (ver `docs/PLAN-PRODUCCION.md`, Fase 0):
+
+- Una sola instancia de servidor alcanza por ahora → **Fase 3 (escalado
+  horizontal con Redis adapter) queda pospuesta.**
+- Va a haber **cuentas de usuario reales (login)** → se agregó la **Fase 2bis**
+  al plan (modelo de usuario, registro/login, sesiones, migración de la
+  identidad de host, recuperación de contraseña). Esto reemplaza el ítem 2.3
+  original ("endurecer el `hostToken`") y el ítem correspondiente que estaba
+  anotado como opcional en la Fase 6.
+- Sigue siendo **un solo servidor con una biblioteca compartida** entre todos
+  los usuarios (no multi-tenant) → se descartó ese ítem de la Fase 6.
+- El **hosting todavía no está decidido** → se dejó anotado mantener el
+  trabajo de infraestructura de la Fase 1 agnóstico de proveedor mientras
+  tanto (ej. Docker en vez de configuración específica de una plataforma).
+
+Se actualizó `docs/MEMORIA.md` con el resumen de estas decisiones y el nuevo
+orden recomendado de fases.
+
 ## 2026-09-05 — Reorganización de la documentación
 
 - Se archivaron `MEMORIA.md` y `CHANGELOG.md` originales en `docs/historico/`
