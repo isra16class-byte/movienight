@@ -10,6 +10,49 @@ si hace falta, puede ir en el mensaje de commit).
 
 ---
 
+## 2026-09-05 — Fase 2.1/2.2 del plan de producción: hashing con bcrypt + rate limiting
+
+- **Hashing de contraseñas (2.1)**: `passwordHash` (sala) y `libraryPasswordHash`
+  migran de `sha256` sin salt a **bcrypt** (10 rounds), vía `bcryptjs` (JS
+  puro, sin bindings nativos — evita sumar un paso de build/toolchain al
+  instalar en VPS, Windows o PaaS). `server.js`: nueva `verifyPassword(pw,
+  hash)` que reconoce tanto el hash nuevo (bcrypt) como el viejo (sha256, de
+  salas creadas antes de este cambio) y devuelve `needsRehash: true` si
+  matcheó con el esquema viejo — el caller re-hashea con bcrypt y persiste el
+  hash nuevo en Redis. Migración transparente, sin resetear ninguna
+  contraseña existente: quien ya tenía una sala con contraseña no nota nada,
+  y los hashes viejos van desapareciendo solos con el uso normal.
+  `LIBRARY_PASSWORD` no necesita esta migración (no se persiste entre
+  reinicios) — se hashea fresco con bcrypt dentro de `startServer()`, antes
+  de aceptar conexiones.
+- **Rate limiting (2.2)**:
+  - `join-room`: nuevo límite de intentos de contraseña (3 intentos, bloqueo
+    de 15 min), mismo criterio que ya usaba `requireUploadAuth` (V19) —
+    extraído a un helper genérico (`makeAttemptLimiter()`) para no duplicar
+    la lógica. Clave = `ip:roomId` (no solo `ip`): cada sala tiene su propia
+    contraseña, así que errar la de una no debería bloquear el intento de
+    entrar a cualquier otra desde la misma IP.
+  - `chat-message`: límite de flood por socket (ventana deslizante, máx. 8
+    mensajes cada 10s). Avisa solo a quien manda de más (`chat-rate-limited`),
+    sin tocar el chat de los demás ni el historial.
+  - Nueva capa general con `express-rate-limit` (300 req/5min por IP) sobre
+    las rutas HTTP de la API, montada después de `express.static` y
+    `express.json()` para no afectar el streaming de video ni el healthcheck
+    (excluido explícitamente); el handshake de Socket.io tampoco pasa por
+    acá (intercepta su propio path antes de llegar a Express).
+  - `safeSocketHandler` ahora soporta handlers async (necesario para
+    `join-room`, que pasó a usar bcrypt).
+- Probado manualmente end-to-end con un cliente de Socket.io real: 3 intentos
+  de contraseña incorrecta en `join-room` bloquean, y el 4° intento (aunque
+  sea la contraseña correcta) también queda bloqueado durante la ventana;
+  12 mensajes de chat seguidos → 8 llegan, 4 quedan bloqueados con el aviso
+  correspondiente. La migración sha256→bcrypt se probó de forma unitaria
+  (hash viejo + contraseña correcta → válido y marca `needsRehash`; hash
+  viejo + contraseña incorrecta → inválido, sin marcar migración).
+- `docs/PLAN-PRODUCCION.md`: tachados los ítems de Fase 2.1 y 2.2.
+  `docs/MEMORIA.md`: actualizada la sección de riesgos de seguridad
+  conocidos y "por dónde seguir" (próximo paso: Fase 2bis, cuentas reales).
+
 ## 2026-09-05 — Fix real: graceful shutdown en Windows vía IPC (shutdown_with_message)
 
 - El fix anterior de `kill_timeout` (ver entrada de más abajo) era correcto

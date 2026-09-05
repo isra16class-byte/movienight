@@ -54,7 +54,8 @@ rooms = {
   [roomId]: {
     videoFile, subtitleFile,       // rutas locales o keys de R2
     viewers, hostToken, hostSocketId,
-    passwordHash,                   // sha256 sin salt — pendiente migrar a bcrypt (ver plan de producción)
+    passwordHash,                   // bcrypt (Fase 2.1) — hashes viejos en sha256 se migran solos
+                                     // al próximo login exitoso, ver verifyPassword() en server.js
     mutedUserIds: Set,
     userNames: Map,
     bufferingSockets: Set,
@@ -85,9 +86,11 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Riesgos de seguridad conocidos (resumen — detalle y plan de acción en `docs/PLAN-PRODUCCION.md`)
 
-- Contraseñas (sala y biblioteca) con `sha256` sin salt.
-- Sin rate-limiting en `join-room` ni en el chat.
-- `hostToken` sin expiración, viaja en texto plano.
+- ~~Contraseñas (sala y biblioteca) con `sha256` sin salt~~ → resuelto en
+  Fase 2.1 (bcrypt, con migración transparente desde hashes viejos).
+- ~~Sin rate-limiting en `join-room` ni en el chat~~ → resuelto en Fase 2.2.
+- `hostToken` sin expiración, viaja en texto plano — se resuelve en Fase 2bis
+  (cuentas reales), no con un parche al esquema actual (ver Fase 0).
 - Sin validación real de tipo de archivo (solo `Content-Type` del navegador).
 - Las salas nunca expiran — se acumulan en memoria y en R2 indefinidamente.
 
@@ -115,8 +118,16 @@ sistema de cuentas reales (Fase 2bis) → expiración de salas/storage (Fase 2.6
 **Fase 1 completa (2026-09-05)**: los cinco puntos (persistencia externa 1.1,
 manejo de errores no capturados 1.2, proceso supervisado 1.3, graceful
 shutdown 1.4, healthcheck 1.5) ya están resueltos — el detalle de cada uno
-está más abajo. Sigue el orden recomendado: **Fase 2.1/2.2** (hashing +
-rate limiting) es el próximo paso.
+está más abajo.
+
+**Fase 2.1/2.2 completas (2026-09-05)**: hashing de contraseñas con bcrypt
+(con migración transparente desde los hashes `sha256` viejos, sin resetear
+contraseñas existentes) y rate limiting en `join-room` (3 intentos/15min,
+igual criterio que ya usaba la subida de cintas), en el chat (flood, 8
+msj/10s por socket) y una capa general sobre las rutas HTTP de la API. Sigue
+el orden recomendado: **Fase 2bis** (cuentas reales) es el próximo paso —
+es el cambio de mayor superficie de esta ronda, conviene encararlo antes de
+seguir invirtiendo en el esquema actual de `hostToken`/sala anónima.
 
 **Fase 1.5 (healthcheck) ya resuelta (2026-09-05)**: `GET /health` (alias
 `/healthz`) en `server.js` — 200 solo si el proceso responde Y cada

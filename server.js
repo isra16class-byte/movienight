@@ -6,6 +6,8 @@ const crypto = require('crypto');
 const multer = require('multer');
 const { PassThrough } = require('stream');
 const { Server } = require('socket.io');
+const bcrypt = require('bcryptjs');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 
 // --- Carga variables desde un .env en la raíz del proyecto, si existe (V10) --------------------
 // No se agregó la librería `dotenv` a propósito: el proyecto ya se mantiene con solo 3 dependencias
@@ -96,6 +98,14 @@ function clientIp(req) {
   return req.headers['cf-connecting-ip'] || req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
 }
 
+// Mismo criterio que clientIp(req) de arriba, pero para conexiones de Socket.io — usado por el
+// rate-limiting de intentos de contraseña de sala en 'join-room' (Fase 2.2 del plan de producción).
+// El handshake de Socket.io no pasa por el middleware `trust proxy` de Express, así que acá se lee
+// directo el header que agrega Cloudflare.
+function socketClientIp(socket) {
+  return socket.handshake.headers['cf-connecting-ip'] || socket.handshake.address || 'unknown';
+}
+
 const UPLOAD_DIR = path.join(__dirname, 'public', 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -114,6 +124,39 @@ app.use(express.static(path.join(__dirname, 'public'), {
 }));
 app.use(express.json());
 
+// --- Rate limiting general de rutas HTTP (Fase 2.2 del plan de producción) -----------------------
+// Capa base sobre TODAS las rutas de la API (creación de sala, biblioteca, subtítulos, etc.), además
+// de los límites específicos que ya existían (requireUploadAuth, y ahora join-room). Se define ACÁ,
+// después de express.static y express.json(), a propósito:
+//   - Después de express.static: los archivos estáticos (HTML/CSS/JS y los videos servidos desde
+//     public/uploads) ya quedaron resueltos por ese middleware antes de llegar acá, así que nunca
+//     pasan por este limitador — clave para no cortar la reproducción de video, que hace muchos
+//     requests de tipo Range por segundo (eso NO es tráfico de "API").
+//   - El handshake de Socket.io tampoco pasa por acá: socket.io intercepta las requests a su propio
+//     path (/socket.io/) ANTES de que lleguen a Express (ver `new Server(server)` más abajo), así
+//     que este limitador nunca ve tráfico de sync/chat/reacciones en tiempo real.
+// Ventana y tope generosos a propósito (300 requests/5min por IP): esto es una red de contención
+// contra abuso/bugs de cliente, no el límite fino de cada acción puntual (eso lo sigue haciendo
+// requireUploadAuth para subir cintas, y el limitador nuevo de join-room para contraseñas de sala).
+// `keyGenerator` reusa clientIp() (arriba) en vez del default de la librería, para ser consistentes
+// con el resto del proyecto: preferir el header propio de Cloudflare por sobre `req.ip`.
+const generalApiLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  // v8 de express-rate-limit exige pasar cualquier IP por este helper (trunca IPv6 a su /64, así un
+  // mismo cliente no puede esquivar el límite rotando de dirección dentro del mismo bloque) — no
+  // hacerlo con un keyGenerator custom es un error de validación al arrancar, no solo un warning.
+  keyGenerator: (req) => ipKeyGenerator(clientIp(req)),
+  // El healthcheck (Fase 1.5) puede consultarse seguido por un orquestador/hosting — no tiene
+  // sentido que compita por el mismo cupo que el resto de la API ni que un chequeo automatizado
+  // termine bloqueado.
+  skip: (req) => req.path === '/health' || req.path === '/healthz',
+  message: { error: 'Demasiadas solicitudes desde esta IP. Esperá un momento y volvé a intentar.' }
+});
+app.use(generalApiLimiter);
+
 // --- Contraseña de biblioteca (V9) --------------------------------------------------------------
 // Antes, /api/uploads (listar) y DELETE /api/uploads/:filename (borrar) no pedían nada: cualquiera
 // que tuviera la URL base del server —por ejemplo, alguien a quien le reenviaron el link de UNA sala—
@@ -129,14 +172,22 @@ app.use(express.json());
 // el chat que usen, no por el mismo link de la sala).
 const LIBRARY_PASSWORD = process.env.LIBRARY_PASSWORD || crypto.randomBytes(4).toString('hex');
 const libraryPasswordWasGenerated = !process.env.LIBRARY_PASSWORD;
-const libraryPasswordHash = hashPassword(LIBRARY_PASSWORD);
+// Se hashea con bcrypt de forma asíncrona dentro de startServer() (más abajo), ANTES de aceptar
+// conexiones (server.listen) — no se persiste en ningún lado (LIBRARY_PASSWORD siempre sale de la
+// variable de entorno o se genera de nuevo al arrancar), así que a diferencia de room.passwordHash
+// no hace falta lógica de migración acá: siempre se calcula fresco con el esquema nuevo.
+let libraryPasswordHash = null;
 
-function requireLibraryAuth(req, res, next) {
-  const provided = req.get('x-library-password') || req.query.libraryPassword || (req.body && req.body.libraryPassword) || '';
-  if (hashPassword(provided) !== libraryPasswordHash) {
-    return res.status(401).json({ error: 'Contraseña de biblioteca requerida o incorrecta.' });
+async function requireLibraryAuth(req, res, next) {
+  try {
+    const provided = req.get('x-library-password') || req.query.libraryPassword || (req.body && req.body.libraryPassword) || '';
+    const { valid } = await verifyPassword(provided, libraryPasswordHash);
+    if (!valid) return res.status(401).json({ error: 'Contraseña de biblioteca requerida o incorrecta.' });
+    next();
+  } catch (err) {
+    console.error('⚠️  Error verificando la contraseña de biblioteca:', err.message);
+    res.status(500).json({ error: 'Error interno verificando la contraseña.' });
   }
-  next();
 }
 
 // --- Contraseña + límite de intentos para SUBIR una cinta nueva (V19) ----------------------------
@@ -154,48 +205,79 @@ function requireLibraryAuth(req, res, next) {
 // que Multer empiece a leer/subir el archivo. El cliente manda la contraseña por el header
 // `x-library-password` (no por un campo del FormData): así queda disponible para este middleware
 // antes de que arranque el parseo del multipart/form-data que trae el video.
-const UPLOAD_AUTH_MAX_ATTEMPTS = 3;
-const UPLOAD_AUTH_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutos bloqueado tras agotar los 3 intentos
-const uploadAuthAttempts = new Map(); // ip -> { count, lockedUntil }
+const AUTH_MAX_ATTEMPTS = 3;
+const AUTH_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutos bloqueado tras agotar los 3 intentos
 
-function requireUploadAuth(req, res, next) {
-  const ip = clientIp(req);
-  const now = Date.now();
-  let entry = uploadAuthAttempts.get(ip);
+// --- Limitador genérico de intentos fallidos (Fase 2.2 del plan de producción) -------------------
+// Antes esto vivía hardcodeado dentro de requireUploadAuth (V19). Se extrae acá como fábrica
+// reutilizable porque la Fase 2.2 agrega un segundo lugar que necesita exactamente el mismo criterio
+// (3 intentos fallidos → bloqueo de 15 min): la contraseña de sala en 'join-room' (ver más abajo),
+// que hasta ahora no tenía ningún límite. Cada instancia lleva su propio Map de intentos — una para
+// subir cintas (por IP) y otra para join-room (por IP+sala, ver más abajo el porqué de esa clave).
+function makeAttemptLimiter() {
+  const attempts = new Map(); // key -> { count, lockedUntil }
+  return {
+    // Minutos restantes de bloqueo para `key`, o null si puede intentar.
+    lockedMinutes(key) {
+      const entry = attempts.get(key);
+      const now = Date.now();
+      return (entry && entry.lockedUntil > now) ? Math.ceil((entry.lockedUntil - now) / 60000) : null;
+    },
+    recordSuccess(key) { attempts.delete(key); }, // se olvida cualquier intento fallido previo
+    // Registra un intento fallido; devuelve si quedó bloqueada y cuántos intentos quedan.
+    recordFailure(key) {
+      const now = Date.now();
+      let entry = attempts.get(key);
+      // Arranca un contador nuevo si no había uno, o si el bloqueo anterior ya venció (lockedUntil
+      // solo es > 0 tras el 3er intento fallido; mientras se cuenta 1° y 2°, se mantiene en 0 y no
+      // hay que resetear el contador en cada request).
+      if (!entry || (entry.lockedUntil > 0 && entry.lockedUntil <= now)) entry = { count: 0, lockedUntil: 0 };
+      entry.count += 1;
+      if (entry.count >= AUTH_MAX_ATTEMPTS) {
+        entry.lockedUntil = now + AUTH_LOCKOUT_MS;
+        entry.count = 0; // al vencer el bloqueo, vuelve a tener 3 intentos frescos
+        attempts.set(key, entry);
+        return { locked: true, attemptsLeft: 0 };
+      }
+      attempts.set(key, entry);
+      return { locked: false, attemptsLeft: AUTH_MAX_ATTEMPTS - entry.count };
+    }
+  };
+}
 
-  if (entry && entry.lockedUntil > now) {
-    const minutesLeft = Math.ceil((entry.lockedUntil - now) / 60000);
-    return res.status(429).json({
-      error: `Demasiados intentos fallidos. Esperá ${minutesLeft} min y volvé a intentar.`,
-      lockedMinutes: minutesLeft
-    });
+const uploadAuthLimiter = makeAttemptLimiter(); // clave: ip
+const roomJoinAuthLimiter = makeAttemptLimiter(); // clave: ip + roomId (ver 'join-room' más abajo)
+
+async function requireUploadAuth(req, res, next) {
+  try {
+    const ip = clientIp(req);
+    const lockedMinutes = uploadAuthLimiter.lockedMinutes(ip);
+    if (lockedMinutes !== null) {
+      return res.status(429).json({
+        error: `Demasiados intentos fallidos. Esperá ${lockedMinutes} min y volvé a intentar.`,
+        lockedMinutes
+      });
+    }
+
+    const provided = req.get('x-library-password') || '';
+    const { valid } = await verifyPassword(provided, libraryPasswordHash);
+    if (valid) {
+      uploadAuthLimiter.recordSuccess(ip);
+      return next();
+    }
+
+    const { locked, attemptsLeft } = uploadAuthLimiter.recordFailure(ip);
+    if (locked) {
+      return res.status(401).json({
+        error: 'Contraseña incorrecta. Se bloquearon los intentos de subida por 15 minutos.',
+        attemptsLeft: 0
+      });
+    }
+    return res.status(401).json({ error: 'Contraseña incorrecta.', attemptsLeft });
+  } catch (err) {
+    console.error('⚠️  Error verificando la contraseña de subida:', err.message);
+    res.status(500).json({ error: 'Error interno verificando la contraseña.' });
   }
-
-  const provided = req.get('x-library-password') || '';
-  if (hashPassword(provided) === libraryPasswordHash) {
-    uploadAuthAttempts.delete(ip); // contraseña correcta: se olvida cualquier intento fallido previo
-    return next();
-  }
-
-  // Arranca un contador nuevo si no había uno todavía, o si el bloqueo anterior ya venció (lockedUntil
-  // solo es > 0 una vez que se llegó al 3er intento fallido; mientras se está contando 1° y 2°
-  // intento, lockedUntil se mantiene en 0 y NO hay que resetear el contador en cada request).
-  if (!entry || (entry.lockedUntil > 0 && entry.lockedUntil <= now)) entry = { count: 0, lockedUntil: 0 };
-  entry.count += 1;
-  if (entry.count >= UPLOAD_AUTH_MAX_ATTEMPTS) {
-    entry.lockedUntil = now + UPLOAD_AUTH_LOCKOUT_MS;
-    entry.count = 0; // al vencer el bloqueo, vuelve a tener 3 intentos frescos
-    uploadAuthAttempts.set(ip, entry);
-    return res.status(401).json({
-      error: 'Contraseña incorrecta. Se bloquearon los intentos de subida por 15 minutos.',
-      attemptsLeft: 0
-    });
-  }
-  uploadAuthAttempts.set(ip, entry);
-  return res.status(401).json({
-    error: 'Contraseña incorrecta.',
-    attemptsLeft: UPLOAD_AUTH_MAX_ATTEMPTS - entry.count
-  });
 }
 
 // Salas — objeto en memoria del proceso, igual que antes de la Fase 1.1, PERO ahora respaldado en
@@ -223,8 +305,80 @@ function pushChatHistory(room, msg) {
   if (room.chatHistory.length > CHAT_HISTORY_LIMIT) room.chatHistory.shift();
 }
 
+// Rate limiting de flood en el chat (Fase 2.2 del plan de producción) — ventana deslizante simple:
+// como mucho CHAT_RATE_LIMIT_MAX mensajes por cada CHAT_RATE_LIMIT_WINDOW_MS, por socket. Los valores
+// dejan pasar cómodo un ida-y-vuelta normal de chat entre amigos (varios mensajes cortos seguidos)
+// pero cortan un flood sostenido. Se guarda en el propio objeto `socket` (no en `room`) porque es un
+// límite por conexión, no por sala — no tiene sentido persistirlo en Redis (se reinicia solo en cada
+// reconexión, que es exactamente el comportamiento que queremos).
+const CHAT_RATE_LIMIT_MAX = 8;
+const CHAT_RATE_LIMIT_WINDOW_MS = 10 * 1000;
+
+function isChatRateLimited(socket) {
+  const now = Date.now();
+  const recent = (socket._chatTimestamps || []).filter((t) => now - t < CHAT_RATE_LIMIT_WINDOW_MS);
+  if (recent.length >= CHAT_RATE_LIMIT_MAX) {
+    socket._chatTimestamps = recent; // no cuenta este intento bloqueado como uno más
+    return true;
+  }
+  recent.push(now);
+  socket._chatTimestamps = recent;
+  return false;
+}
+
 function makeRoomId() { return crypto.randomBytes(3).toString('hex'); }
-function hashPassword(pw) { return crypto.createHash('sha256').update(String(pw)).digest('hex'); }
+
+// --- Hashing de contraseñas (Fase 2.1 del plan de producción) -----------------------------------
+// Antes (hasta la Fase 1) las contraseñas de sala y de biblioteca se guardaban con sha256 sin salt:
+// rápido de calcular a propósito (es un hash de uso general, no pensado para contraseñas), lo que lo
+// hace barato de atacar por fuerza bruta/diccionario si alguna vez se filtrara el hash. bcrypt es
+// deliberadamente lento (controlable con BCRYPT_ROUNDS) y con salt integrado en el propio hash de
+// salida, que es el estándar razonable hoy para esto.
+//
+// Se usa `bcryptjs` (implementación en JS puro) en vez del paquete `bcrypt` (con bindings nativos) a
+// propósito: este proyecto se instala en VPS propios, Windows (ver Fase 1.3, probado ahí) y
+// PaaS (Railway/Render/Fly.io) sin un paso de build propio — bindings nativos suman una dependencia
+// de toolchain (Python/gcc) que puede fallar según la plataforma, mientras que bcryptjs es <10% más
+// lento y no tiene ese riesgo. La interfaz (`hash`/`compareSync`) es la misma.
+const BCRYPT_ROUNDS = 10;
+
+function isBcryptHash(hash) {
+  return typeof hash === 'string' && /^\$2[aby]\$\d{2}\$/.test(hash);
+}
+// Detecta un hash del esquema viejo (sha256 hex, 64 caracteres) para la migración transparente de
+// abajo — ver hashPassword/verifyPassword.
+function isLegacySha256Hash(hash) {
+  return typeof hash === 'string' && /^[a-f0-9]{64}$/i.test(hash);
+}
+function legacySha256(pw) { return crypto.createHash('sha256').update(String(pw)).digest('hex'); }
+
+// Hashea una contraseña nueva (sala al crearse, o LIBRARY_PASSWORD al arrancar) siempre con bcrypt —
+// solo se llama con contraseñas nuevas, nunca para migrar una vieja (eso lo hace verifyPassword).
+async function hashPassword(pw) {
+  return bcrypt.hash(String(pw), BCRYPT_ROUNDS);
+}
+
+// Verifica una contraseña contra un hash guardado, que puede ser bcrypt (esquema nuevo) o sha256sin
+// salt (esquema viejo, de la Fase 1 y anteriores — las salas creadas antes de este cambio quedaron
+// con ese hash guardado en Redis). Plan de migración elegido (ver docs/PLAN-PRODUCCION.md, Fase 2.1):
+// NO resetear contraseñas existentes al desplegar — en vez de eso, se detecta el algoritmo viejo, se
+// valida con él, y si es válida se re-hashea con bcrypt para la próxima vez (needsRehash: true, el
+// caller se encarga de persistir el hash nuevo). Así la migración es transparente para quien ya tenía
+// una sala con contraseña: no nota nada, y con el uso normal (cada login exitoso) los hashes viejos
+// van desapareciendo solos.
+async function verifyPassword(pw, hash) {
+  if (!hash) return { valid: !pw, needsRehash: false }; // sala/biblioteca sin contraseña configurada
+  if (isBcryptHash(hash)) {
+    return { valid: await bcrypt.compare(String(pw), hash), needsRehash: false };
+  }
+  if (isLegacySha256Hash(hash)) {
+    const valid = legacySha256(pw) === hash;
+    return { valid, needsRehash: valid }; // solo migrar si la contraseña vieja era correcta
+  }
+  // Hash con una forma que no reconocemos (dato corrupto/inesperado): tratarlo como no válido en vez
+  // de tirar una excepción — más seguro que asumir cualquier otra cosa.
+  return { valid: false, needsRehash: false };
+}
 
 const storage = multer.diskStorage({
   destination: UPLOAD_DIR,
@@ -325,14 +479,14 @@ function srtToVtt(content) {
   return 'WEBVTT\n\n' + body.trim() + '\n';
 }
 
-function makeRoom(videoFile, password) {
+async function makeRoom(videoFile, password) {
   return {
     videoFile,
     subtitleFile: null,
     viewers: 0,
     hostToken: crypto.randomBytes(16).toString('hex'),
     hostSocketId: null, // socket.id del host actual (única fuente de verdad; ver setHost más abajo)
-    passwordHash: password ? hashPassword(password) : null,
+    passwordHash: password ? await hashPassword(password) : null,
     mutedUserIds: new Set(),
     userNames: new Map(),
     bufferingSockets: new Set(),
@@ -353,7 +507,7 @@ function makeRoom(videoFile, password) {
 app.post('/create-room', requireUploadAuth, upload.single('video'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No llegó ningún video' });
   const roomId = makeRoomId();
-  const room = makeRoom(videoUrlForUploadedFile(req.file), (req.body.password || '').trim());
+  const room = await makeRoom(videoUrlForUploadedFile(req.file), (req.body.password || '').trim());
   rooms[roomId] = room;
   // Se espera a que la sala quede guardada en Redis antes de responder con el roomId/hostToken: si
   // el proceso se cayera justo entre responder y persistir, la sala existiría para el creador (que
@@ -367,7 +521,7 @@ app.post('/create-room-from-upload', async (req, res) => {
     const { filename, password } = req.body || {};
     if (!(await isValidUploadReference(filename))) return res.status(400).json({ error: 'Ese archivo no existe' });
     const roomId = makeRoomId();
-    const room = makeRoom(videoUrlForExistingFile(filename), (password || '').trim());
+    const room = await makeRoom(videoUrlForExistingFile(filename), (password || '').trim());
     rooms[roomId] = room;
     await roomStore.saveRoom(roomId, room);
     res.json({ roomId, hostToken: room.hostToken });
@@ -643,13 +797,21 @@ function setHost(room, roomId, socket) {
 // rastrearlo) y el resto del servidor sigue funcionando con normalidad.
 function safeSocketHandler(eventName, handler) {
   return function (...args) {
-    try {
-      handler.apply(this, args);
-    } catch (err) {
+    const logError = (err) => {
       // `this` es el socket que disparó el evento (así es como Socket.io invoca los listeners) —
       // socket.id siempre está disponible; username puede no estarlo todavía si el error pasa antes
       // del join-room exitoso.
       console.error(`⚠️  Error en el handler de socket '${eventName}' (socket.id: ${this.id}, username: ${this.username || 'sin asignar'}):`, err);
+    };
+    try {
+      // Fase 2.1 del plan de producción: 'join-room' ahora verifica la contraseña con bcrypt
+      // (async), así que el handler puede devolver una Promise — si esa Promise rechaza (ej. un
+      // error de bcrypt), sin este .catch se perdía como una unhandledRejection silenciosa en vez
+      // de loguearse con el mismo detalle (eventName, socket.id) que un error síncrono.
+      const result = handler.apply(this, args);
+      if (result && typeof result.catch === 'function') result.catch(logError);
+    } catch (err) {
+      logError(err);
     }
   };
 }
@@ -657,13 +819,40 @@ function safeSocketHandler(eventName, handler) {
 io.on('connection', (socket) => {
   let currentRoom = null;
 
-  socket.on('join-room', safeSocketHandler('join-room', ({ roomId, username, hostToken, userId, password }) => {
+  socket.on('join-room', safeSocketHandler('join-room', async ({ roomId, username, hostToken, userId, password }) => {
     const room = rooms[roomId];
     if (!room) { socket.emit('room-error', 'La sala no existe.'); return; }
 
-    if (room.passwordHash && hashPassword(password || '') !== room.passwordHash) {
-      socket.emit('room-error', 'Contraseña incorrecta.');
-      return;
+    // Rate limiting de intentos de contraseña (Fase 2.2 del plan de producción) — antes 'join-room'
+    // no tenía ningún límite, a diferencia de requireUploadAuth (V19). Clave = ip + roomId (no solo
+    // ip, como en requireUploadAuth): ahí tiene sentido una sola clave global porque hay una única
+    // LIBRARY_PASSWORD para todo el server, pero acá cada sala tiene su propia contraseña — bloquear
+    // por ip sola dejaría que errar la contraseña de UNA sala te saque también de intentar entrar a
+    // CUALQUIER otra sala con esa misma IP (ej. varios amigos en la misma red/NAT).
+    const attemptKey = `${socketClientIp(socket)}:${roomId}`;
+    if (room.passwordHash) {
+      const lockedMinutes = roomJoinAuthLimiter.lockedMinutes(attemptKey);
+      if (lockedMinutes !== null) {
+        socket.emit('room-error', `Demasiados intentos fallidos. Esperá ${lockedMinutes} min y volvé a intentar.`);
+        return;
+      }
+
+      // verifyPassword (Fase 2.1) reconoce tanto hashes nuevos (bcrypt) como viejos (sha256, de
+      // salas creadas antes de esta migración) — needsRehash indica que matcheó con el esquema
+      // viejo, así que se re-hashea con bcrypt y se persiste, sin que quien se conecta note nada.
+      const { valid, needsRehash } = await verifyPassword(password || '', room.passwordHash);
+      if (!valid) {
+        const { locked, attemptsLeft } = roomJoinAuthLimiter.recordFailure(attemptKey);
+        socket.emit('room-error', locked
+          ? 'Contraseña incorrecta. Se bloquearon los intentos por 15 minutos.'
+          : `Contraseña incorrecta. Te quedan ${attemptsLeft} intento(s).`);
+        return;
+      }
+      roomJoinAuthLimiter.recordSuccess(attemptKey);
+      if (needsRehash) {
+        room.passwordHash = await hashPassword(password || '');
+        roomStore.saveRoom(roomId, room); // fire-and-forget, igual que el resto de los saves de esta sala
+      }
     }
 
     currentRoom = roomId;
@@ -750,6 +939,15 @@ io.on('connection', (socket) => {
     const room = rooms[currentRoom];
     if (!room) return;
     if (room.mutedUserIds.has(socket.userId)) { socket.emit('mute-status', { muted: true }); return; }
+    // Rate limiting de flood en el chat (Fase 2.2 del plan de producción) — antes no había ningún
+    // límite: un cliente (o un script apuntando directo al socket, sin pasar por room.html) podía
+    // mandar mensajes sin parar, y cada uno se persiste en Redis (roomStore.saveRoom) y se retransmite
+    // a toda la sala. Se avisa solo a quien está mandando de más (no se ve en el chat de los demás,
+    // ni se guarda en el historial) — no es un error de protocolo, así que no corta la conexión.
+    if (isChatRateLimited(socket)) {
+      socket.emit('chat-rate-limited', { message: 'Estás mandando mensajes muy rápido, esperá un toque.' });
+      return;
+    }
     // El cliente manda { text, replyTo } desde V14; se acepta también un string plano por si
     // queda algún cliente viejo en caché sin recargar (o algún otro cliente que hable el protocolo
     // anterior).
@@ -894,6 +1092,12 @@ const PORT = process.env.PORT || 3000;
 // igual en modo "memoria nomás" sería exactamente el problema que esta fase busca resolver, sin que
 // nadie se entere hasta el próximo crash. Por eso acá SÍ se corta el arranque con process.exit(1).
 async function startServer() {
+  // Fase 2.1 del plan de producción: se hashea acá (async, con bcrypt) y no en el momento de definir
+  // la constante LIBRARY_PASSWORD más arriba, porque bcrypt.hash es async y esto tiene que terminar
+  // ANTES de aceptar cualquier request — server.listen() todavía no se llamó a esta altura, así que
+  // no hay forma de que una request llegue a requireLibraryAuth/requireUploadAuth mientras esto corre.
+  libraryPasswordHash = await hashPassword(LIBRARY_PASSWORD);
+
   if (roomStore.isEnabled()) {
     try {
       await roomStore.testConnection();

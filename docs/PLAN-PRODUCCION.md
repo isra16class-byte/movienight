@@ -182,22 +182,56 @@ secundario.
 ## Fase 2 — Seguridad (la mayoría ya está documentada como riesgo conocido en
 `docs/historico/MEMORIA.md`, sección 9 — acá se detalla cómo resolver cada una)
 
-### 2.1 Hashing de contraseñas
-- [ ] Migrar `passwordHash` (sala) y `libraryPasswordHash` de `sha256` sin salt a
-      **bcrypt** o **argon2** (`bcrypt.hash(pw, 10)` es el estándar razonable hoy).
-- [ ] Plan de migración: las contraseñas viejas en `sha256` no se pueden convertir
-      directo — hay que decidir si se resetean todas al desplegar el cambio, o si
-      se soporta un período de transición (detectar el algoritmo viejo, validar
-      con él, y re-hashear con bcrypt en el próximo login exitoso).
+### 2.1 Hashing de contraseñas ✅ (resuelta el 2026-09-05)
+- [x] Migrar `passwordHash` (sala) y `libraryPasswordHash` de `sha256` sin salt a
+      **bcrypt** (vía `bcryptjs`, implementación en JS puro — sin bindings nativos,
+      para no sumar un paso de build/toolchain al instalar en VPS, Windows o
+      PaaS; la interfaz `hash`/`compare` es la misma que el paquete `bcrypt`),
+      10 rounds.
+- [x] Plan de migración elegido: **sin resetear contraseñas existentes**. Se
+      soporta un período de transición: `verifyPassword()` detecta si el hash
+      guardado es del esquema viejo (sha256, 64 hex) o el nuevo (bcrypt,
+      `$2a/b/y$...`), valida con el que corresponda, y si matchea con el
+      esquema viejo devuelve `needsRehash: true` — el caller re-hashea con
+      bcrypt y persiste el hash nuevo en Redis. Transparente para quien ya
+      tenía una sala con contraseña creada antes de este cambio: no nota nada,
+      y los hashes viejos van desapareciendo solos con el uso normal (cada
+      login exitoso). `LIBRARY_PASSWORD` no necesita esta migración (no se
+      persiste entre reinicios; se re-hashea fresco con bcrypt en cada
+      arranque, dentro de `startServer()`, antes de aceptar conexiones).
+- [x] Probado: hash viejo (sha256) con contraseña correcta → `valid: true,
+      needsRehash: true`; con contraseña incorrecta → `valid: false,
+      needsRehash: false`; hash nuevo (bcrypt) con contraseña correcta →
+      `valid: true, needsRehash: false`. Probado también end-to-end vía
+      `join-room`: crear sala → contraseña correcta al primer intento entra
+      directo (sin rate limiting de por medio).
 
-### 2.2 Rate limiting
-- [ ] `join-room` (intentos de contraseña de sala): limitar intentos por IP y/o
-      por `roomId`, similar a lo que ya existe para `requireUploadAuth` (3
-      intentos, bloqueo de 15 min) — hoy `join-room` no tiene ningún límite.
-- [ ] Chat (`chat-message`): limitar mensajes por segundo por socket, para evitar
-      flood.
-- [ ] Rutas HTTP en general: agregar `express-rate-limit` como capa base sobre
-      todas las rutas públicas, no solo las de upload.
+### 2.2 Rate limiting ✅ (resuelta el 2026-09-05)
+- [x] `join-room` (intentos de contraseña de sala): mismo criterio que ya
+      usaba `requireUploadAuth` (3 intentos, bloqueo de 15 min), extraído a un
+      helper genérico reusable (`makeAttemptLimiter()`) para no duplicar la
+      lógica entre los dos. Clave = `ip:roomId` (no solo `ip`, a diferencia de
+      `requireUploadAuth`): cada sala tiene su propia contraseña, así que
+      errar la de una sala no debería bloquear el intento de entrar a
+      cualquier otra con la misma IP (ej. varios amigos en la misma red).
+      Probado end-to-end con un cliente de Socket.io real: 3 intentos
+      fallidos seguidos bloquean, y el 4° intento (incluso con la contraseña
+      correcta) también queda bloqueado durante la ventana de 15 min, igual
+      que el comportamiento ya esperado de `requireUploadAuth`.
+- [x] Chat (`chat-message`): límite de flood por socket con ventana
+      deslizante — máximo 8 mensajes cada 10 segundos. Se avisa solo a quien
+      manda de más (evento `chat-rate-limited`, no se ve en el chat de los
+      demás ni se guarda en el historial) — no corta la conexión, solo
+      descarta el mensaje de más. Probado: 12 mensajes seguidos → 8 llegan,
+      4 quedan bloqueados con el aviso correspondiente.
+- [x] Rutas HTTP en general: agregado `express-rate-limit` (300 req/5min por
+      IP) como capa base sobre las rutas de la API, además de los límites
+      específicos que ya existían. Se monta después de `express.static` y
+      `express.json()` a propósito, para no afectar el streaming de video
+      (requests `Range` sobre `public/uploads`, servidos por `express.static`
+      antes de llegar a este middleware) ni el healthcheck (excluido
+      explícitamente); el handshake de Socket.io tampoco pasa por acá, porque
+      intercepta su propio path antes de que la request llegue a Express.
 
 ### 2.3 Identidad del host — reemplazada por Fase 2bis (cuentas reales)
 - ~~Endurecer el `hostToken` actual (expiración, JWT, cookie httpOnly)~~ — con
@@ -357,9 +391,10 @@ Con las decisiones de Fase 0 ya tomadas, el orden recomendado queda así:
    y perder todo. La base de datos que se elija acá (Fase 1.1) conviene pensarla
    ya teniendo en cuenta que también va a alojar el modelo de usuarios de la
    Fase 2bis.
-2. **Fase 2.1 y 2.2** (hashing con bcrypt + rate limiting) — cambios acotados
-   que cierran los riesgos de seguridad más baratos de explotar, y el hashing
-   con bcrypt se reutiliza directo para las contraseñas de cuentas de usuario.
+2. **Fase 2.1 y 2.2 ✅ (resueltas el 2026-09-05)** — hashing con bcrypt +
+   rate limiting, cambios acotados que cierran los riesgos de seguridad más
+   baratos de explotar; el hashing con bcrypt se reutiliza directo para las
+   contraseñas de cuentas de usuario.
 3. **Fase 2bis** (cuentas reales) — es el cambio de mayor superficie de esta
    ronda; conviene encararlo después de tener persistencia sólida (Fase 1) y
    antes de invertir más en el esquema de sala/host actual, ya que cambia
