@@ -10,7 +10,54 @@ si hace falta, puede ir en el mensaje de commit).
 
 ---
 
-## 2026-09-05 — Fase 2bis (segundo paso): sesiones reales con Redis
+## 2026-09-05 — Fase 2bis (tercer paso): migración del rol de host a la sesión
+
+- **Nuevo campo `room.ownerUserId`**: se setea desde `req.session.userId`
+  al crear una sala (`/create-room`, `/create-room-from-upload`) si quien
+  la crea tiene una sesión iniciada; si no, queda `null` y la sala sigue
+  el esquema anónimo de siempre (sin ningún cambio de comportamiento para
+  quien no usa cuentas — no hay UI de login todavía). Persistido en Redis
+  igual que `hostToken`/`passwordHash` (`lib/roomStore.js`), para que
+  sobreviva a un reinicio del proceso.
+- **`isRoomOwner(room, { hostToken, sessionUserId })`** (nuevo helper en
+  `server.js`): punto único que reemplaza las comparaciones sueltas de
+  `hostToken` que había en cada ruta/handler. Sala con dueño → el único
+  criterio válido es que la sesión actual tenga ese mismo `userId` (un
+  `hostToken` de `localStorage`, aunque coincida, ya no alcanza). Sala sin
+  dueño → se mantiene `hostToken` contra `room.hostToken`, sin cambios.
+  Nunca se combinan los dos criterios para la misma sala.
+- **Socket.io ahora comparte la sesión de Express**: `io.engine.use(sessionMiddleware)`
+  (soportado desde Socket.io 4.6+) deja `socket.request.session` disponible
+  en cualquier handler — no hacía falta nada del lado del cliente, la
+  misma cookie `movienight.sid` que ya se manda en cualquier request del
+  mismo origen alcanza también para el handshake de Socket.io.
+- **Puntos actualizados para usar `isRoomOwner()`**: `join-room` (Socket.io,
+  decide si se llama a `setHost()`), `POST /room/:id/change-video`,
+  `POST /room/:id/change-video-from-upload`, `POST /room/:id/upload-subtitle`.
+  `room.hostSocketId` sigue siendo, sin cambios, la única fuente de verdad
+  de "quién controla la sala ahora mismo" — lo que cambia es solo cómo se
+  prueba "soy el dueño de esta sala" para poder reclamarlo.
+- Esto cierra el riesgo anotado en `docs/MEMORIA.md` ("`hostToken` sin
+  expiración, viaja en texto plano") para cualquier sala creada con sesión
+  iniciada: la sesión vive en una cookie `httpOnly` (no accesible desde
+  JS/XSS, a diferencia de `localStorage`) y es revocable al toque
+  (`POST /auth/logout`).
+- **Probado**: flujo anónimo de punta a punta con un server real
+  (`DISABLE_REDIS=1`) — crear sala sin sesión → `join-room` con el
+  `hostToken` correcto da host, con uno inválido no; `upload-subtitle` con
+  `hostToken` inválido → 403, con el correcto → 200. Confirma que el
+  esquema sin cuentas sigue exactamente igual que antes de este cambio.
+  **Todavía no probado end-to-end el camino "con dueño"** (sesión real +
+  `ownerUserId`): requiere Postgres arriba para poder loguearse de verdad,
+  no disponible en el entorno donde se hizo este cambio — revisado por
+  lectura de código y con el mismo criterio que ya usa `isRoomOwner()` en
+  el resto de los call sites, pero pendiente de una prueba real con
+  Postgres+Redis antes de darlo por cerrado del todo.
+- **Lo que sigue faltando de la Fase 2bis**: quién puede crear salas,
+  biblioteca por sesión de usuario (en vez de `LIBRARY_PASSWORD` única), y
+  recuperación de contraseña — ver `docs/PLAN-PRODUCCION.md`.
+
+---
 
 - **Sesiones de servidor**: `POST /auth/login` exitoso ahora deja una
   sesión real en vez de solo confirmar credenciales válidas. Cookie

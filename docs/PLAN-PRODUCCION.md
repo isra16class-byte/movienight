@@ -413,13 +413,37 @@ Fase 2, conviene tratarlo como su propio bloque:
       verificación adicional (ej. verificar el email) antes de dejar subir
       videos — relevante porque cada sala nueva implica storage en R2, que
       tiene costo.
-- [ ] **Migración del rol de host**: `room.hostSocketId` ya es la fuente de
-      verdad de "quién controla la sala ahora" (ver `docs/MEMORIA.md`, sección
-      de roles) — eso no cambia. Lo que cambia es cómo se prueba "soy el
-      dueño de esta sala": en vez de comparar un `hostToken` de
-      `localStorage`, se valida contra el `userId` de la sesión autenticada
-      (ya disponible en `req.session.userId`/`socket.request.session`, ver
-      el ítem de Sesiones arriba).
+- [x] **Migración del rol de host** ✅ (resuelta el 2026-09-05 para salas
+      creadas con sesión iniciada): `room.hostSocketId` sigue siendo, sin
+      cambios, la fuente de verdad de "quién controla la sala ahora" (ver
+      `docs/MEMORIA.md`, sección de roles) — lo que cambió es cómo se
+      prueba "soy el dueño de esta sala". Nuevo campo `room.ownerUserId`
+      (persistido en Redis igual que `hostToken`/`passwordHash`), seteado
+      desde `req.session.userId` al crear la sala si hay sesión iniciada
+      (si no, queda `null` y la sala sigue el esquema anónimo de siempre —
+      no hay UI de login todavía, sigue siendo el caso normal). Nuevo
+      helper `isRoomOwner(room, { hostToken, sessionUserId })` en
+      `server.js`, punto único que reemplaza las comparaciones sueltas de
+      `hostToken` de antes: sala con dueño → solo la sesión autenticada
+      alcanza (`hostToken` ya no sirve, aunque coincida); sala sin dueño →
+      sin cambios. Actualizado en `join-room` (Socket.io) y en las tres
+      rutas HTTP que dependían de `hostToken` (`change-video`,
+      `change-video-from-upload`, `upload-subtitle`). Para que Socket.io
+      pueda leer `req.session`, se agregó `io.engine.use(sessionMiddleware)`
+      (soportado desde Socket.io 4.6+) — sin cambios necesarios del lado
+      del cliente, la misma cookie `movienight.sid` alcanza también para
+      el handshake de Socket.io.
+      Probado de punta a punta el flujo anónimo con un server real
+      (`DISABLE_REDIS=1`): crear sala sin sesión → `join-room` con el
+      `hostToken` correcto da host, con uno inválido no; `upload-subtitle`
+      con `hostToken` inválido → 403, con el correcto → 200 — confirma que
+      el esquema sin cuentas sigue exactamente igual que antes de este
+      cambio. **Todavía no probado end-to-end el camino "con dueño"**
+      (sesión real + `ownerUserId`): requiere Postgres arriba para un
+      login real, no disponible en el entorno donde se hizo este cambio;
+      revisado por lectura de código con el mismo criterio que ya usa
+      `isRoomOwner()` en el resto de los call sites, pero pendiente esa
+      prueba real antes de darlo por cerrado del todo.
 - [ ] **La biblioteca deja de depender de una única `LIBRARY_PASSWORD`
       compartida**: con cuentas reales, tiene más sentido que el acceso a
       subir/borrar videos se valide por sesión de usuario logueado, no por una

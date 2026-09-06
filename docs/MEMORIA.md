@@ -71,7 +71,14 @@ rooms = {
 
 - **Un solo host por sala**, controlado por `room.hostSocketId` (fuente de verdad única, ver `setHost()`). Solo el host puede play/pause/seek, y sus eventos son los únicos que el server retransmite como `sync`.
 - **Traspaso de host**: automático si el host se desconecta (pasa al más antiguo conectado), o manual (`make-host`). Ambos pasan por `setHost()`, que siempre degrada al host anterior antes de promover — esto corrigió un bug real de "hosts duplicados" (detalle en `docs/historico/MEMORIA.md`, sección 5bis, por si algo similar vuelve a aparecer).
-- **`hostToken`**: credencial random guardada en `localStorage` del creador, sin expiración ni forma de revocarla hoy — riesgo conocido, ver plan de producción.
+- **`hostToken`**: credencial random guardada en `localStorage` del creador. Sigue siendo la única
+  forma de reclamar el host en salas **anónimas** (sin cuenta, `room.ownerUserId === null`, el caso
+  más común hoy ya que todavía no hay UI de login) — sin expiración ni forma de revocarla en ese
+  caso. Desde la Fase 2bis ("migración del rol de host", ver más abajo), una sala creada con una
+  sesión iniciada queda "con dueño" (`room.ownerUserId`) y ahí `hostToken` deja de alcanzar por sí
+  solo: la única forma válida de reclamar el host pasa a ser la sesión autenticada (`isRoomOwner()`
+  en `server.js`), que sí es revocable (`POST /auth/logout`) y no viaja accesible por XSS (cookie
+  `httpOnly`).
 - **`userId`**: UUID persistente en `localStorage` (no por sala), usado para mute/reconexión — distinto de `socket.id`, que cambia en cada conexión.
 
 ## Sincronización de video
@@ -92,12 +99,12 @@ mover la barra de progreso — cualquier intento se revierte.
 - ~~Contraseñas (sala y biblioteca) con `sha256` sin salt~~ → resuelto en
   Fase 2.1 (bcrypt, con migración transparente desde hashes viejos).
 - ~~Sin rate-limiting en `join-room` ni en el chat~~ → resuelto en Fase 2.2.
-- `hostToken` sin expiración, viaja en texto plano — con el modelo de usuario
-  y registro/login ya en pie (Fase 2bis) y ahora también **sesiones reales**
-  (cookie httpOnly, ver arriba), sigue siendo el mismo riesgo hasta que se
-  implemente la **migración del rol de host** de esa misma fase (validar
-  "soy el dueño de la sala" contra la sesión en vez del `hostToken`) — ver
-  `docs/PLAN-PRODUCCION.md`.
+- `hostToken` sin expiración, viaja en texto plano — ~~con el modelo de usuario y registro/login ya en
+  pie (Fase 2bis) y sesiones reales (cookie httpOnly)~~ → **resuelto para salas creadas con sesión
+  iniciada** (Fase 2bis, "migración del rol de host", 2026-09-05): esas salas quedan "con dueño"
+  (`room.ownerUserId`) y ahí `hostToken` deja de alcanzar por sí solo, la sesión es lo único que
+  cuenta. Sigue siendo el mismo riesgo para salas anónimas (sin cuenta) — inherente al esquema
+  "sin login" en sí, no algo que se pueda cerrar del todo mientras eso siga existiendo como opción.
 - Sin validación real de tipo de archivo (solo `Content-Type` del navegador).
 - Las salas nunca expiran — se acumulan en memoria y en R2 indefinidamente.
 - **Nuevo (2026-09-05, encontrado probando en producción real)**: subir un
@@ -226,12 +233,33 @@ cuentas registradas), y el rate limiting bloqueando tras 3 intentos fallidos
 (incluso la contraseña correcta queda bloqueada durante la ventana de 15
 min, mismo comportamiento que `join-room`).
 
-**Lo que falta de la Fase 2bis** (sin tocar todavía, a propósito — ver
-`docs/PLAN-PRODUCCION.md` para el detalle de cada uno): **migración del rol
-de host** (validar "soy el dueño de la sala" contra la sesión en vez del
-`hostToken`), **biblioteca por sesión de usuario** en vez de
-`LIBRARY_PASSWORD` única, **quién puede crear salas** (definir si hace falta
-algo más que tener cuenta registrada), y **recuperación de contraseña**.
+**Fase 2bis — migración del rol de host ✅ para salas con sesión (2026-09-05)**:
+`room.ownerUserId` (nuevo campo, persistido igual que `hostToken`/`passwordHash`
+en Redis) se setea desde `req.session.userId` al crear una sala, solo si quien
+la crea tiene sesión iniciada — si no, queda `null` y la sala sigue el esquema
+anónimo de siempre (todavía no hay UI de login, así que sigue siendo el caso
+normal hoy). Nuevo helper `isRoomOwner(room, { hostToken, sessionUserId })` en
+`server.js`, punto único que reemplaza las comparaciones sueltas de `hostToken`
+que había en cada lugar: sala con dueño → solo la sesión autenticada prueba
+"soy el host" (`hostToken` deja de alcanzar); sala sin dueño → sigue exactamente
+igual que antes. Se actualizaron `join-room` (Socket.io) y las tres rutas HTTP
+que dependían de `hostToken` (`change-video`, `change-video-from-upload`,
+`upload-subtitle`). Para que Socket.io pueda leer la sesión de Express,
+`io.engine.use(sessionMiddleware)` (soportado desde Socket.io 4.6+) — no hace
+falta nada nuevo del lado del cliente, la misma cookie `movienight.sid` alcanza.
+`room.hostSocketId` sigue siendo, sin cambios, la única fuente de verdad de
+"quién controla la sala ahora"; lo que cambió es solo cómo se prueba la
+titularidad para poder reclamarlo. Probado de punta a punta el flujo anónimo
+con un server real (`DISABLE_REDIS=1`): sigue funcionando exactamente igual que
+antes de este cambio. **El camino "con dueño" (sesión real + `ownerUserId`)
+está revisado por lectura de código pero todavía no probado end-to-end** —
+requiere Postgres arriba para un login real, no disponible en el entorno donde
+se hizo este cambio; queda pendiente esa prueba antes de darlo por cerrado del
+todo.
+
+**Lo que sigue faltando de la Fase 2bis** (ver `docs/PLAN-PRODUCCION.md` para
+el detalle): quién puede crear salas, biblioteca por sesión de usuario (en vez
+de `LIBRARY_PASSWORD` única), y recuperación de contraseña.
 
 **Fase 2bis — sesiones reales ✅ (2026-09-05)**: `POST /auth/login` exitoso
 ahora deja una sesión de servidor real, en vez de solo confirmar que las
@@ -263,6 +291,11 @@ de probar la identidad del host — eso es el siguiente punto pendiente de
 esta fase (ver arriba y `docs/PLAN-PRODUCCION.md`).
 
 **Lo que falta de la Fase 2bis** (sin tocar todavía, a propósito — ver
+`docs/PLAN-PRODUCCION.md` para el detalle de cada uno): **biblioteca por
+sesión de usuario** en vez de `LIBRARY_PASSWORD` única, **quién puede crear
+salas** (definir si hace falta algo más que tener cuenta registrada), y
+**recuperación de contraseña**. La migración del rol de host ya se resolvió
+(ver más arriba, "Fase 2bis — migración del rol de host").
 
 **Fase 1.1 (persistencia externa) ya resuelta (2026-09-05)**: `lib/roomStore.js`
 respalda en Redis lo esencial de cada sala (cinta, posición, contraseñas,

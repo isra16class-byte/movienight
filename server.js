@@ -171,7 +171,10 @@ const SESSION_MAX_AGE_MS = parseInt(process.env.SESSION_MAX_AGE_MS, 10) || 30 * 
 // los logs que es un modo degradado, nunca para producción.
 const SESSION_COOKIE_INSECURE = process.env.SESSION_COOKIE_INSECURE === '1';
 
-app.use(session({
+// Se guarda en una variable (en vez de pasarlo anónimo a app.use()) porque, desde la Fase 2bis
+// ("migración del rol de host"), Socket.io también necesita poder leer/escribir esta misma sesión —
+// ver `io.engine.use(sessionMiddleware)` un poco más abajo, después de que `io` ya existe.
+const sessionMiddleware = session({
   // Si Redis está deshabilitado (DISABLE_REDIS=1, solo desarrollo local sin Redis a mano — ver
   // lib/roomStore.js) no tiene sentido instanciar el store propio (que asume Redis disponible): se
   // cae al MemoryStore que trae express-session por default, con el mismo tipo de aviso por consola
@@ -191,7 +194,23 @@ app.use(session({
     sameSite: 'lax', // alcanza para este caso de uso (no hay necesidad de cross-site real) y mitiga CSRF básico
     maxAge: SESSION_MAX_AGE_MS
   }
-}));
+});
+app.use(sessionMiddleware);
+
+// --- Compartir la sesión con Socket.io (Fase 2bis del plan de producción, "migración del rol de
+// host") ------------------------------------------------------------------------------------------
+// Hasta acá, la sesión de express-session solo existía del lado de las rutas HTTP normales (/auth/*,
+// etc.) — el handshake de Socket.io (io.on('connection', ...)) no pasaba por el middleware de Express
+// (ver el comentario grande sobre el rate limiter general, más arriba: Socket.io intercepta su propio
+// path ANTES de llegar a Express), así que `socket.request.session` no existía todavía. `io.engine.use`
+// (soportado desde Socket.io 4.6+, acá estamos en 4.7.x) monta un middleware de Express directo sobre
+// el motor de Engine.io que usa Socket.io por debajo — mismo objeto `req`/`res` que ve el
+// handshake, así que reusa la MISMA cookie `movienight.sid` que ya manda el navegador con cualquier
+// otro request del mismo origen (no hace falta nada especial del lado del cliente). Con esto,
+// `socket.request.session` queda disponible en cualquier handler de socket para leer `userId`/`email`
+// si hay una sesión válida — es lo que usa `isRoomOwner()` (ver más abajo) para decidir "soy el dueño
+// de esta sala" sin depender de `hostToken` cuando la sala fue creada por una cuenta logueada.
+io.engine.use(sessionMiddleware);
 
 // --- Rate limiting general de rutas HTTP (Fase 2.2 del plan de producción) -----------------------
 // Capa base sobre TODAS las rutas de la API (creación de sala, biblioteca, subtítulos, etc.), además
@@ -690,13 +709,21 @@ function srtToVtt(content) {
   return 'WEBVTT\n\n' + body.trim() + '\n';
 }
 
-async function makeRoom(videoFile, password) {
+// `ownerUserId`: id de la cuenta (tabla `users`, lib/db.js) que creó la sala, o `null` si se creó sin
+// sesión iniciada (sigue siendo el caso más común hoy, ya que todavía no hay UI de login — ver
+// docs/PLAN-PRODUCCION.md). Es el campo nuevo de la "migración del rol de host": cuando está seteado,
+// `isRoomOwner()` (más abajo) deja de confiar en `hostToken` para esta sala y exige que la sesión
+// autenticada coincida — `hostToken` se sigue generando y devolviendo igual para toda sala (no rompe
+// al cliente actual, que siempre lo guarda en localStorage), pero para una sala con dueño ya no
+// alcanza por sí solo para probar "soy el host".
+async function makeRoom(videoFile, password, ownerUserId = null) {
   return {
     videoFile,
     subtitleFile: null,
     viewers: 0,
     hostToken: crypto.randomBytes(16).toString('hex'),
     hostSocketId: null, // socket.id del host actual (única fuente de verdad; ver setHost más abajo)
+    ownerUserId: ownerUserId || null,
     passwordHash: password ? await hashPassword(password) : null,
     mutedUserIds: new Set(),
     userNames: new Map(),
@@ -718,7 +745,11 @@ async function makeRoom(videoFile, password) {
 app.post('/create-room', requireUploadAuth, upload.single('video'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No llegó ningún video' });
   const roomId = makeRoomId();
-  const room = await makeRoom(videoUrlForUploadedFile(req.file), (req.body.password || '').trim());
+  // Si quien crea la sala tiene una sesión iniciada (Fase 2bis), la sala queda "con dueño" desde el
+  // arranque — ver isRoomOwner() más arriba. Si no hay sesión (todavía no hay UI de login, o la
+  // persona no inició sesión), ownerUserId queda null y la sala sigue el esquema anónimo de siempre.
+  const ownerUserId = (req.session && req.session.userId) || null;
+  const room = await makeRoom(videoUrlForUploadedFile(req.file), (req.body.password || '').trim(), ownerUserId);
   rooms[roomId] = room;
   // Se espera a que la sala quede guardada en Redis antes de responder con el roomId/hostToken: si
   // el proceso se cayera justo entre responder y persistir, la sala existiría para el creador (que
@@ -732,7 +763,10 @@ app.post('/create-room-from-upload', async (req, res) => {
     const { filename, password } = req.body || {};
     if (!(await isValidUploadReference(filename))) return res.status(400).json({ error: 'Ese archivo no existe' });
     const roomId = makeRoomId();
-    const room = await makeRoom(videoUrlForExistingFile(filename), (password || '').trim());
+    // Mismo criterio que /create-room: si hay sesión iniciada, la sala queda "con dueño" (ver
+    // isRoomOwner()); si no, sigue el esquema anónimo de hostToken de siempre.
+    const ownerUserId = (req.session && req.session.userId) || null;
+    const room = await makeRoom(videoUrlForExistingFile(filename), (password || '').trim(), ownerUserId);
     rooms[roomId] = room;
     await roomStore.saveRoom(roomId, room);
     res.json({ roomId, hostToken: room.hostToken });
@@ -745,7 +779,11 @@ app.post('/create-room-from-upload', async (req, res) => {
 app.post('/room/:id/change-video', requireUploadAuth, upload.single('video'), async (req, res) => {
   const room = rooms[req.params.id];
   if (!room) return res.status(404).json({ error: 'Sala no existe' });
-  if (req.body.hostToken !== room.hostToken) return res.status(403).json({ error: 'No autorizado' });
+  // Fase 2bis, "migración del rol de host": si la sala tiene dueño (room.ownerUserId), solo la sesión
+  // de esa cuenta autoriza esto — un hostToken de localStorage ya no alcanza (ver isRoomOwner()).
+  if (!isRoomOwner(room, { hostToken: req.body.hostToken, sessionUserId: req.session && req.session.userId })) {
+    return res.status(403).json({ error: 'No autorizado' });
+  }
   if (!req.file) return res.status(400).json({ error: 'No llegó ningún video' });
   room.videoFile = videoUrlForUploadedFile(req.file);
   room.videoPosition = { time: 0, paused: true }; // cinta nueva: arranca de 0, no de donde iba la anterior
@@ -762,7 +800,10 @@ app.post('/room/:id/change-video-from-upload', async (req, res) => {
   const room = rooms[req.params.id];
   if (!room) return res.status(404).json({ error: 'Sala no existe' });
   const { filename, hostToken } = req.body || {};
-  if (hostToken !== room.hostToken) return res.status(403).json({ error: 'No autorizado' });
+  // Fase 2bis, "migración del rol de host": mismo criterio que change-video (ver isRoomOwner()).
+  if (!isRoomOwner(room, { hostToken, sessionUserId: req.session && req.session.userId })) {
+    return res.status(403).json({ error: 'No autorizado' });
+  }
   try {
     if (!(await isValidUploadReference(filename))) return res.status(400).json({ error: 'Ese archivo no existe' });
   } catch (err) {
@@ -783,7 +824,10 @@ app.post('/room/:id/change-video-from-upload', async (req, res) => {
 app.post('/room/:id/upload-subtitle', subtitleUpload.single('subtitle'), (req, res) => {
   const room = rooms[req.params.id];
   if (!room) return res.status(404).json({ error: 'Sala no existe' });
-  if (req.body.hostToken !== room.hostToken) return res.status(403).json({ error: 'No autorizado' });
+  // Fase 2bis, "migración del rol de host": mismo criterio que change-video (ver isRoomOwner()).
+  if (!isRoomOwner(room, { hostToken: req.body.hostToken, sessionUserId: req.session && req.session.userId })) {
+    return res.status(403).json({ error: 'No autorizado' });
+  }
   if (!req.file) return res.status(400).json({ error: 'No llegó ningún archivo' });
 
   const ext = path.extname(req.file.originalname).toLowerCase();
@@ -994,6 +1038,28 @@ function broadcastViewerList(roomId) {
   io.to(roomId).emit('viewer-list', list);
 }
 
+// --- "Migración del rol de host" (Fase 2bis del plan de producción) ------------------------------
+// Punto único que decide "¿esta persona puede probar que es la dueña de esta sala?", usado tanto
+// desde rutas HTTP (change-video, upload-subtitle, etc.) como desde 'join-room' (Socket.io) — antes
+// cada lugar comparaba `hostToken` directo contra `room.hostToken` por su cuenta.
+//   - Sala con dueño (`room.ownerUserId` seteado, porque se creó con una sesión iniciada): el ÚNICO
+//     criterio válido es que la sesión actual tenga ese mismo `userId` — un `hostToken` de
+//     `localStorage`, aunque coincida, ya NO alcanza. Esto es justo lo que cierra el riesgo anotado en
+//     docs/MEMORIA.md ("`hostToken` sin expiración, viaja en texto plano"): la sesión vive en una
+//     cookie `httpOnly` (no accesible desde JS/XSS) y es revocable al toque (`POST /auth/logout`),
+//     algo que un `hostToken` en `localStorage` nunca ofreció.
+//   - Sala sin dueño (`room.ownerUserId` es `null` — sigue siendo el caso normal hoy, no hay UI de
+//     login todavía): se mantiene el esquema de siempre, `hostToken` contra `room.hostToken`, sin
+//     ningún cambio de comportamiento para quien no usa cuentas.
+// Nunca se combinan los dos criterios para una misma sala: si tiene dueño, un `hostToken` que hubiera
+// quedado dando vueltas (ej. compartido sin querer) no sirve para nada.
+function isRoomOwner(room, { hostToken, sessionUserId } = {}) {
+  if (room.ownerUserId) {
+    return !!sessionUserId && sessionUserId === room.ownerUserId;
+  }
+  return !!hostToken && hostToken === room.hostToken;
+}
+
 const RECONNECT_GRACE_MS = 15000;
 
 // Único punto por donde una sala cambia de host. Garantiza que nunca haya más de un socket con
@@ -1118,7 +1184,12 @@ io.on('connection', (socket) => {
       socket.to(roomId).emit('chat-message', joinedMsg);
     }
 
-    if (hostToken && hostToken === room.hostToken) {
+    // Fase 2bis, "migración del rol de host": `socket.request.session` viene del middleware de
+    // express-session compartido con Socket.io más arriba (`io.engine.use(sessionMiddleware)`) — si
+    // la sala tiene dueño, esto reemplaza al hostToken como forma de probar "soy el host" (ver
+    // isRoomOwner()); si no tiene dueño, el comportamiento es exactamente el de siempre.
+    const sessionUserId = socket.request.session && socket.request.session.userId;
+    if (isRoomOwner(room, { hostToken, sessionUserId })) {
       setHost(room, roomId, socket); // emite su propio 'host-status'
     } else {
       socket.isHost = false;
