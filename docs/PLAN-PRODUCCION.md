@@ -408,11 +408,27 @@ Fase 2, conviene tratarlo como su propio bloque:
       **Todavía no reemplaza `hostToken`** como forma de probar la identidad
       del host — eso es exactamente el punto siguiente de esta fase, ver
       abajo.
-- [ ] **Quién puede crear salas**: definir si cualquier cuenta registrada
-      puede crear una sala (más simple) o si hace falta algún tipo de
-      verificación adicional (ej. verificar el email) antes de dejar subir
-      videos — relevante porque cada sala nueva implica storage en R2, que
-      tiene costo.
+- [x] **Quién puede crear salas** ✅ (decidido y resuelto el 2026-09-06):
+      se mantiene el mismo criterio que ya usaba el proyecto — conocer la
+      `LIBRARY_PASSWORD` compartida (vía `requireUploadAuth`), **no** hace
+      falta cuenta registrada ni verificación de email. Motivo: todavía no
+      hay UI de login (ver Fase 0), así que exigir cuenta dejaría sin poder
+      crear salas a todo el grupo actual; y verificar email sería
+      sobre-ingeniería para un grupo que ya comparte una contraseña de por
+      sí. Revisar esta decisión si/cuando haya UI de login real y se quiera
+      cerrar del todo el modo anónimo.
+      **Se encontró de paso un gap real** al revisar esto: `/create-room`
+      exigía `LIBRARY_PASSWORD` (`requireUploadAuth`), pero
+      `/create-room-from-upload` (crear sala reusando una cinta ya subida a
+      la biblioteca) **no pedía ninguna contraseña** — cualquiera que
+      supiera o adivinara un filename podía crear salas sin límite, sin
+      pasar por ningún control. Corregido: se agregó `requireUploadAuth`
+      también a esa ruta, y `library.html` ahora usa `mnLibraryFetch` (ya
+      maneja el prompt/reintento ante un 401) en vez de `fetch` directo
+      para esa llamada. Probado end-to-end: sin contraseña → 401 con
+      `attemptsLeft`; con la contraseña correcta → 200 y crea la sala; 3
+      contraseñas incorrectas seguidas → bloqueo 429 por 15 min, mismo
+      comportamiento que el resto de las rutas con `requireUploadAuth`.
 - [x] **Migración del rol de host** ✅ (resuelta el 2026-09-05 para salas
       creadas con sesión iniciada): `room.hostSocketId` sigue siendo, sin
       cambios, la fuente de verdad de "quién controla la sala ahora" (ver
@@ -438,12 +454,23 @@ Fase 2, conviene tratarlo como su propio bloque:
       `hostToken` correcto da host, con uno inválido no; `upload-subtitle`
       con `hostToken` inválido → 403, con el correcto → 200 — confirma que
       el esquema sin cuentas sigue exactamente igual que antes de este
-      cambio. **Todavía no probado end-to-end el camino "con dueño"**
-      (sesión real + `ownerUserId`): requiere Postgres arriba para un
-      login real, no disponible en el entorno donde se hizo este cambio;
-      revisado por lectura de código con el mismo criterio que ya usa
-      `isRoomOwner()` en el resto de los call sites, pero pendiente esa
-      prueba real antes de darlo por cerrado del todo.
+      cambio.
+      **Camino "con dueño" probado end-to-end (2026-09-06)**, con Redis y
+      Postgres reales arriba (no había Postgres disponible cuando se hizo
+      el cambio original): registro → login → `create-room` con la cookie
+      de sesión puesta → confirmado `ownerUserId` guardado en Redis con el
+      `userId` de la cuenta. Sobre esa sala, los 4 casos que importan dan
+      el resultado esperado, tanto por HTTP (`upload-subtitle`) como por
+      Socket.io (`join-room`, con un cliente `socket.io-client` real
+      mandando la cookie `movienight.sid` en el handshake):
+      hostToken solo sin sesión → no autoriza; cookie del dueño sin
+      hostToken → sí autoriza; hostToken correcto + cookie de **otra**
+      cuenta registrada → no autoriza; y una sala creada sin sesión
+      (anónima) con hostToken correcto → sigue autorizando igual que
+      siempre. Confirma que `io.engine.use(sessionMiddleware)` efectivamente
+      deja `socket.request.session` disponible en el handshake de
+      Socket.io tal como se esperaba por lectura de código. Este punto
+      queda cerrado del todo.
 - [ ] **La biblioteca deja de depender de una única `LIBRARY_PASSWORD`
       compartida**: con cuentas reales, tiene más sentido que el acceso a
       subir/borrar videos se valide por sesión de usuario logueado, no por una

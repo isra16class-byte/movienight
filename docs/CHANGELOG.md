@@ -10,6 +10,44 @@ si hace falta, puede ir en el mensaje de commit).
 
 ---
 
+## 2026-09-06 — Fase 2bis: prueba end-to-end del camino "con dueño" + "quién puede crear salas"
+
+- **Camino "con dueño" probado end-to-end** (pendiente desde el cambio
+  anterior, ver entrada de abajo): con Redis y Postgres reales levantados,
+  se confirmó por HTTP (`upload-subtitle`) y por Socket.io (`join-room`,
+  con un cliente `socket.io-client` real mandando la cookie
+  `movienight.sid` en el handshake) que `isRoomOwner()` se comporta como
+  se esperaba en los 4 casos que importan: hostToken solo sin sesión → no
+  autoriza; cookie del dueño sin hostToken → autoriza; hostToken correcto
+  + cookie de otra cuenta → no autoriza; sala anónima + hostToken → sigue
+  autorizando igual que siempre. Confirma que
+  `io.engine.use(sessionMiddleware)` efectivamente deja
+  `socket.request.session` disponible en el handshake tal como se esperaba
+  por lectura de código. Este punto de la Fase 2bis queda cerrado del todo.
+- **Decisión: "quién puede crear salas"** — se mantiene el mismo criterio
+  de siempre (conocer la `LIBRARY_PASSWORD` compartida vía
+  `requireUploadAuth`), sin exigir cuenta registrada ni verificación de
+  email. Motivo: todavía no hay UI de login, así que exigir cuenta dejaría
+  al grupo de amigos actual sin poder crear salas; verificar email sería
+  sobre-ingeniería para un grupo que ya comparte una contraseña.
+- **Gap corregido**: `/create-room-from-upload` (crear sala reusando una
+  cinta ya subida a la biblioteca) no exigía ninguna contraseña, a
+  diferencia de `/create-room` — cualquiera que supiera o adivinara un
+  filename podía crear salas sin ningún control. Se agregó
+  `requireUploadAuth` a esa ruta, y `library.html` ahora usa
+  `mnLibraryFetch` (ya maneja el prompt/reintento ante un 401) en vez de
+  `fetch` directo para esa llamada.
+- **Probado**: `create-room-from-upload` sin contraseña → 401 con
+  `attemptsLeft`; con la contraseña correcta → 200 y crea la sala; 3
+  contraseñas incorrectas seguidas → bloqueo 429 por 15 min (mismo
+  comportamiento que el resto de las rutas con `requireUploadAuth`).
+- De paso, se corrigió un `package-lock.json` desactualizado
+  (`express-session` y sus dependencias transitivas faltaban del lockfile
+  aunque ya estaban en `package.json`) — sin esto, `npm ci` en un entorno
+  limpio hubiera fallado.
+
+---
+
 ## 2026-09-05 — Fase 2bis (tercer paso): migración del rol de host a la sesión
 
 - **Nuevo campo `room.ownerUserId`**: se setea desde `req.session.userId`

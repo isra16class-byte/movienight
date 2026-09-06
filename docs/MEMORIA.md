@@ -257,9 +257,26 @@ requiere Postgres arriba para un login real, no disponible en el entorno donde
 se hizo este cambio; queda pendiente esa prueba antes de darlo por cerrado del
 todo.
 
+**Fase 2bis — camino "con dueño" probado end-to-end (2026-09-06)**: con Redis
+y Postgres reales levantados, se confirmó por los 4 caminos que importan
+(HTTP y Socket.io) que una sala con `ownerUserId` seteado solo se puede
+reclamar con la sesión de esa cuenta — un `hostToken` correcto pero sin esa
+sesión (o con la sesión de otra cuenta) ya no alcanza — y que una sala
+creada sin sesión sigue funcionando exactamente igual que siempre con
+`hostToken`. Este punto de la fase queda cerrado del todo.
+
+**Fase 2bis — "quién puede crear salas" ✅ (decidido el 2026-09-06)**: se
+mantiene el mismo criterio de siempre (conocer la `LIBRARY_PASSWORD`
+compartida) — no hace falta cuenta registrada ni verificar email, porque
+todavía no hay UI de login y exigir cuenta dejaría al grupo actual sin poder
+crear salas. De paso se encontró y corrigió un gap real:
+`/create-room-from-upload` (crear sala reusando una cinta ya subida) no
+pedía ninguna contraseña, a diferencia de `/create-room` — ahora las dos
+rutas exigen lo mismo (`requireUploadAuth`).
+
 **Lo que sigue faltando de la Fase 2bis** (ver `docs/PLAN-PRODUCCION.md` para
-el detalle): quién puede crear salas, biblioteca por sesión de usuario (en vez
-de `LIBRARY_PASSWORD` única), y recuperación de contraseña.
+el detalle): biblioteca por sesión de usuario (en vez de `LIBRARY_PASSWORD`
+única) y recuperación de contraseña.
 
 **Fase 2bis — sesiones reales ✅ (2026-09-05)**: `POST /auth/login` exitoso
 ahora deja una sesión de servidor real, en vez de solo confirmar que las

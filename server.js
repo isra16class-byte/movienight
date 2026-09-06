@@ -758,7 +758,22 @@ app.post('/create-room', requireUploadAuth, upload.single('video'), async (req, 
   res.json({ roomId, hostToken: room.hostToken });
 });
 
-app.post('/create-room-from-upload', async (req, res) => {
+// --- Fase 2bis, "quién puede crear salas" (2026-09-06) -------------------------------------------
+// Decisión: por ahora sigue siendo la MISMA regla que ya usaba /create-room — conocer la
+// LIBRARY_PASSWORD compartida, no hace falta cuenta registrada ni verificación de email. Con
+// cuentas reales ya en pie (Fase 2bis) se evaluó exigir sesión iniciada para crear salas, pero
+// todavía no hay UI de login (ver docs/PLAN-PRODUCCION.md, Fase 0) — exigir cuenta hoy dejaría a
+// todo el grupo de amigos actual sin poder crear salas. La contraseña compartida sigue alcanzando
+// para el caso de uso actual (grupo controlado); revisar esta decisión si/cuando haya UI de login y
+// se quiera cerrar del todo el modo anónimo. Verificación de email adicional se descarta por ahora:
+// sería sobre-ingeniería para un grupo que ya comparte una contraseña de por sí.
+// Se encontró de paso (2026-09-06) que ESTA ruta específica no tenía ningún gate — a diferencia de
+// /create-room, que sí exige requireUploadAuth. Reusar una cinta ya subida no evita el mismo costo
+// de que cualquiera con el link cree salas sin límite (aunque no suba nada nuevo, cada sala ocupa
+// memoria/Redis) — se corrige acá para que las dos formas de crear una sala pidan la misma
+// contraseña. El cliente (library.html) ya la maneja vía mnLibraryFetch, que reintenta con el
+// prompt correspondiente ante un 401.
+app.post('/create-room-from-upload', requireUploadAuth, async (req, res) => {
   try {
     const { filename, password } = req.body || {};
     if (!(await isValidUploadReference(filename))) return res.status(400).json({ error: 'Ese archivo no existe' });

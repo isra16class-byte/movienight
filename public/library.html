@@ -267,7 +267,10 @@ async function useTape(filename, li) {
       window.location = `/room/${fromRoom}`;
       return;
     }
-    const res = await fetch('/create-room-from-upload', {
+    // Fase 2bis, "quién puede crear salas" (2026-09-06): /create-room-from-upload ahora exige la
+    // misma LIBRARY_PASSWORD que /create-room — mnLibraryFetch ya sabe pedirla/reintentar ante un
+    // 401, igual que hace para listar/borrar la biblioteca.
+    const res = await mnLibraryFetch('/create-room-from-upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filename })
