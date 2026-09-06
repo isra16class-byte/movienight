@@ -872,6 +872,11 @@ async function makeRoom(videoFile, password, ownerUserId = null) {
     recentDisconnects: new Map(),
     initialVideoAnnounced: false, // ver join-room: anuncia la cinta con la que se creó la sala una sola vez
     chatHistory: [], // últimos CHAT_HISTORY_LIMIT mensajes de chat (system y de usuario), ver pushChatHistory
+    // lastActivity (Fase 2.6 del plan de producción): timestamp de la última vez que hubo actividad
+    // real en la sala — lo mantiene al día roomStore.saveRoom() en cada guardado (ver ese archivo). Se
+    // inicializa acá por prolijidad (el primer saveRoom(), inmediato después de crear la sala en los
+    // dos call sites de más abajo, lo va a pisar de todos modos con el mismo valor).
+    lastActivity: Date.now(),
     // Última posición conocida del video (V18 — fix: sin esto, cualquiera que se conectaba o
     // reconectaba arrancaba SIEMPRE en el segundo 0, porque 'room-data' solo mandaba el archivo,
     // nunca el minuto. A un espectador normal lo corregía el próximo heartbeat del host (parpadeo de
@@ -903,7 +908,45 @@ async function makeRoom(videoFile, password, ownerUserId = null) {
 // tiene el mismo costo potencial (alguien podría generar URLs y llenar el bucket) que subir un archivo
 // directo, así que amerita el mismo control.
 const R2_PRESIGN_EXPIRES_SECONDS = parseInt(process.env.R2_PRESIGN_EXPIRES_SECONDS, 10) || 6 * 60 * 60; // 6h default: la subida real puede tardar bastante más que el default típico de una URL prefirmada si la conexión de quien sube es lenta (es un video de varios GB)
-app.post('/api/uploads/presign', requireUploadAuth, async (req, res) => {
+
+// --- Límite de storage de la biblioteca (Fase 2.6 del plan de producción) ------------------------
+// Sin esto, con cuentas reales ya en pie (Fase 2bis) cualquiera con cuenta puede seguir subiendo
+// videos sin límite y el costo de R2 (o el disco del VPS) crece sin control. Los dos límites son
+// opcionales e independientes (0 = sin límite, el default): cantidad de videos y tamaño total en GB.
+// Se chequean ANTES de aceptar una subida nueva (no en /create-room-from-upload ni
+// /room/:id/change-video-from-upload, que reusan un archivo YA en la biblioteca — no suman nada
+// nuevo, así que no tiene sentido bloquearlos acá).
+const MAX_LIBRARY_VIDEOS = parseInt(process.env.MAX_LIBRARY_VIDEOS, 10) || 0;
+const MAX_LIBRARY_SIZE_GB = parseFloat(process.env.MAX_LIBRARY_SIZE_GB) || 0;
+
+async function checkStorageLimits(req, res, next) {
+  if (!MAX_LIBRARY_VIDEOS && !MAX_LIBRARY_SIZE_GB) return next(); // sin límites configurados: no hace falta listar nada
+  try {
+    let videos;
+    if (r2.isR2Enabled()) {
+      videos = (await r2.listObjects()).filter(o => VIDEO_EXTENSIONS.includes(path.extname(o.filename).toLowerCase()));
+    } else {
+      const files = fs.readdirSync(UPLOAD_DIR).filter(f => VIDEO_EXTENSIONS.includes(path.extname(f).toLowerCase()));
+      videos = files.map(f => ({ size: fs.statSync(path.join(UPLOAD_DIR, f)).size }));
+    }
+    if (MAX_LIBRARY_VIDEOS && videos.length >= MAX_LIBRARY_VIDEOS) {
+      return res.status(413).json({ error: `La biblioteca llegó al límite de ${MAX_LIBRARY_VIDEOS} video(s). Borrá alguno desde /library.html antes de subir uno nuevo.` });
+    }
+    if (MAX_LIBRARY_SIZE_GB) {
+      const totalGB = videos.reduce((sum, o) => sum + o.size, 0) / (1024 ** 3);
+      if (totalGB >= MAX_LIBRARY_SIZE_GB) {
+        return res.status(413).json({ error: `La biblioteca llegó al límite de almacenamiento (${MAX_LIBRARY_SIZE_GB}GB). Borrá algún video desde /library.html antes de subir uno nuevo.` });
+      }
+    }
+    next();
+  } catch (err) {
+    // Falla "abierta" a propósito: esto es un límite de costo, no de seguridad — un error listando la
+    // biblioteca (ej. R2 momentáneamente lento) no debería bloquear una subida legítima.
+    console.error('⚠️  Error chequeando límites de storage de la biblioteca (se deja pasar la subida):', err.message);
+    next();
+  }
+}
+app.post('/api/uploads/presign', requireUploadAuth, checkStorageLimits, async (req, res) => {
   if (!r2.isR2Enabled()) {
     return res.status(404).json({ error: 'La subida directa no está disponible: este servidor no tiene Cloudflare R2 configurado. Subí el video de la forma habitual.' });
   }
@@ -921,7 +964,7 @@ app.post('/api/uploads/presign', requireUploadAuth, async (req, res) => {
   }
 });
 
-app.post('/create-room', requireUploadAuth, upload.single('video'), async (req, res) => {
+app.post('/create-room', requireUploadAuth, checkStorageLimits, upload.single('video'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No llegó ningún video' });
   const roomId = makeRoomId();
   // Si quien crea la sala tiene una sesión iniciada (Fase 2bis), la sala queda "con dueño" desde el
@@ -970,7 +1013,7 @@ app.post('/create-room-from-upload', requireUploadAuth, async (req, res) => {
   }
 });
 
-app.post('/room/:id/change-video', requireUploadAuth, upload.single('video'), async (req, res) => {
+app.post('/room/:id/change-video', requireUploadAuth, checkStorageLimits, upload.single('video'), async (req, res) => {
   const room = rooms[req.params.id];
   if (!room) return res.status(404).json({ error: 'Sala no existe' });
   // Fase 2bis, "migración del rol de host": si la sala tiene dueño (room.ownerUserId), solo la sesión
@@ -1578,6 +1621,75 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 
+// --- Expiración de salas por inactividad (Fase 2.6 del plan de producción) -----------------------
+// El TTL nativo de Redis (ver lib/roomStore.js, ROOM_TTL_SECONDS) resuelve la mitad del problema: si
+// el proceso está caído, la key igual desaparece sola. Pero mientras el proceso SÍ está corriendo,
+// `rooms` en memoria (la fuente de verdad para lecturas, ver la nota grande más arriba) no se entera
+// solo de que una key de Redis expiró — necesita este barrido activo para: (1) avisarle a cualquiera
+// que siguiera conectado en una sala tan vieja (caso raro, pero posible: alguien dejó una pestaña
+// abierta sin actividad real durante 24hs+), (2) sacarla de `rooms`, y (3) borrarla de Redis (más por
+// prolijidad del índice `movienight:rooms` que por necesidad — la key en sí ya iba a expirar sola).
+// No borra el video asociado (R2/disco) — decisión de producto de esta fase, ver docs/PLAN-PRODUCCION.md:
+// el video queda en la biblioteca compartida para reutilizarse en otra sala.
+const ROOM_SWEEP_INTERVAL_MS = parseInt(process.env.ROOM_SWEEP_INTERVAL_MS, 10) || 30 * 60 * 1000; // cada 30 min
+
+async function sweepExpiredRooms() {
+  const ttlMs = roomStore.ROOM_TTL_SECONDS * 1000;
+  const now = Date.now();
+  const expiredIds = Object.keys(rooms).filter((id) => now - (rooms[id].lastActivity || 0) > ttlMs);
+  if (expiredIds.length === 0) return;
+
+  for (const roomId of expiredIds) {
+    try {
+      // Avisa y desconecta a quien siga adentro (raro tras 24hs+ sin actividad, pero por las dudas —
+      // no tendría sentido dejar a alguien "viendo" una sala que ya se borró de `rooms`).
+      io.to(roomId).emit('room-error', 'Esta sala expiró por inactividad (sin uso durante 24hs) y se cerró.');
+      const socketsInRoom = io.sockets.adapter.rooms.get(roomId);
+      if (socketsInRoom) {
+        for (const socketId of [...socketsInRoom]) {
+          const s = io.sockets.sockets.get(socketId);
+          if (s) { s.leave(roomId); s.disconnect(true); }
+        }
+      }
+      delete rooms[roomId];
+      await roomStore.deleteRoom(roomId);
+    } catch (err) {
+      console.error(`⚠️  Error expirando la sala ${roomId} (Fase 2.6):`, err.message);
+    }
+  }
+  console.log(`🧹 Barrido de salas inactivas (Fase 2.6): ${expiredIds.length} sala(s) cerrada(s) por 24hs+ sin actividad. El video de cada una sigue disponible en la biblioteca.`);
+}
+
+// --- Limpieza automática de subidas multipart abandonadas en R2 (Fase 2.6 del plan de producción) -
+// `scripts/r2-cleanup-multipart.js` ya hacía esto mismo, pero a mano (`npm run r2:cleanup -- --abort`).
+// Esto lo automatiza: corre solo, periódicamente, mientras el server esté levantado. Más agresivo que
+// la regla de lifecycle por default de R2 (aborta a los 7 días) a propósito — configurable con
+// MULTIPART_ABANDON_DAYS por si 2 días resulta muy agresivo para conexiones de subida muy lentas.
+const MULTIPART_SWEEP_INTERVAL_MS = parseInt(process.env.MULTIPART_SWEEP_INTERVAL_MS, 10) || 24 * 60 * 60 * 1000; // cada 24hs
+const MULTIPART_ABANDON_DAYS = parseFloat(process.env.MULTIPART_ABANDON_DAYS) || 2;
+
+async function sweepAbandonedMultipartUploads() {
+  if (!r2.isR2Enabled()) return;
+  try {
+    const uploads = await r2.listMultipartUploads();
+    const cutoff = Date.now() - MULTIPART_ABANDON_DAYS * 24 * 60 * 60 * 1000;
+    const stale = uploads.filter((u) => u.initiated < cutoff);
+    for (const u of stale) {
+      try {
+        await r2.abortMultipartUpload(u.key, u.uploadId);
+        console.log(`🧹 Subida multipart abandonada cancelada en R2 (Fase 2.6): ${u.key}`);
+      } catch (err) {
+        console.error(`⚠️  No se pudo cancelar la subida multipart abandonada ${u.key}:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.error('⚠️  Error revisando subidas multipart abandonadas en R2 (Fase 2.6):', err.message);
+  }
+}
+
+let roomSweepIntervalHandle = null;
+let multipartSweepIntervalHandle = null;
+
 // --- Arranque del server (Fase 1.1 del plan de producción) ---------------------------------------
 // Se envuelve en una función async (en vez de llamar a server.listen directo) porque ahora hay un
 // paso previo que sí puede fallar de verdad y debe frenar el arranque: la conexión a Redis. Mismo
@@ -1620,6 +1732,15 @@ async function startServer() {
       // arranca igual (en 0 salas) en vez de bloquear el server entero por esto, pero bien visible.
       console.error('⚠️  Redis conectó pero no se pudieron recuperar las salas guardadas (se arranca sin ellas):', err.message);
     }
+
+    // Fase 2.6: un barrido inicial ACÁ (antes de aceptar tráfico), además del setInterval de abajo,
+    // por si el proceso estuvo caído más de ROOM_SWEEP_INTERVAL_MS y se recuperaron desde Redis salas
+    // que en realidad ya deberían haber expirado (su key en Redis podría no haber llegado a expirar
+    // sola si el TTL se refrescó justo antes de la caída — este barrido las limpia igual, en memoria).
+    sweepExpiredRooms().catch((err) => console.error('⚠️  Error en el barrido inicial de salas expiradas:', err.message));
+    roomSweepIntervalHandle = setInterval(() => {
+      sweepExpiredRooms().catch((err) => console.error('⚠️  Error en el barrido periódico de salas expiradas:', err.message));
+    }, ROOM_SWEEP_INTERVAL_MS);
   } else {
     console.log('');
     console.log('⚠️  DISABLE_REDIS=1: las salas viven SOLO en memoria, sin persistencia entre reinicios.');
@@ -1673,6 +1794,14 @@ async function startServer() {
       console.log('📧 RESEND_API_KEY no configurada — /auth/forgot-password loguea el link por consola en vez de mandar un email (solo sirve para desarrollo local).');
     }
   }
+
+  // Fase 2.6: independiente del bloque de Redis de arriba — corre siempre que R2 esté configurado
+  // (la función misma no hace nada si no lo está). No hace falta un barrido inicial acá como el de
+  // salas: el lifecycle por default de R2 (7 días) ya cubre el caso "el proceso estuvo caído mucho
+  // tiempo", así que alcanza con que el intervalo arranque a contar desde este arranque.
+  multipartSweepIntervalHandle = setInterval(() => {
+    sweepAbandonedMultipartUploads();
+  }, MULTIPART_SWEEP_INTERVAL_MS);
 
   server.listen(PORT, () => {
     console.log(`MovieNight corriendo en http://localhost:${PORT}`);
@@ -1735,6 +1864,11 @@ function gracefulShutdown(signal) {
 
   console.log('');
   console.log(`🛑 ${signal} recibido — cerrando MovieNight (margen de ${SHUTDOWN_GRACE_MS / 1000}s para avisar a los clientes conectados)...`);
+
+  // Fase 2.6: no tiene efecto funcional dejarlos correr (el proceso está por terminar de todos
+  // modos), pero cortarlos prolijamente evita que un barrido dispare a mitad del shutdown.
+  if (roomSweepIntervalHandle) clearInterval(roomSweepIntervalHandle);
+  if (multipartSweepIntervalHandle) clearInterval(multipartSweepIntervalHandle);
 
   // Evento dedicado (no reutilizamos 'room-error' ni similares: esto no es un error de la sala, es
   // el servidor entero bajando) — el cliente (room.html) lo escucha para mostrar un banner en vez de

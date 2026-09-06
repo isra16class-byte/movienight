@@ -1,5 +1,55 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-06 — Fase 2.6: expiración de salas y límites de storage ✅
+
+- **Decisiones de producto tomadas** (las dos preguntas abiertas que dejaba
+  anotadas el plan): las salas expiran a las **24hs sin actividad**, y al
+  expirar el video asociado **NO se borra** — queda en la biblioteca
+  compartida para reutilizarse en otra sala. Solo se pierde el chat/config/
+  participantes de esa sala puntual.
+- **Expiración de salas** (`lib/roomStore.js` + `server.js`): se reusa
+  literalmente la definición de "actividad" que ya existía — cada
+  mutación real de una sala (join, play/pause/seek, chat, mute, traspaso de
+  host, cambio de cinta) ya llamaba a `roomStore.saveRoom()` desde fases
+  anteriores. Ahora `saveRoom()` estampa `room.lastActivity = Date.now()` en
+  cada llamada (mutando el objeto real en memoria, no una copia) y aplica un
+  **TTL nativo de Redis** (`SET ... EX <segundos>`, configurable con
+  `ROOM_TTL_HOURS`, default 24) sobre la key de la sala — si el proceso
+  estuviera caído 24hs+, la key desaparece sola sin depender de que nada la
+  barra activamente. Mientras el proceso SÍ está corriendo, un barrido
+  periódico propio (`sweepExpiredRooms`, cada `ROOM_SWEEP_INTERVAL_MS`,
+  default 30min, más una pasada inicial al arrancar) se encarga de la mitad
+  que el TTL de Redis no puede resolver solo: sacar la sala de `rooms` en
+  memoria (la fuente de verdad para lecturas) y avisar/desconectar a
+  cualquiera que siguiera conectado en una sala tan vieja.
+- **Límites de storage de la biblioteca** (`server.js`,
+  `checkStorageLimits`): dos límites opcionales e independientes (0 = sin
+  límite, el default de ambos), `MAX_LIBRARY_VIDEOS` y `MAX_LIBRARY_SIZE_GB`,
+  chequeados antes de aceptar una subida **nueva** — `/create-room`,
+  `/room/:id/change-video` y `/api/uploads/presign`. No se chequean en las
+  rutas que reusan una cinta ya subida (`/create-room-from-upload`,
+  `/room/:id/change-video-from-upload`), porque esas no suman nada nuevo a la
+  biblioteca. Falla "abierta" a propósito: un error listando la biblioteca
+  para chequear el límite no bloquea una subida legítima (es un límite de
+  costo, no de seguridad).
+- **Limpieza automática de subidas multipart abandonadas en R2**: lo que
+  antes solo se podía correr a mano (`npm run r2:cleanup -- --abort`) ahora
+  también corre solo, cada `MULTIPART_SWEEP_INTERVAL_MS` (default 24hs),
+  cancelando las que superen `MULTIPART_ABANDON_DAYS` (default 2) sin
+  completarse — más agresivo que el lifecycle por default de R2 (7 días) a
+  propósito, configurable si resulta muy agresivo para conexiones lentas. El
+  script manual (`scripts/r2-cleanup-multipart.js`) se mantiene intacto para
+  poder revisar/forzar esto a mano en cualquier momento.
+- **Nuevo `scripts/library-orphan-report.js`** (`npm run library:orphans`):
+  reporta (nunca borra sin `--delete` explícito) videos de la biblioteca sin
+  ninguna sala activa usándolos y con más de `LIBRARY_ORPHAN_DAYS` (default
+  30) de antigüedad — cruza la biblioteca (disco o R2, según el modo) contra
+  las salas activas recuperadas desde Redis. Se corta sin reportar nada si
+  Redis no responde o está deshabilitado (`DISABLE_REDIS=1`): sin saber con
+  certeza qué está en uso, no vale la pena arriesgar un falso positivo.
+- Con esto, la **Fase 2.6 queda completa** — no quedan ítems pendientes en
+  esta fase del plan.
+
 ## 2026-09-06 — Fase 2.7: probada end-to-end contra un R2 real, queda completa
 
 - Con el fix del checksum CRC32 ya aplicado (ver entrada de más abajo, mismo

@@ -254,21 +254,57 @@ secundario.
 - [ ] Igual para subtítulos (`.srt`/`.vtt`): validar que el contenido tenga
       estructura de subtítulo válida antes de aceptarlo, no solo la extensión.
 
-### 2.6 Expiración de salas y limpieza de storage
-- [ ] Las salas hoy **nunca expiran** (`docs/historico/MEMORIA.md`, sección 9). Definir una
-      política (ej. TTL de 24-48h sin actividad) y aplicarla:
-  - Si se migra a Redis (Fase 1.1), usar el TTL nativo de Redis para expirar la
-    sala sola.
-  - Al expirar una sala, evaluar si also se borra el video asociado en R2, o se
-    deja en la biblioteca para reutilizar (esto es una decisión de producto, no
-    solo técnica).
-- [ ] Job periódico (cron o `setInterval` largo) que:
-  - Liste videos en R2 sin ninguna sala activa ni referencia en la biblioteca
-    "viva", y los marque para revisión/borrado.
-  - Corra `listMultipartUploads`/`abortMultipartUpload` (ya existe el script,
-    `scripts/r2-cleanup-multipart.js`) automáticamente en vez de a mano.
-- [ ] Límite de storage total o de cantidad de videos por biblioteca, para que el
-      costo de R2 no crezca sin control con más usuarios.
+### 2.6 Expiración de salas y limpieza de storage ✅ (resuelta el 2026-09-06)
+- [x] **Política de expiración: 24hs sin actividad (decisión de producto tomada
+      el 2026-09-06)**. "Actividad" reusa exactamente lo que ya disparaba
+      `roomStore.saveRoom()` desde fases anteriores (join, play/pause/seek,
+      chat, mute, traspaso de host, cambio de cinta) — `saveRoom()` ahora
+      estampa `room.lastActivity = Date.now()` en cada llamada, mutando el
+      objeto real en memoria.
+  - [x] TTL nativo de Redis: `saveRoom()` guarda la key con `EX ROOM_TTL_SECONDS`
+        (configurable con `ROOM_TTL_HOURS`, default 24) — se refresca en cada
+        guardado, así que solo expira sola si de verdad pasaron 24hs sin
+        ninguna actividad. Cubre el caso "el proceso está caído": la key
+        desaparece de Redis sin depender de que nada la barra activamente.
+  - [x] Barrido activo en memoria (`sweepExpiredRooms` en `server.js`, cada
+        `ROOM_SWEEP_INTERVAL_MS` — default 30min, más una pasada inicial al
+        arrancar): el TTL de Redis por sí solo no le avisa a `rooms` en
+        memoria (la fuente de verdad para lecturas) que una key expiró. El
+        barrido saca la sala de `rooms`, la borra de Redis, y si quedaba
+        alguien conectado (caso raro tras 24hs+ sin actividad) le avisa y lo
+        desconecta.
+  - [x] **Decisión de producto: el video asociado NO se borra al expirar la
+        sala** — queda en la biblioteca compartida para reutilizarse en otra
+        sala. Solo se pierde el chat/config/participantes de esa sala
+        puntual.
+- [x] Job periódico:
+  - [x] Limpieza automática de subidas multipart abandonadas en R2:
+        `sweepAbandonedMultipartUploads` en `server.js` corre sola cada
+        `MULTIPART_SWEEP_INTERVAL_MS` (default 24hs) y cancela las que
+        superen `MULTIPART_ABANDON_DAYS` (default 2) sin completarse —
+        mismo mecanismo que ya exponía `scripts/r2-cleanup-multipart.js`
+        (que se mantiene intacto para forzarlo a mano cuando haga falta).
+  - [x] Reporte (no automático a propósito) de videos "huérfanos": nuevo
+        `scripts/library-orphan-report.js` (`npm run library:orphans`) lista
+        videos de la biblioteca sin ninguna sala activa usándolos y con más
+        de `LIBRARY_ORPHAN_DAYS` (default 30) de antigüedad, cruzando la
+        biblioteca contra las salas activas recuperadas desde Redis. Solo
+        borra con `--delete` explícito, y se corta sin reportar nada si
+        Redis no responde (sin saber con certeza qué está en uso, no vale la
+        pena arriesgar un falso positivo). Se dejó como reporte manual y no
+        como borrado automático porque, a diferencia de la expiración de
+        salas (una decisión ya tomada y acotada), borrar videos de la
+        biblioteca sin que una persona lo confirme es un riesgo más alto
+        (podría ser una cinta guardada para la próxima peliculeada).
+- [x] Límite de storage: `MAX_LIBRARY_VIDEOS` y `MAX_LIBRARY_SIZE_GB`
+      (`server.js`, `checkStorageLimits`), ambos opcionales e independientes
+      (0 = sin límite, el default), chequeados antes de aceptar una subida
+      **nueva** (`/create-room`, `/room/:id/change-video`,
+      `/api/uploads/presign`) — no en las rutas que reusan una cinta ya
+      subida, que no suman nada a la biblioteca. Falla "abierta" si el
+      chequeo mismo falla (ej. R2 lento): es un límite de costo, no de
+      seguridad, no debería bloquear una subida legítima por un error de
+      este chequeo puntual.
 
 ### 2.7 Límite de tamaño de subida vía Cloudflare Tunnel/Proxy ✅ (resuelta el 2026-09-06, solo en modo R2)
 - [x] **Encontrado probando en producción real** (dominio
@@ -637,11 +673,17 @@ Con las decisiones de Fase 0 ya tomadas, el orden recomendado queda así:
    se confirmó todo el flujo de punta a punta contra un bucket de R2 real
    (CORS configurado, subida real, objeto verificado en el bucket, sala
    reproduciendo el video). No quedan ítems pendientes en esta fase.
-5. **Fase 2.6** (expiración de salas/storage) — antes de que haya usuarios reales
-   generando costo de R2 sin control.
+5. **Fase 2.6 ✅ completa (2026-09-06)** (expiración de salas/storage) — salas
+   con TTL de 24hs sin actividad (video NUNCA se borra al expirar, decisión de
+   producto), límites opcionales de storage de la biblioteca, y limpieza
+   automática de subidas multipart abandonadas en R2. Ver `docs/MEMORIA.md` y
+   `docs/CHANGELOG.md` para el detalle.
 6. **Fase 3 queda pospuesta** (una instancia alcanza por ahora, según Fase 0) y
    **Fase 6 de multi-tenancy queda descartada** — no vuelven a este orden salvo
-   que cambie la necesidad real de escala.
+   que cambie la necesidad real de escala. Lo que queda pendiente ahora es
+   **Fase 2.4** (headers de seguridad), **Fase 2.5** (validación real de
+   archivos subidos), **Fase 4** (observabilidad), **Fase 5** (tests/CI/deploy)
+   y, dentro de Fase 6, términos de uso/privacidad.
 
 ---
 
