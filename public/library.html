@@ -39,6 +39,8 @@ if ('serviceWorker' in navigator) {
     <span class="deck-corner br"></span>
     <div class="rec-timer"><span class="rec-dot"></span> REC <span id="recTime">00:00</span></div>
 
+    <div class="account-bar" id="accountBar"></div>
+
     <a href="/" class="back-link" id="backLink">◂ Volver</a>
     <p class="eyebrow-osd">▸ REWIND · PLAY · REC ◂</p>
     <h1 class="marquee-title" style="font-size:clamp(24px, 5vw, 34px);" id="libTitle">BIBLIOTECA DE CINTAS</h1>
@@ -214,6 +216,110 @@ async function mnLibraryFetch(url, options = {}) {
   }
 }
 
+// --- Cuenta: login/registro/logout (Fase 2bis del plan de producción) ---------------------------
+// Mismo componente y misma lógica que index.html (ver ese comentario para el porqué de encadenar
+// mnPrompt() en vez de un formulario nuevo) — duplicado acá porque el proyecto no tiene un sistema de
+// includes entre páginas (mismo criterio que ya usa con mnDialog, cassetteIcon, etc. en cada archivo).
+let currentUser = null;
+const accountBar = document.getElementById('accountBar');
+
+function renderAccountBar() {
+  if (currentUser) {
+    accountBar.innerHTML = `
+      <span>👤 ${escapeHtml(currentUser.email)}</span>
+      <span class="account-sep">·</span>
+      <button id="logoutBtn">Cerrar sesión</button>
+    `;
+    document.getElementById('logoutBtn').onclick = doLogout;
+  } else {
+    accountBar.innerHTML = `
+      <button id="loginBtn">🔑 Iniciar sesión</button>
+      <span class="account-sep">·</span>
+      <button id="registerBtn">Crear cuenta</button>
+    `;
+    document.getElementById('loginBtn').onclick = doLogin;
+    document.getElementById('registerBtn').onclick = doRegister;
+  }
+}
+
+async function refreshAuthState() {
+  try {
+    const res = await fetch('/auth/me');
+    const data = await res.json();
+    currentUser = data.loggedIn ? { id: data.id, email: data.email } : null;
+  } catch (err) {
+    currentUser = null;
+  }
+  renderAccountBar();
+}
+
+async function doLogin() {
+  const email = await mnPrompt({ title: 'Iniciar sesión', placeholder: 'Email', type: 'email', okLabel: 'Siguiente' });
+  if (email === null) return;
+  const password = await mnPrompt({ title: 'Iniciar sesión', message: email, placeholder: 'Contraseña', type: 'password', okLabel: 'Entrar' });
+  if (password === null) return;
+  try {
+    const res = await fetch('/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    const data = await res.json();
+    if (data.error) {
+      const retry = await mnConfirm(`${data.error}\n\n¿Olvidaste tu contraseña?`, 'No se pudo iniciar sesión');
+      if (retry) await doForgotPassword(email);
+      return;
+    }
+    currentUser = { id: data.id, email: data.email };
+    renderAccountBar();
+    loadTapes(); // con sesión, el server ahora deja pasar sin la contraseña de biblioteca (ver requireLibraryAuth)
+    await mnAlert('Sesión iniciada.');
+  } catch (err) {
+    await mnAlert('No se pudo conectar con el servidor. Intenta de nuevo.');
+  }
+}
+
+async function doRegister() {
+  const email = await mnPrompt({ title: 'Crear cuenta', placeholder: 'Email', type: 'email', okLabel: 'Siguiente' });
+  if (email === null) return;
+  const password = await mnPrompt({ title: 'Crear cuenta', message: `${email} — mínimo 8 caracteres`, placeholder: 'Contraseña', type: 'password', okLabel: 'Crear' });
+  if (password === null) return;
+  try {
+    const res = await fetch('/auth/register', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    const data = await res.json();
+    if (data.error) { await mnAlert(data.error, 'No se pudo crear la cuenta'); return; }
+    await mnAlert('Cuenta creada. Ahora iniciá sesión.');
+    await doLogin();
+  } catch (err) {
+    await mnAlert('No se pudo conectar con el servidor. Intenta de nuevo.');
+  }
+}
+
+async function doLogout() {
+  try { await fetch('/auth/logout', { method: 'POST' }); } catch (err) { /* igual se limpia el estado local */ }
+  currentUser = null;
+  renderAccountBar();
+}
+
+async function doForgotPassword(prefillEmail = '') {
+  const email = await mnPrompt({ title: 'Recuperar contraseña', message: 'Te mandamos un link para elegir una nueva.', placeholder: 'Email', type: 'email', defaultValue: prefillEmail, okLabel: 'Enviar' });
+  if (email === null) return;
+  try {
+    const res = await fetch('/auth/forgot-password', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await res.json();
+    await mnAlert(data.message || data.error || 'Si ese email tiene una cuenta, te mandamos un link.');
+  } catch (err) {
+    await mnAlert('No se pudo conectar con el servidor. Intenta de nuevo.');
+  }
+}
+
+refreshAuthState();
+
 async function loadTapes() {
   try {
     const res = await mnLibraryFetch('/api/uploads');
@@ -330,8 +436,10 @@ if (fromRoom) {
     if (!file) return;
     if (!roomHostToken) { newTapeStatus.textContent = 'No tienes permisos de host en esta sala desde este navegador.'; return; }
 
+    // Fase 2bis, "la biblioteca deja de depender de una única LIBRARY_PASSWORD": con sesión iniciada
+    // no hace falta pedir la contraseña compartida (ver requireUploadAuth en server.js).
     let pw = localStorage.getItem('mn_library_pw') || '';
-    if (!pw) {
+    if (!currentUser && !pw) {
       pw = await getUploadPassword();
       if (pw === null) return; // canceló el prompt
     }

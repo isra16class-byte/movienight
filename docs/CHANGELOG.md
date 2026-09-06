@@ -10,6 +10,42 @@ si hace falta, puede ir en el mensaje de commit).
 
 ---
 
+## 2026-09-06 — Fase 2bis (cierre): biblioteca por sesión + recuperación de contraseña
+
+- **Biblioteca por sesión de usuario**: `requireLibraryAuth` (listar/borrar
+  en `/api/uploads`) y `requireUploadAuth` (subir cinta nueva, crear sala,
+  subtítulos) ahora aceptan una sesión de cuenta real como alternativa a
+  `LIBRARY_PASSWORD` — no la reemplazan, los dos caminos conviven: el grupo
+  sin cuenta no pierde acceso a nada, quien sí tiene cuenta deja de
+  necesitar además la contraseña compartida.
+- **UI mínima de login/registro/logout**: nueva en `index.html` y
+  `library.html`, encadenando el componente `mnPrompt` ya existente (sin
+  sumar un formulario nuevo). Antes de este cambio no había ninguna forma
+  de loguearse desde el navegador, aunque `/auth/*` ya estaba listo desde
+  un paso anterior de la Fase 2bis.
+- **Recuperación de contraseña**: nuevas rutas `POST /auth/forgot-password`
+  y `POST /auth/reset-password`, más `public/reset-password.html`. Email
+  vía **Resend** (`lib/mailer.js`, HTTP directo con `fetch`, sin SDK ni
+  SMTP). Tokens de un solo uso (`sha256` guardado, nunca en texto plano),
+  vencimiento de 1 hora, tabla nueva `password_resets` en Postgres.
+  Respuesta siempre genérica (exista o no el email) para no permitir
+  enumerar cuentas, con un limitador propio (3 pedidos/hora por ip+email)
+  que tampoco delata si se alcanzó el límite. Sin `RESEND_API_KEY`
+  configurada, el link se loguea por consola (solo desarrollo local);
+  reportado en el healthcheck (`checks.email`) sin contar como falla si no
+  está habilitado.
+- **Probado end-to-end** con Redis y Postgres reales: los tres caminos de
+  acceso a biblioteca/subida (sin credencial → 401, con sesión → 200, con
+  `LIBRARY_PASSWORD` → 200) dan el resultado esperado; el flujo completo de
+  reseteo (token inválido → 400, contraseña corta → 400 sin gastar el
+  token, token real + contraseña válida → 200, reintentar el mismo token →
+  400, login viejo falla / login nuevo funciona, rate limiting confirmado
+  contando links logueados).
+- Con esto, la **Fase 2bis queda completa** — sin ítems pendientes en
+  `docs/PLAN-PRODUCCION.md` bajo esa fase.
+
+---
+
 ## 2026-09-06 — Fase 2bis: prueba end-to-end del camino "con dueño" + "quién puede crear salas"
 
 - **Camino "con dueño" probado end-to-end** (pendiente desde el cambio

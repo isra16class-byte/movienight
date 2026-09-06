@@ -25,7 +25,7 @@ reacciones. Repo: `https://github.com/isra16class-byte/movienight`.
 - **Subida de video**: Multer → disco local (`public/uploads/`) **o** Cloudflare R2 si está configurado (modo dual, ver `lib/r2.js` y README).
 - **Frontend**: HTML/CSS/JS vanilla, sin framework.
 - **Estado de las salas**: `rooms` sigue siendo un objeto en memoria dentro de `server.js` (las lecturas son síncronas, sensibles a latencia por el sync de video/chat en tiempo real), pero desde la Fase 1.1 cada mutación relevante se respalda en **Redis** (`lib/roomStore.js`), y al arrancar el server se repuebla desde ahí — sobrevive a un reinicio del proceso. Si Redis no responde, el server no arranca (mismo criterio "fallar rápido" que ya usaba R2); `DISABLE_REDIS=1` es un escape hatch solo para desarrollo local, nunca para producción.
-- **Cuentas de usuario**: desde la Fase 2bis, **PostgreSQL** (`lib/db.js`, vía `pg`) guarda el modelo de usuario (tabla `users`: email, password hasheado con bcrypt). Motor separado de Redis a propósito — Redis sigue siendo solo para el estado efímero de las salas. Sin `DATABASE_URL` configurada, el registro/login queda deshabilitado pero el resto de la app sigue funcionando igual (no es un escape hatch de producción, es un feature opcional todavía no activado); si SÍ está configurada y Postgres no responde al arrancar, mismo criterio de "fallar rápido" que Redis/R2. Con `DATABASE_URL` configurada, un login exitoso también deja una **sesión de servidor real** (`lib/sessionStore.js`, sobre la misma conexión de Redis que ya usa `roomStore.js`): cookie `movienight.sid` httpOnly/sameSite=lax, contenido (`userId`/`email`) guardado server-side, revocable con `POST /auth/logout` — ver más abajo el detalle y lo que todavía falta de esta fase.
+- **Cuentas de usuario**: desde la Fase 2bis, **PostgreSQL** (`lib/db.js`, vía `pg`) guarda el modelo de usuario (tabla `users`: email, password hasheado con bcrypt). Motor separado de Redis a propósito — Redis sigue siendo solo para el estado efímero de las salas. Sin `DATABASE_URL` configurada, el registro/login queda deshabilitado pero el resto de la app sigue funcionando igual (no es un escape hatch de producción, es un feature opcional todavía no activado); si SÍ está configurada y Postgres no responde al arrancar, mismo criterio de "fallar rápido" que Redis/R2. Con `DATABASE_URL` configurada, un login exitoso también deja una **sesión de servidor real** (`lib/sessionStore.js`, sobre la misma conexión de Redis que ya usa `roomStore.js`): cookie `movienight.sid` httpOnly/sameSite=lax, contenido (`userId`/`email`) guardado server-side, revocable con `POST /auth/logout` — ver más abajo el detalle y lo que todavía falta de esta fase. Desde la fase "biblioteca por sesión" (2026-09-06), la sesión también alcanza sola (sin `LIBRARY_PASSWORD`) para listar/borrar/subir en `/library.html` — los dos caminos conviven, ninguno reemplaza al otro. La recuperación de contraseña (`POST /auth/forgot-password` / `POST /auth/reset-password`) manda el email vía **Resend** (`lib/mailer.js`, HTTP directo, sin SDK); sin `RESEND_API_KEY` configurada, el link de reseteo se loguea por consola en vez de mandarse — solo válido para desarrollo local.
 - **Exposición a internet**: Cloudflare Tunnel (no hay hosting propio todavía).
 
 ## Estructura de archivos
@@ -37,11 +37,13 @@ movienight/
   lib/roomStore.js          # Persistencia de salas en Redis (Fase 1.1 del plan de producción)
   lib/db.js                # Postgres: modelo de usuario, registro/login (Fase 2bis del plan de producción)
   lib/sessionStore.js      # Sesiones de usuario sobre Redis (Fase 2bis del plan de producción)
+  lib/mailer.js            # Envío de emails vía Resend, para recuperación de contraseña (Fase 2bis)
   scripts/r2-cleanup-multipart.js
   public/
-    index.html            # Crear sala / unirse por código
-    library.html            # Biblioteca de videos ya subidos (con contraseña propia)
+    index.html            # Crear sala / unirse por código; también login/registro/logout (Fase 2bis)
+    library.html            # Biblioteca de videos ya subidos (con contraseña propia o sesión de cuenta)
     room.html              # La sala: reproductor, chat, controles (la mayoría de la lógica de cliente vive acá)
+    reset-password.html    # Pantalla para elegir contraseña nueva tras el link de "olvidé mi contraseña"
     style.css, sw.js, manifest.webmanifest
   docs/
     MEMORIA.md              # Este archivo (resumen activo — se actualiza)
@@ -274,9 +276,51 @@ crear salas. De paso se encontró y corrigió un gap real:
 pedía ninguna contraseña, a diferencia de `/create-room` — ahora las dos
 rutas exigen lo mismo (`requireUploadAuth`).
 
-**Lo que sigue faltando de la Fase 2bis** (ver `docs/PLAN-PRODUCCION.md` para
-el detalle): biblioteca por sesión de usuario (en vez de `LIBRARY_PASSWORD`
-única) y recuperación de contraseña.
+**Fase 2bis — biblioteca por sesión de usuario ✅ (2026-09-06)**: `requireLibraryAuth`
+(listar/borrar en `/api/uploads`) y `requireUploadAuth` (subir cinta nueva,
+`/create-room`, `/create-room-from-upload`, `/room/:id/change-video`,
+`/room/:id/upload-subtitle`) ahora aceptan una sesión de cuenta real como
+alternativa a `LIBRARY_PASSWORD` — no la reemplazan, los dos caminos
+conviven a propósito: el grupo sin cuenta no pierde acceso a nada, y quien
+sí tiene cuenta deja de necesitar además la contraseña compartida. Se sumó
+una UI mínima de login/registro/logout en `index.html` y `library.html`
+(encadenando el componente `mnPrompt` que ya existía, sin sumar un
+formulario nuevo) — antes de este cambio no había NINGUNA forma de
+loguearse desde el navegador, aunque el backend de `/auth/*` ya estaba
+listo desde el paso anterior de la fase. Probado end-to-end con Redis y
+Postgres reales: sin cookie ni contraseña → 401; con cookie de sesión (sin
+mandar contraseña) → 200; con `LIBRARY_PASSWORD` (camino anónimo de
+siempre) → 200; mismo resultado en `/create-room-from-upload` (con sesión
+pasa el gate y llega al 400 de "archivo no existe", sin sesión sigue
+pidiendo la contraseña compartida).
+
+**Fase 2bis — recuperación de contraseña ✅ (2026-09-06)**: nuevas rutas
+`POST /auth/forgot-password` y `POST /auth/reset-password`, más
+`public/reset-password.html` para completar el link que llega por email.
+El email se manda vía **Resend** (`lib/mailer.js`, HTTP directo con
+`fetch`, sin SDK ni SMTP — mismo criterio minimalista que el resto del
+proyecto). Token de un solo uso, random (`crypto.randomBytes`), guardado
+en la tabla nueva `password_resets` como `sha256(token)` (nunca el token en
+texto plano, mismo principio que una contraseña) con vencimiento de 1 hora;
+al resetear con éxito se invalidan TODOS los pedidos pendientes de esa
+cuenta, así un link viejo no sigue sirviendo. `POST /auth/forgot-password`
+responde siempre el mismo mensaje genérico (exista o no el email) para no
+permitir enumerar cuentas registradas, con un limitador propio (3 pedidos
+por hora, clave ip+email) que tampoco delata si el límite se alcanzó (sigue
+devolviendo el mismo mensaje). Sin `RESEND_API_KEY` configurada, el link se
+loguea por consola en vez de mandarse — solo pensado para desarrollo local,
+igual criterio que otros escape hatches del proyecto (`DISABLE_REDIS`,
+etc.); se reporta en el healthcheck (`checks.email`) si está habilitado o
+no, sin que la ausencia cuente como falla. Probado end-to-end con Postgres
+real: token inválido → 400; contraseña corta con token real → 400 sin
+gastar el token; token real + contraseña válida → 200 y la contraseña
+cambia de verdad (confirmado que el login viejo deja de funcionar y el
+nuevo sí); reintentar el mismo token después de usarlo → 400 (ya no sirve);
+rate limiting confirmado contando cuántos links se llegaron a loguear tras
+varios pedidos seguidos para el mismo email.
+
+Con esto, la Fase 2bis queda **completa** — no quedan ítems pendientes en
+`docs/PLAN-PRODUCCION.md` bajo esa fase.
 
 **Fase 2bis — sesiones reales ✅ (2026-09-05)**: `POST /auth/login` exitoso
 ahora deja una sesión de servidor real, en vez de solo confirmar que las
@@ -307,12 +351,10 @@ vuelve a `loggedIn: false`. **Todavía NO reemplaza `hostToken`** como forma
 de probar la identidad del host — eso es el siguiente punto pendiente de
 esta fase (ver arriba y `docs/PLAN-PRODUCCION.md`).
 
-**Lo que falta de la Fase 2bis** (sin tocar todavía, a propósito — ver
-`docs/PLAN-PRODUCCION.md` para el detalle de cada uno): **biblioteca por
-sesión de usuario** en vez de `LIBRARY_PASSWORD` única, **quién puede crear
-salas** (definir si hace falta algo más que tener cuenta registrada), y
-**recuperación de contraseña**. La migración del rol de host ya se resolvió
-(ver más arriba, "Fase 2bis — migración del rol de host").
+**Nota histórica**: esta entrada quedaba desactualizada apenas se escribió —
+"biblioteca por sesión de usuario", "quién puede crear salas" y
+"recuperación de contraseña" ya se resolvieron todos (ver las entradas más
+arriba, con fecha 2026-09-06). La Fase 2bis está completa.
 
 **Fase 1.1 (persistencia externa) ya resuelta (2026-09-05)**: `lib/roomStore.js`
 respalda en Redis lo esencial de cada sala (cinta, posición, contraseñas,

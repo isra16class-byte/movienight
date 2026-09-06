@@ -315,7 +315,7 @@ secundario.
 
 ---
 
-## Fase 2bis — Cuentas de usuario reales (agregada tras la decisión de Fase 0)
+## Fase 2bis — Cuentas de usuario reales ✅ (completa el 2026-09-06)
 
 Esto reemplaza lo que antes estaba anotado como "posible, a futuro" en la
 Fase 6 — al confirmarse en Fase 0 que sí va a haber login, este es trabajo
@@ -471,16 +471,30 @@ Fase 2, conviene tratarlo como su propio bloque:
       deja `socket.request.session` disponible en el handshake de
       Socket.io tal como se esperaba por lectura de código. Este punto
       queda cerrado del todo.
-- [ ] **La biblioteca deja de depender de una única `LIBRARY_PASSWORD`
-      compartida**: con cuentas reales, tiene más sentido que el acceso a
-      subir/borrar videos se valide por sesión de usuario logueado, no por una
-      contraseña de servidor única. (Sigue siendo una sola biblioteca
-      compartida entre todos — eso ya se decidió en Fase 0 — pero el *control
-      de acceso* a esa biblioteca puede ser por cuenta en vez de por
-      contraseña única.)
-- [ ] **Recuperación de contraseña**: flujo mínimo de "olvidé mi contraseña"
-      (requiere poder mandar emails — evaluar un servicio simple tipo
-      Resend/Postmark/SES en vez de armar SMTP propio).
+- [x] **La biblioteca deja de depender de una única `LIBRARY_PASSWORD`
+      compartida** ✅ **(resuelto 2026-09-06)**: `requireLibraryAuth` y
+      `requireUploadAuth` aceptan ahora una sesión de cuenta real como
+      alternativa a la contraseña compartida — los dos caminos conviven,
+      ninguno reemplaza al otro (el grupo sin cuenta no pierde acceso a
+      nada). Se sumó la UI mínima de login/registro/logout que faltaba
+      (`index.html`, `library.html`, encadenando `mnPrompt`). Sigue siendo
+      una sola biblioteca compartida entre todos (decidido en Fase 0):
+      cambió el control de acceso, no la biblioteca en sí. Probado
+      end-to-end con Redis y Postgres reales (ver `docs/CHANGELOG.md`,
+      entrada del mismo día).
+- [x] **Recuperación de contraseña** ✅ **(resuelto 2026-09-06)**: flujo
+      completo de "olvidé mi contraseña" vía **Resend** (`lib/mailer.js`,
+      HTTP directo, sin SMTP propio). Tokens de un solo uso con
+      vencimiento de 1 hora, mensaje siempre genérico para no permitir
+      enumerar cuentas, limitador propio de 3 pedidos/hora. Sin
+      `RESEND_API_KEY` configurada, el link se loguea por consola (solo
+      desarrollo local). Probado end-to-end con Postgres real: reseteo
+      exitoso, token invalidado tras usarse, login viejo falla / nuevo
+      funciona, rate limiting confirmado. Detalle completo en
+      `docs/CHANGELOG.md`.
+
+Con esto, la **Fase 2bis queda completa** — no quedan ítems pendientes en
+esta fase.
 
 ---
 
@@ -564,10 +578,11 @@ Con las decisiones de Fase 0 ya tomadas, el orden recomendado queda así:
    rate limiting, cambios acotados que cierran los riesgos de seguridad más
    baratos de explotar; el hashing con bcrypt se reutiliza directo para las
    contraseñas de cuentas de usuario.
-3. **Fase 2bis** (cuentas reales) — es el cambio de mayor superficie de esta
-   ronda; conviene encararlo después de tener persistencia sólida (Fase 1) y
-   antes de invertir más en el esquema de sala/host actual, ya que cambia
-   cómo se identifica al host.
+3. **Fase 2bis ✅ completa (2026-09-06)** (cuentas reales) — fue el cambio de
+   mayor superficie de esta ronda: modelo de usuario, registro/login,
+   sesiones reales, migración del rol de host, biblioteca por sesión y
+   recuperación de contraseña. Ver `docs/MEMORIA.md` y `docs/CHANGELOG.md`
+   para el detalle de cada paso.
 4. **Fase 2.6** (expiración de salas/storage) — antes de que haya usuarios reales
    generando costo de R2 sin control.
 5. **Fase 3 queda pospuesta** (una instancia alcanza por ahora, según Fase 0) y

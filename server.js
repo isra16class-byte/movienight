@@ -57,6 +57,10 @@ const db = require('./lib/db');
 // para el detalle de por qué un store propio sobre Redis en vez de una librería como connect-redis.
 const { RedisSessionStore } = require('./lib/sessionStore');
 
+// Envío de emails para "olvidé mi contraseña" (Fase 2bis del plan de producción) — ver lib/mailer.js
+// para el detalle de por qué Resend y el criterio de "feature opcional" sin RESEND_API_KEY configurada.
+const mailer = require('./lib/mailer');
+
 // --- Manejo de errores no capturados (Fase 1.2 del plan de producción) ---------------------------
 // Sin esto, un error que se escapa de cualquier lugar del código (una excepción sincrónica que nadie
 // atrapó, o una Promise rechazada sin `.catch`) tira abajo el proceso Node entero sin dejar rastro
@@ -266,8 +270,17 @@ const libraryPasswordWasGenerated = !process.env.LIBRARY_PASSWORD;
 // no hace falta lógica de migración acá: siempre se calcula fresco con el esquema nuevo.
 let libraryPasswordHash = null;
 
+// --- Fase 2bis, "la biblioteca deja de depender de una única LIBRARY_PASSWORD" (2026-09-06) ------
+// Con cuentas reales ya en pie, tener una sesión iniciada alcanza por sí solo para listar/borrar la
+// biblioteca — no hace falta ADEMÁS la contraseña compartida. La LIBRARY_PASSWORD no se quita: sigue
+// siendo el único camino para quien no tiene cuenta (todavía no es obligatorio registrarse, ver
+// "quién puede crear salas" en docs/PLAN-PRODUCCION.md — este cambio agrega una alternativa, no
+// reemplaza la existente, así el grupo actual sin cuentas no pierde acceso a nada). Sigue siendo una
+// sola biblioteca compartida entre todos (decidido en Fase 0): el control de acceso ahora acepta dos
+// caminos válidos, no dos bibliotecas separadas.
 async function requireLibraryAuth(req, res, next) {
   try {
+    if (req.session && req.session.userId) return next(); // sesión de cuenta real: alcanza sola
     const provided = req.get('x-library-password') || req.query.libraryPassword || (req.body && req.body.libraryPassword) || '';
     const { valid } = await verifyPassword(provided, libraryPasswordHash);
     if (!valid) return res.status(401).json({ error: 'Contraseña de biblioteca requerida o incorrecta.' });
@@ -338,6 +351,12 @@ const roomJoinAuthLimiter = makeAttemptLimiter(); // clave: ip + roomId (ver 'jo
 
 async function requireUploadAuth(req, res, next) {
   try {
+    // Mismo criterio que requireLibraryAuth (Fase 2bis, "la biblioteca deja de depender de una única
+    // LIBRARY_PASSWORD"): una sesión de cuenta real alcanza sola, sin pedir además la contraseña
+    // compartida. No reemplaza el camino existente — sigue siendo válido subir/crear sala solo con la
+    // LIBRARY_PASSWORD, sin cuenta (ver "quién puede crear salas" más abajo, decisión ya cerrada).
+    if (req.session && req.session.userId) return next();
+
     const ip = clientIp(req);
     const lockedMinutes = uploadAuthLimiter.lockedMinutes(ip);
     if (lockedMinutes !== null) {
@@ -377,6 +396,54 @@ async function requireUploadAuth(req, res, next) {
 // activado, no un error del server.
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
+
+// --- Recuperación de contraseña (Fase 2bis del plan de producción) ------------------------------
+// APP_BASE_URL: dominio público del servidor (ej. https://sala.tu-dominio.uk), necesario para armar
+// el link completo que va DENTRO del email ("hacé click acá para elegir una contraseña nueva") — a
+// diferencia del resto de las rutas HTTP, que nunca necesitaron saber su propio dominio público
+// (Cloudflare Tunnel lo resuelve del lado de afuera, el proceso Node nunca lo ve). Sin definirla, se
+// cae a construir el link con el host que llega en la request (req.get('host')) — funciona en el caso
+// común (un solo dominio), pero conviene fijarla explícita en producción si hay más de un dominio
+// apuntando al mismo server, o para no depender de que el header Host no esté falseado.
+const APP_BASE_URL = (process.env.APP_BASE_URL || '').replace(/\/$/, '');
+
+function baseUrlFor(req) {
+  return APP_BASE_URL || `${req.protocol}://${req.get('host')}`;
+}
+
+// Token de reseteo: random, viaja UNA sola vez por email, en texto plano, como parte del link. Nunca
+// se guarda así en la base — se guarda sha256(token) (ver createPasswordReset en lib/db.js), mismo
+// principio que una contraseña (si se filtrara la tabla, el hash solo no alcanza para generar un link
+// válido). No hace falta bcrypt acá: a diferencia de una contraseña elegida por una persona (espacio
+// de valores chico, hay que hacerlo lento a propósito), este token sale de crypto.randomBytes (alta
+// entropía) — un hash rápido ya es inviable de fuerza-brutear.
+function hashResetToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hora — corto a propósito, es un link que viaja por email
+const MAX_RESET_REQUESTS = 3;
+const RESET_REQUEST_WINDOW_MS = 60 * 60 * 1000; // 1 hora
+
+// Limitador propio y simple para /auth/forgot-password: no es un limitador de "intentos fallidos" como
+// makeAttemptLimiter() (ahí "fallar" tiene sentido — contraseña incorrecta; acá CUALQUIER pedido, sea
+// el email real de alguien o no, cuenta igual, porque la respuesta es siempre el mismo mensaje
+// genérico y no hay forma de distinguir "correcto"/"incorrecto" del lado del cliente). Ventana
+// deslizante simple, clave ip+email — igual que loginAuthLimiter: errar/probar con un email no gasta
+// el cupo de otro email desde la misma IP, y no alcanza con cambiar de IP para reintentar con el mismo
+// email sin límite.
+const resetRequestTimestamps = new Map(); // key -> array de timestamps
+function isResetRequestRateLimited(key) {
+  const now = Date.now();
+  const recent = (resetRequestTimestamps.get(key) || []).filter((t) => now - t < RESET_REQUEST_WINDOW_MS);
+  if (recent.length >= MAX_RESET_REQUESTS) {
+    resetRequestTimestamps.set(key, recent);
+    return true;
+  }
+  recent.push(now);
+  resetRequestTimestamps.set(key, recent);
+  return false;
+}
 
 function requireDbEnabled(req, res, next) {
   if (!db.isEnabled()) {
@@ -508,6 +575,80 @@ app.post('/auth/logout', (req, res) => {
 app.get('/auth/me', (req, res) => {
   if (!req.session || !req.session.userId) return res.json({ loggedIn: false });
   res.json({ loggedIn: true, id: req.session.userId, email: req.session.email });
+});
+
+// --- Recuperación de contraseña (Fase 2bis del plan de producción) ------------------------------
+// Pide el reseteo: SIEMPRE responde el mismo mensaje genérico, exista o no una cuenta con ese email —
+// mismo principio de no-enumeración que ya usa /auth/login (Fase 2bis, primer paso): decirle a quien
+// pregunta "ese email no tiene cuenta" es regalarle una forma barata de averiguar qué emails están
+// registrados, probando uno por uno.
+app.post('/auth/forgot-password', requireDbEnabled, async (req, res) => {
+  const { email } = req.body || {};
+  if (typeof email !== 'string' || !email.trim()) {
+    return res.status(400).json({ error: 'Falta el email.' });
+  }
+  const trimmedEmail = email.trim();
+  const genericResponse = { ok: true, message: 'Si ese email tiene una cuenta registrada, te mandamos un link para elegir una contraseña nueva.' };
+
+  const limiterKey = `${clientIp(req)}:${trimmedEmail.toLowerCase()}`;
+  if (isResetRequestRateLimited(limiterKey)) {
+    // Ojo: acá SÍ conviene devolver el mismo mensaje genérico (no un 429 explícito) — un 429 en este
+    // endpoint puntual delataría "este email/IP ya pidió el máximo de veces", que ya es información de
+    // más comparado con /auth/login (ahí el 429 no filtra si el email existe, porque el rate limit
+    // corre por IP+email de la MISMA cuenta que ya se sabe que existe en ese punto del código).
+    return res.json(genericResponse);
+  }
+
+  try {
+    const user = await db.findUserByEmail(trimmedEmail);
+    if (user) {
+      const token = crypto.randomBytes(32).toString('hex');
+      const tokenHash = hashResetToken(token);
+      const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
+      await db.createPasswordReset(user.id, tokenHash, expiresAt);
+      const resetUrl = `${baseUrlFor(req)}/reset-password.html?token=${token}`;
+      try {
+        await mailer.sendPasswordResetEmail(user.email, resetUrl);
+      } catch (err) {
+        // No se le devuelve el error a quien pidió el reseteo (seguiría siendo el mismo mensaje
+        // genérico) — pero sí queda bien visible en los logs del server, porque acá el fallo es real
+        // (Resend caído, API key mal puesta, etc.) y nadie más se va a enterar si no se loguea.
+        console.error('⚠️  Error mandando el email de reseteo de contraseña:', err.message);
+      }
+    }
+    res.json(genericResponse);
+  } catch (err) {
+    console.error('⚠️  Error en forgot-password:', err.message);
+    // Mismo mensaje genérico incluso ante un error interno: no hay forma de distinguirlo desde afuera
+    // de "no encontré ese email", y no tiene sentido filtrar detalle de un error de base de datos acá.
+    res.json(genericResponse);
+  }
+});
+
+// Confirma el reseteo: valida el token (existe, no venció) y cambia la contraseña. Invalida TODOS los
+// pedidos de reseteo pendientes de esa cuenta al terminar (ver deletePasswordResetsForUser) — un link
+// viejo no debe seguir sirviendo una vez que la contraseña ya cambió.
+app.post('/auth/reset-password', requireDbEnabled, async (req, res) => {
+  const { token, password } = req.body || {};
+  if (typeof token !== 'string' || !token.trim() || typeof password !== 'string' || !password) {
+    return res.status(400).json({ error: 'Falta el token y/o la contraseña nueva.' });
+  }
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    return res.status(400).json({ error: `La contraseña necesita al menos ${MIN_PASSWORD_LENGTH} caracteres.` });
+  }
+  try {
+    const reset = await db.findValidPasswordReset(hashResetToken(token.trim()));
+    if (!reset) {
+      return res.status(400).json({ error: 'Ese link ya no es válido — puede haber vencido (dura 1 hora) o ya haberse usado. Pedí uno nuevo.' });
+    }
+    const passwordHash = await hashPassword(password);
+    await db.updateUserPassword(reset.user_id, passwordHash);
+    await db.deletePasswordResetsForUser(reset.user_id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('⚠️  Error en reset-password:', err.message);
+    res.status(500).json({ error: 'No se pudo cambiar la contraseña. Intentá de nuevo en un momento.' });
+  }
 });
 
 // Salas — objeto en memoria del proceso, igual que antes de la Fase 1.1, PERO ahora respaldado en
@@ -943,6 +1084,11 @@ app.get(['/health', '/healthz'], async (req, res) => {
     // DATABASE_URL no configurada: modo válido (cuentas de usuario deshabilitadas, ver requireDbEnabled) — no es una falla.
     checks.postgres = { enabled: false, ok: true };
   }
+
+  // Resend no tiene un chequeo de "está vivo" barato sin mandar un email de prueba de verdad (no vale
+  // la pena hacerlo en cada consulta al healthcheck) — acá solo se reporta si está configurado o no,
+  // igual que se hace con R2/Postgres cuando no aplican; nunca cuenta como una falla del healthcheck.
+  checks.email = { enabled: mailer.isEnabled(), ok: true };
 
   res.status(healthy ? 200 : 503).json({
     status: healthy ? 'ok' : 'error',
@@ -1480,6 +1626,14 @@ async function startServer() {
   } else {
     console.log('👤 DATABASE_URL no configurada — las cuentas de usuario (registro/login) están deshabilitadas.');
     console.log('   El resto de la app sigue funcionando igual (salas anónimas por hostToken, como hasta ahora).');
+  }
+
+  if (db.isEnabled()) {
+    if (mailer.isEnabled()) {
+      console.log('📧 Resend configurado — /auth/forgot-password manda emails de verdad.');
+    } else {
+      console.log('📧 RESEND_API_KEY no configurada — /auth/forgot-password loguea el link por consola en vez de mandar un email (solo sirve para desarrollo local).');
+    }
   }
 
   server.listen(PORT, () => {
