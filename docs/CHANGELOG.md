@@ -1,5 +1,29 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-06 — Fase 2.6: fix encontrado probando en un entorno real (LIBRARY_ORPHAN_DAYS=0)
+
+- **Encontrado probando la Fase 2.6 en un entorno real** (Windows, Redis y R2
+  reales, siguiendo el plan de pruebas paso a paso): `LIBRARY_ORPHAN_DAYS=0`
+  y `MULTIPART_ABANDON_DAYS=0` (pensados para poder probar "contar/cancelar
+  todo sin filtrar por antigüedad", sin esperar 30 días o 2 días reales)
+  caían igual al valor por default (30 y 2 respectivamente) en vez de
+  respetar el `0` explícito — `parseFloat(process.env.X) || N` trata `0`
+  como si no hubiera venido nada, porque `0` es un valor falsy en
+  JavaScript. Se reemplazó por un chequeo explícito con `Number.isFinite(...)
+  && ... >= 0` en `scripts/library-orphan-report.js` y `server.js`, que sí
+  acepta `0` como valor válido.
+- El resto de las pruebas de la Fase 2.6 dieron el resultado esperado:
+  expiración de sala confirmada por HTTP (`404`) y por Redis (`TTL`/`EXISTS`
+  reflejando la expiración), el video de la sala expirada siguió disponible
+  en la biblioteca de R2, y el límite de storage (`MAX_LIBRARY_VIDEOS`)
+  rechazó una subida nueva con `413` como se esperaba.
+- **Nota aparte, no relacionada con esta fase**: durante la prueba,
+  `POST /create-room-from-upload` devolvió `502` con un archivo de prueba
+  inexistente en el bucket — a revisar por separado si se repite con un
+  archivo real, no se tocó nada acá porque esta ruta no forma parte de los
+  cambios de la Fase 2.6 (`checkStorageLimits` explícitamente no se le
+  aplica, ver comentario en `server.js`).
+
 ## 2026-09-06 — Fase 2.6: expiración de salas y límites de storage ✅
 
 - **Decisiones de producto tomadas** (las dos preguntas abiertas que dejaba

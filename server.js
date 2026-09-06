@@ -1666,7 +1666,13 @@ async function sweepExpiredRooms() {
 // la regla de lifecycle por default de R2 (aborta a los 7 días) a propósito — configurable con
 // MULTIPART_ABANDON_DAYS por si 2 días resulta muy agresivo para conexiones de subida muy lentas.
 const MULTIPART_SWEEP_INTERVAL_MS = parseInt(process.env.MULTIPART_SWEEP_INTERVAL_MS, 10) || 24 * 60 * 60 * 1000; // cada 24hs
-const MULTIPART_ABANDON_DAYS = parseFloat(process.env.MULTIPART_ABANDON_DAYS) || 2;
+// parseFloat(...) || 2 tendría un bug: si alguien pasa MULTIPART_ABANDON_DAYS=0 a propósito (ej. para
+// probar que el barrido cancele TODO lo que no esté completo, sin esperar nada), `0` es falsy en JS y
+// caería igual al default de 2 — Number.isFinite(...) evita esa trampa, tratando 0 como un valor
+// válido explícito (confirmado con una prueba real: LIBRARY_ORPHAN_DAYS=0 tenía este mismo bug, ver
+// docs/CHANGELOG.md).
+const parsedAbandonDays = parseFloat(process.env.MULTIPART_ABANDON_DAYS);
+const MULTIPART_ABANDON_DAYS = (Number.isFinite(parsedAbandonDays) && parsedAbandonDays >= 0) ? parsedAbandonDays : 2;
 
 async function sweepAbandonedMultipartUploads() {
   if (!r2.isR2Enabled()) return;

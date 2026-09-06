@@ -48,7 +48,11 @@ const r2 = require('../lib/r2');
 const roomStore = require('../lib/roomStore');
 
 const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.mov', '.webm', '.avi', '.m4v'];
-const LIBRARY_ORPHAN_DAYS = parseFloat(process.env.LIBRARY_ORPHAN_DAYS) || 30;
+// parseFloat(...) || 30 tendría el mismo bug que se encontró probando en un entorno real (ver
+// docs/CHANGELOG.md): LIBRARY_ORPHAN_DAYS=0 es un valor explícito válido (útil para pruebas, "contar
+// todo sin importar la antigüedad"), pero `0` es falsy en JS y con `||` caía igual al default de 30.
+const parsedOrphanDays = parseFloat(process.env.LIBRARY_ORPHAN_DAYS);
+const LIBRARY_ORPHAN_DAYS = (Number.isFinite(parsedOrphanDays) && parsedOrphanDays >= 0) ? parsedOrphanDays : 30;
 const UPLOAD_DIR = path.join(__dirname, '..', 'public', 'uploads');
 
 // A partir de room.videoFile ('/uploads/archivo.mp4' o una URL completa de R2), extrae solo el
