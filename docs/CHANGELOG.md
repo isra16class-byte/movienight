@@ -10,6 +10,22 @@ si hace falta, puede ir en el mensaje de commit).
 
 ---
 
+## 2026-09-06 — Fase 2bis: verificación independiente en entorno real
+
+- Se corrió el plan de pruebas completo (`PRUEBAS-FASE-2BIS.md`) en un
+  entorno separado del usado para cerrar la fase (Windows, PowerShell,
+  Docker para Redis/Postgres) — las 8 secciones dieron el resultado
+  esperado: registro/login/sesiones, migración del rol de host, biblioteca
+  por sesión, recuperación de contraseña con rate limiting, healthcheck,
+  UI de login/biblioteca en el navegador, y la regresión sin
+  `DATABASE_URL`.
+- No se necesitó tocar código — los únicos tropiezos fueron de escaping de
+  JSON en PowerShell al armar los `curl` a mano, no del servidor.
+- Con dos verificaciones independientes (sandbox + entorno real del
+  usuario), la Fase 2bis queda confirmada.
+
+---
+
 ## 2026-09-06 — Fase 2bis (cierre): biblioteca por sesión + recuperación de contraseña
 
 - **Biblioteca por sesión de usuario**: `requireLibraryAuth` (listar/borrar

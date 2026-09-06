@@ -319,8 +319,19 @@ nuevo sí); reintentar el mismo token después de usarlo → 400 (ya no sirve);
 rate limiting confirmado contando cuántos links se llegaron a loguear tras
 varios pedidos seguidos para el mismo email.
 
-Con esto, la Fase 2bis queda **completa** — no quedan ítems pendientes en
-`docs/PLAN-PRODUCCION.md` bajo esa fase.
+**Fase 2bis — verificación independiente en entorno real (2026-09-06)**: además
+de las pruebas end-to-end contra Redis/Postgres reales hechas al cerrar la
+fase (ver entradas de arriba), se corrió el mismo plan de pruebas
+(`PRUEBAS-FASE-2BIS.md`) en un entorno separado (Windows, PowerShell,
+Docker para Redis/Postgres). Las 8 secciones dieron el resultado esperado:
+registro/login/sesiones, migración del rol de host (sesión de la dueña
+autoriza, otra cuenta y hostToken solo no, sala anónima con hostToken
+sigue funcionando igual que siempre), biblioteca por sesión, recuperación
+de contraseña con rate limiting, healthcheck, UI de login/biblioteca en el
+navegador, y la regresión sin `DATABASE_URL`. No se necesitó tocar código —
+los únicos tropiezos fueron de escaping de JSON en PowerShell al armar los
+`curl` a mano, no del servidor. Con dos verificaciones independientes
+(sandbox + entorno real del usuario), la Fase 2bis queda confirmada.
 
 **Fase 2bis — sesiones reales ✅ (2026-09-05)**: `POST /auth/login` exitoso
 ahora deja una sesión de servidor real, en vez de solo confirmar que las
