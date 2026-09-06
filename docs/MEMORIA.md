@@ -139,8 +139,7 @@ proceso (Fase 1) → hashing de contraseñas + rate limiting (Fase 2.1/2.2) →
 sistema de cuentas reales (Fase 2bis) → subida directa a R2 para no cortar
 con Cloudflare (Fase 2.7) → expiración de salas/storage (Fase 2.6).
 
-**Fase 2.7 (subida directa a R2 vía URL prefirmada) implementada, pendiente de
-probar contra un R2 real (2026-09-06)**: resuelve el hallazgo bloqueante de
+**Fase 2.7 (subida directa a R2 vía URL prefirmada) completa (2026-09-06)**: resuelve el hallazgo bloqueante de
 `413 Payload Too Large` de Cloudflare al subir un video real (ver más abajo).
 **Segundo hallazgo bloqueante encontrado y resuelto (2026-09-06), este antes de
 llegar a probar contra R2 real**: `@aws-sdk/client-s3` (desde v3.729.0) suma
@@ -169,14 +168,20 @@ server no tiene R2 configurado, `/api/uploads/presign` responde 404 y el
 cliente cae solo al flujo clásico de multipart de siempre (mismo límite de
 Cloudflare que antes, en ese modo). Limitación documentada y no resuelta:
 firma un PUT simple, no multipart — tope de 5GB por archivo (ver
-`docs/PLAN-PRODUCCION.md`, Fase 2.7, para el detalle completo). **Falta un
-paso de infraestructura a cargo de quien despliega**: configurar CORS en el
-bucket de R2 para permitir el PUT desde el navegador (documentado en el
-README con el JSON de ejemplo). No se pudo probar end-to-end contra un R2
-real en este cambio (no había credenciales de R2 disponibles en el entorno
-donde se implementó) — revisado por lectura de código, queda pendiente esa
-prueba (subida real, fallback en modo disco, y la regla de CORS) antes de
-darlo por cerrado del todo.
+`docs/PLAN-PRODUCCION.md`, Fase 2.7, para el detalle completo). **Paso de
+infraestructura a cargo de quien despliega**: configurar CORS en el bucket
+de R2 para permitir el PUT desde el navegador (documentado en el README con
+el JSON de ejemplo) — regla de `PUT` + header `Content-Type` permitido, para
+el/los orígenes reales de la sala. Antes de la prueba real se encontró y
+resolvió un segundo hallazgo bloqueante (checksum CRC32 que agrega por
+default `@aws-sdk/client-s3` desde la v3.729.0, ver más abajo la entrada de
+Fase 2.7 con la fecha de ese fix) — sin ese fix, R2 rechazaba cualquier
+subida real con `501 NotImplemented`. **Probado end-to-end contra un R2 real
+(2026-09-06)**: con el fix del checksum aplicado y el CORS del bucket bien
+configurado, se confirmó pedir la URL prefirmada, subir un video real,
+confirmar la sala, y verificar el objeto en el bucket desde el dashboard de
+R2 — la sala reproduce el video sin problemas. Con esto la Fase 2.7 queda
+completa del todo.
 
 **Fase 1 completa (2026-09-05)**: los cinco puntos (persistencia externa 1.1,
 manejo de errores no capturados 1.2, proceso supervisado 1.3, graceful

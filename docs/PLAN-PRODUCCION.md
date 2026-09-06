@@ -347,14 +347,18 @@ secundario.
       `responseChecksumValidation: 'WHEN_REQUIRED'` al `S3Client` en
       `lib/r2.js` (recomendación oficial de Cloudflare para este SDK contra
       R2). Detalle completo en `docs/CHANGELOG.md`, entrada del mismo día.
-- [ ] **Sigue pendiente de probar end-to-end contra un R2 real** (no había
-      credenciales de R2 disponibles en el entorno donde se implementó este
-      cambio ni en el de este fix) — revisado por lectura de código y
-      confirmado el fix del bug de checksum de arriba, pero falta confirmar
-      en la práctica: pedir la URL prefirmada, subir un archivo real con
-      ella, confirmar la sala, y el camino de fallback en modo disco (sin R2
-      configurado). Falta también configurar y probar la regla de CORS
-      documentada arriba contra un bucket real.
+- [x] **Probado end-to-end contra un R2 real (2026-09-06)**: con el fix del
+      checksum ya aplicado y la regla de CORS del bucket configurada
+      correctamente (`PUT` + header `Content-Type` permitido, para el origen
+      real de la sala), se confirmaron los cuatro pasos que importan: pedir
+      la URL prefirmada, subir un archivo de video real con ella (no uno de
+      prueba de pocos KB), confirmar la sala vía `/create-room-from-upload`,
+      y verificar en el dashboard de R2 que el objeto quedó en el bucket con
+      el nombre esperado (`<hex>__<nombre-original>`). La sala creada
+      reproduce el video sin problemas, sirviéndolo directo desde R2. Con
+      esto, la Fase 2.7 queda **completa del todo** — no quedan ítems
+      pendientes en esta fase (el límite de 5GB por archivo sigue siendo una
+      limitación conocida y documentada, no algo a resolver acá).
 
 ---
 
@@ -626,10 +630,13 @@ Con las decisiones de Fase 0 ya tomadas, el orden recomendado queda así:
    sesiones reales, migración del rol de host, biblioteca por sesión y
    recuperación de contraseña. Ver `docs/MEMORIA.md` y `docs/CHANGELOG.md`
    para el detalle de cada paso.
-4. **Fase 2.7 ✅ resuelta el 2026-09-06 (en modo R2)** — subida directa a R2 vía
+4. **Fase 2.7 ✅ completa (2026-09-06, en modo R2)** — subida directa a R2 vía
    URL prefirmada, resuelve el hallazgo bloqueante del `413` de Cloudflare.
-   Pendiente de probar end-to-end contra un R2 real (ver detalle en la
-   sección de la fase) y de configurar CORS en el bucket antes de usarla.
+   Se encontró y resolvió un segundo bug bloqueante (checksum CRC32 del SDK
+   de AWS, ver detalle en la sección de la fase) antes de la prueba real, y
+   se confirmó todo el flujo de punta a punta contra un bucket de R2 real
+   (CORS configurado, subida real, objeto verificado en el bucket, sala
+   reproduciendo el video). No quedan ítems pendientes en esta fase.
 5. **Fase 2.6** (expiración de salas/storage) — antes de que haya usuarios reales
    generando costo de R2 sin control.
 6. **Fase 3 queda pospuesta** (una instancia alcanza por ahora, según Fase 0) y

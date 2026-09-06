@@ -1,5 +1,25 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-06 — Fase 2.7: probada end-to-end contra un R2 real, queda completa
+
+- Con el fix del checksum CRC32 ya aplicado (ver entrada de más abajo, mismo
+  día) y la regla de CORS del bucket configurada (`PUT` + header
+  `Content-Type` permitido, para el origen real de la sala), se probó el
+  flujo completo de subida directa contra un bucket de R2 real:
+  1. El cliente pide la URL prefirmada (`POST /api/uploads/presign`).
+  2. Sube un archivo de video real (no uno de prueba de pocos KB) directo al
+     bucket con esa URL, sin pasar por el server.
+  3. Confirma la sala (`POST /create-room-from-upload`), reusando la key ya
+     subida.
+  4. Se verificó en el dashboard de Cloudflare que el objeto quedó en el
+     bucket con el nombre esperado (`<hex>__<nombre-original>`), y que la
+     sala creada reproduce el video sin problemas, sirviéndolo directo desde
+     R2.
+- Con esto, la **Fase 2.7 queda completa del todo** — no quedan ítems
+  pendientes en esa fase del plan (el límite de 5GB por archivo, al firmar un
+  PUT simple en vez de multipart, sigue siendo una limitación conocida y
+  documentada, no algo a resolver acá).
+
 ## 2026-09-06 — Fase 2.7: bug bloqueante encontrado y resuelto (checksum CRC32 de `aws-sdk` vs R2)
 
 - **Encontrado revisando el código antes de la prueba end-to-end contra un R2
