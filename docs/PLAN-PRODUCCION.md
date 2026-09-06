@@ -270,48 +270,77 @@ secundario.
 - [ ] Límite de storage total o de cantidad de videos por biblioteca, para que el
       costo de R2 no crezca sin control con más usuarios.
 
-### 2.7 Límite de tamaño de subida vía Cloudflare Tunnel/Proxy (hallazgo — bloqueante, 2026-09-05)
-- [ ] **Encontrado probando en producción real** (dominio
+### 2.7 Límite de tamaño de subida vía Cloudflare Tunnel/Proxy ✅ (resuelta el 2026-09-06, solo en modo R2)
+- [x] **Encontrado probando en producción real** (dominio
       `sala.movienight-palomitasjuntos.uk`, detrás de Cloudflare): un archivo
       de prueba de 1KB sube sin problema, pero un video real (mp4 de tamaño
       normal) devuelve `413 Payload Too Large` con página de error de
       **Cloudflare**, no de Express/Multer — el request ni siquiera llega al
       server.
-- [ ] **Causa**: Cloudflare (proxied, no solo como túnel "gris") limita el
+- [x] **Causa**: Cloudflare (proxied, no solo como túnel "gris") limita el
       tamaño máximo de request que deja pasar según el plan de la cuenta —
       100MB en Free/Pro, 200MB en Business, configurable hasta más en
       Enterprise. Esto es independiente de cualquier límite que se configure
       en Multer o en Express — el corte pasa *antes* de que el tráfico
       llegue al proceso Node.
-- [ ] **Por qué es bloqueante**: el caso de uso central del proyecto
-      (`docs/MEMORIA.md`, "Qué es") es subir películas completas — un video
-      de 2 horas en calidad decente pesa varios GB, muy por encima de
-      cualquier límite de Cloudflare en un plan pago razonable. Mientras esto
-      no se resuelva, **la subida de video real no funciona en producción**
-      aunque el resto del pipeline (R2, rate limiting, persistencia) esté
-      correcto.
-- [ ] **Camino a evaluar (no implementado todavía)**: subida **directa a R2**
-      desde el navegador vía **URL prefirmada** (`PutObjectCommand` +
-      `getSignedUrl` de `@aws-sdk/s3-request-presigner`, R2 es compatible con
-      S3), en vez de que el archivo pase por `multer` → server → R2. Así el
-      binario del video nunca atraviesa el Cloudflare Tunnel/proxy que sirve
-      `sala.movienight-palomitasjuntos.uk`, y el límite de payload deja de
-      aplicar (solo viajan por ahí las rutas HTTP livianas: pedir la URL
-      prefirmada, confirmar el upload, crear la sala). Implica cambiar el
-      flujo de `POST /create-room` (hoy recibe el archivo directo) a algo
-      tipo: 1) el cliente pide una URL prefirmada, 2) sube directo a R2 con
-      esa URL, 3) confirma al server que terminó para crear la sala con la
-      key ya subida. Repensar también qué pasa con el modo "disco local"
-      (sin R2 configurado, ver `lib/r2.js`) — ese camino seguiría
-      necesitando pasar por el server, así que probablemente el límite de
-      Cloudflare seguiría aplicando ahí a menos que se resuelva aparte (ej.
-      excluyendo esa ruta del proxy, o aceptando que el modo disco local
-      queda limitado a videos chicos).
-- [ ] Alternativa más simple pero menos flexible: si el dominio se sirve como
-      túnel "gris" (DNS only, sin el proxy naranja de Cloudflare) en vez de
-      proxied, el límite de payload no aplica — a evaluar el trade-off
-      (se pierden protecciones de Cloudflare como DDoS/WAF delante del
-      server).
+- [x] **Resuelto (en modo R2): subida directa a R2 desde el navegador vía URL
+      prefirmada.** Nueva función `r2.getPresignedUploadUrl(key, contentType,
+      expiresInSeconds)` en `lib/r2.js` (`PutObjectCommand` +
+      `getSignedUrl` de `@aws-sdk/s3-request-presigner`, nueva dependencia) y
+      nueva ruta `POST /api/uploads/presign` (protegida con el mismo
+      `requireUploadAuth` de siempre) que devuelve `{ key, uploadUrl,
+      expiresIn }`. El flujo completo, implementado en `public/index.html`
+      (crear sala) y `public/library.html` (cambiar cinta desde una sala
+      activa): 1) el cliente pide la URL prefirmada, 2) sube el archivo
+      DIRECTO a R2 con esa URL (el binario nunca atraviesa el Cloudflare
+      Tunnel/proxy — solo viajan por ahí las rutas HTTP livianas), 3) confirma
+      al server que terminó, reusando **las rutas que ya existían**
+      (`POST /create-room-from-upload` y
+      `POST /room/:id/change-video-from-upload`) sin tocarlas: esas rutas ya
+      sabían recibir la key de un archivo ya presente en el bucket, solo que
+      hasta ahora esa key siempre venía de una subida hecha por el propio
+      server — no necesitan saber la diferencia. `/create-room` y
+      `/room/:id/change-video` (las rutas viejas de multipart) se mantienen
+      intactas como fallback.
+- [x] **Modo disco local sigue exactamente igual que antes** (limitación
+      conocida, no resuelta por este cambio): `POST /api/uploads/presign`
+      responde `404` si `r2.isR2Enabled()` es `false` (no hay a dónde apuntar
+      una URL prefirmada de S3 sin un bucket configurado), y el cliente cae
+      automáticamente al flujo clásico de multipart directo a `/create-room`
+      / `/room/:id/change-video` — mismo límite de Cloudflare que antes si se
+      comparte por Tunnel proxied. Quien quiera subir videos reales sin
+      límite de tamaño necesita configurar R2 (ver README).
+- [x] **Paso de infraestructura que queda a cargo de quien despliega, no
+      automatizable desde el código**: el bucket de R2 necesita una regla de
+      **CORS** que permita `PUT` desde el origen de la sala (el navegador
+      hace el request directo contra el endpoint de R2, un origen distinto al
+      de la sala) — documentado paso a paso en el README, sección "Subida
+      directa a R2", con el JSON de ejemplo para pegar en el dashboard de
+      Cloudflare. Sin esta regla, la subida directa falla con un error de
+      CORS (no un `413`) — el resto del sitio sigue funcionando igual.
+- [x] **Limitación conocida y documentada, no resuelta**: la URL prefirmada
+      firma un `PutObjectCommand` (PUT simple), no una subida multipart — el
+      límite de un PUT simple contra S3/R2 es **5GB por objeto**. Para
+      películas muy pesadas (4K, o encoding poco eficiente) puede no
+      alcanzar. El camino multipart prefirmado (`CreateMultipartUpload` +
+      `UploadPart` firmado por parte + `CompleteMultipartUpload`) resolvería
+      esto pero implica bastante más trabajo del lado del cliente (armar los
+      chunks, reintentar partes sueltas) — queda anotado como posible mejora
+      futura si este límite resulta un problema real en la práctica, no
+      bloquea el caso de uso típico.
+- [ ] Alternativa más simple pero menos flexible, sigue sin evaluarse: si el
+      dominio se sirve como túnel "gris" (DNS only, sin el proxy naranja de
+      Cloudflare) en vez de proxied, el límite de payload no aplica — a
+      evaluar el trade-off (se pierden protecciones de Cloudflare como
+      DDoS/WAF delante del server). Sigue siendo relevante solo para el modo
+      disco local, ya que el modo R2 no depende de esto.
+- [ ] **Pendiente de probar end-to-end contra un R2 real** (no había
+      credenciales de R2 disponibles en el entorno donde se implementó este
+      cambio) — revisado por lectura de código, pero falta confirmar en la
+      práctica: pedir la URL prefirmada, subir un archivo real con ella,
+      confirmar la sala, y el camino de fallback en modo disco (sin R2
+      configurado). Falta también configurar y probar la regla de CORS
+      documentada arriba contra un bucket real.
 
 ---
 
@@ -583,9 +612,13 @@ Con las decisiones de Fase 0 ya tomadas, el orden recomendado queda así:
    sesiones reales, migración del rol de host, biblioteca por sesión y
    recuperación de contraseña. Ver `docs/MEMORIA.md` y `docs/CHANGELOG.md`
    para el detalle de cada paso.
-4. **Fase 2.6** (expiración de salas/storage) — antes de que haya usuarios reales
+4. **Fase 2.7 ✅ resuelta el 2026-09-06 (en modo R2)** — subida directa a R2 vía
+   URL prefirmada, resuelve el hallazgo bloqueante del `413` de Cloudflare.
+   Pendiente de probar end-to-end contra un R2 real (ver detalle en la
+   sección de la fase) y de configurar CORS en el bucket antes de usarla.
+5. **Fase 2.6** (expiración de salas/storage) — antes de que haya usuarios reales
    generando costo de R2 sin control.
-5. **Fase 3 queda pospuesta** (una instancia alcanza por ahora, según Fase 0) y
+6. **Fase 3 queda pospuesta** (una instancia alcanza por ahora, según Fase 0) y
    **Fase 6 de multi-tenancy queda descartada** — no vuelven a este orden salvo
    que cambie la necesidad real de escala.
 

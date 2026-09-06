@@ -217,9 +217,132 @@ btn.onclick = async () => {
   btn.querySelector('span:last-child').textContent = 'GRABANDO...';
   progressWrap.classList.add('active');
 
-  // Intenta subir con `pw`; si el server responde 401 y todavía quedan intentos, vuelve a pedir la
-  // contraseña y reintenta con el MISMO archivo ya seleccionado (no hace falta re-elegirlo).
-  function tryUpload(pw) {
+  function resetUi(msg) {
+    status.textContent = msg;
+    btn.disabled = false;
+    btn.querySelector('span:last-child').textContent = 'GRABAR SALA';
+    progressWrap.classList.remove('active');
+  }
+
+  // --- Fase 2.7 del plan de producción: subida directa a Cloudflare R2 -----------------------------
+  // Antes, el video siempre pasaba por este server (multipart a /create-room) — eso es justo lo que
+  // corta con un `413 Payload Too Large` de CLOUDFLARE (no del server) al subir un video real de
+  // varios GB por Cloudflare Tunnel (ver docs/PLAN-PRODUCCION.md, Fase 2.7). Ahora, si el server tiene
+  // R2 configurado, el archivo se sube DIRECTO al bucket con una URL prefirmada — nunca atraviesa el
+  // Tunnel, así que ese límite deja de aplicar. Si el server NO tiene R2 configurado (modo disco
+  // local), /api/uploads/presign responde 404 y se sigue con el flujo clásico de siempre
+  // (legacyUploadViaServer), que en ese modo sigue sujeto al mismo límite de Cloudflare de antes —
+  // limitación conocida del modo disco, ver el mismo punto del plan.
+
+  async function requestPresign(pw) {
+    const res = await fetch('/api/uploads/presign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-library-password': pw },
+      body: JSON.stringify({ filename: file.name, contentType: file.type || 'application/octet-stream' })
+    });
+    let data;
+    try { data = await res.json(); } catch { data = {}; }
+    return { httpStatus: res.status, data };
+  }
+
+  // Sube `file` directo al bucket con la URL prefirmada — mismo tipo de barra de progreso que antes,
+  // solo que ahora el request va directo a R2, no a este server.
+  function putDirectToR2(uploadUrl) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', uploadUrl);
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          progressBar.style.width = pct + '%';
+          status.innerHTML = `${cassetteIcon} Subiendo cinta... ${pct}%`;
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) resolve();
+        else reject(new Error(`Cloudflare R2 rechazó la subida (código ${xhr.status}). Si esto persiste, revisá la configuración de CORS del bucket (ver README).`));
+      };
+      xhr.onerror = () => reject(new Error('No se pudo subir el archivo directo a Cloudflare R2. Revisá tu conexión o la configuración de CORS del bucket (ver README).'));
+      xhr.send(file);
+    });
+  }
+
+  // Confirma la sala una vez que el archivo YA está en R2 — reusa /create-room-from-upload tal cual:
+  // esa ruta hasta ahora solo se usaba para reutilizar una cinta ya existente en la biblioteca, pero
+  // no necesita saber si la key que le llega es "vieja" o recién subida.
+  async function confirmRoomFromKey(pw, key) {
+    const res = await fetch('/create-room-from-upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-library-password': pw },
+      body: JSON.stringify({ filename: key, password: document.getElementById('roomPassword').value.trim() })
+    });
+    let data;
+    try { data = await res.json(); } catch { data = { error: 'Respuesta inválida del servidor' }; }
+    return { httpStatus: res.status, data };
+  }
+
+  async function confirmRoom(pw, key) {
+    status.innerHTML = `${cassetteIcon} Preparando la sala...`;
+    const { httpStatus, data } = await confirmRoomFromKey(pw, key);
+
+    if (httpStatus === 401 || httpStatus === 429) {
+      if (httpStatus === 401 && data.attemptsLeft > 0) {
+        const nextPw = await getUploadPassword(`Contraseña incorrecta. Te quedan ${data.attemptsLeft} intento${data.attemptsLeft === 1 ? '' : 's'}.`);
+        if (nextPw === null) { resetUi('Subida cancelada.'); return; }
+        // El archivo ya está en R2 — solo hace falta reintentar la confirmación, no volver a subirlo.
+        return confirmRoom(nextPw, key);
+      }
+      resetUi('Error: ' + (data.error || 'no se pudo crear la sala'));
+      return;
+    }
+    if (httpStatus < 200 || httpStatus >= 300 || data.error) {
+      resetUi('Error: ' + (data.error || 'no se pudo crear la sala'));
+      return;
+    }
+
+    localStorage.setItem('mn_library_pw', pw); // correcta: no se vuelve a pedir en este navegador
+    localStorage.setItem('mn_host_' + data.roomId, data.hostToken);
+    window.location = `/room/${data.roomId}`;
+  }
+
+  async function uploadDirectToR2(pw) {
+    status.innerHTML = `${cassetteIcon} Preparando subida...`;
+    const { httpStatus, data } = await requestPresign(pw);
+
+    if (httpStatus === 404) return legacyUploadViaServer(pw); // este server no tiene R2 configurado
+
+    if (httpStatus === 401 || httpStatus === 429) {
+      if (httpStatus === 401 && data.attemptsLeft > 0) {
+        const nextPw = await getUploadPassword(`Contraseña incorrecta. Te quedan ${data.attemptsLeft} intento${data.attemptsLeft === 1 ? '' : 's'}.`);
+        if (nextPw === null) { resetUi('Subida cancelada.'); return; }
+        return uploadDirectToR2(nextPw);
+      }
+      resetUi('Error: ' + (data.error || 'no se pudo preparar la subida'));
+      return;
+    }
+    if (httpStatus < 200 || httpStatus >= 300 || data.error) {
+      resetUi('Error: ' + (data.error || 'no se pudo preparar la subida'));
+      return;
+    }
+
+    try {
+      status.innerHTML = `${cassetteIcon} Subiendo cinta... 0%`;
+      progressBar.style.width = '0%';
+      await putDirectToR2(data.uploadUrl);
+      progressBar.style.width = '100%';
+    } catch (err) {
+      resetUi(err.message || 'No se pudo subir el archivo. Intenta de nuevo.');
+      return;
+    }
+
+    await confirmRoom(pw, data.key);
+  }
+
+  // --- Flujo clásico (modo disco local, sin R2 configurado): multipart directo a /create-room, igual
+  // que siempre. Sigue sujeto al límite de tamaño de Cloudflare si se comparte por Tunnel (ver Fase
+  // 2.7 en docs/PLAN-PRODUCCION.md) — limitación conocida de este modo, no algo que se resuelva acá.
+  function legacyUploadViaServer(pw) {
     status.innerHTML = `${cassetteIcon} Subiendo cinta... 0%`;
     progressBar.style.width = '0%';
 
@@ -246,28 +369,16 @@ btn.onclick = async () => {
       if (xhr.status === 401 || xhr.status === 429) {
         if (xhr.status === 401 && data.attemptsLeft > 0) {
           const nextPw = await getUploadPassword(`Contraseña incorrecta. Te quedan ${data.attemptsLeft} intento${data.attemptsLeft === 1 ? '' : 's'}.`);
-          if (nextPw === null) {
-            status.textContent = 'Subida cancelada.';
-            btn.disabled = false;
-            btn.querySelector('span:last-child').textContent = 'GRABAR SALA';
-            progressWrap.classList.remove('active');
-            return;
-          }
-          tryUpload(nextPw);
+          if (nextPw === null) { resetUi('Subida cancelada.'); return; }
+          legacyUploadViaServer(nextPw);
           return;
         }
-        status.textContent = 'Error: ' + (data.error || 'no se pudo crear la sala');
-        btn.disabled = false;
-        btn.querySelector('span:last-child').textContent = 'GRABAR SALA';
-        progressWrap.classList.remove('active');
+        resetUi('Error: ' + (data.error || 'no se pudo crear la sala'));
         return;
       }
 
       if (xhr.status < 200 || xhr.status >= 300 || data.error) {
-        status.textContent = 'Error: ' + (data.error || 'no se pudo crear la sala');
-        btn.disabled = false;
-        btn.querySelector('span:last-child').textContent = 'GRABAR SALA';
-        progressWrap.classList.remove('active');
+        resetUi('Error: ' + (data.error || 'no se pudo crear la sala'));
         return;
       }
 
@@ -279,16 +390,13 @@ btn.onclick = async () => {
     };
 
     xhr.onerror = () => {
-      status.textContent = 'No se pudo subir el archivo. Intenta de nuevo.';
-      btn.disabled = false;
-      btn.querySelector('span:last-child').textContent = 'GRABAR SALA';
-      progressWrap.classList.remove('active');
+      resetUi('No se pudo subir el archivo. Intenta de nuevo.');
     };
 
     xhr.send(form);
   }
 
-  tryUpload(pw);
+  uploadDirectToR2(pw);
 };
 
 // --- Cuenta: login/registro/logout (Fase 2bis del plan de producción) ---------------------------

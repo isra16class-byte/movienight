@@ -883,6 +883,44 @@ async function makeRoom(videoFile, password, ownerUserId = null) {
   };
 }
 
+// --- Cloudflare R2 — Fase 2.7: subida directa desde el navegador (URL prefirmada) ---------------
+// Motivo: subir un video real vía /create-room (multipart, pasa por el server) falla en producción
+// real con `413 Payload Too Large` de Cloudflare — el proxy corta el request antes de que llegue a
+// Node, independiente de cualquier límite de Multer/Express (hallazgo bloqueante documentado en
+// docs/PLAN-PRODUCCION.md, Fase 2.7). Esta ruta resuelve el paso 1 del camino elegido: el cliente pide
+// acá una URL prefirmada, sube el archivo DIRECTO a R2 con esa URL (sin pasar por este server en
+// absoluto, así que el límite de Cloudflare deja de aplicar), y recién después confirma la sala con
+// `POST /create-room-from-upload` o `POST /room/:id/change-video-from-upload` (ninguna de las dos
+// rutas es nueva — ya sabían recibir la key de un archivo ya presente en el bucket, solo que hasta
+// ahora esa key siempre venía de una subida hecha por ESTE server).
+// Solo tiene sentido en modo R2 — en modo disco local (sin R2 configurado) no hay a dónde apuntar una
+// URL prefirmada de S3, así que esta ruta devuelve 404 explícito y el cliente sigue con el flujo viejo
+// (multipart directo a /create-room), que en modo disco sigue funcionando igual que siempre (con el
+// mismo límite de Cloudflare si se comparte por Tunnel — ver Fase 2.7 en el plan, "modo disco local
+// queda limitado a videos chicos" es una limitación conocida, no algo que esta ruta resuelva).
+// Reusa exactamente el mismo gate que ya protegía la subida (`requireUploadAuth`): sesión de cuenta
+// real, o la LIBRARY_PASSWORD compartida con el mismo límite de intentos — pedir una URL prefirmada
+// tiene el mismo costo potencial (alguien podría generar URLs y llenar el bucket) que subir un archivo
+// directo, así que amerita el mismo control.
+const R2_PRESIGN_EXPIRES_SECONDS = parseInt(process.env.R2_PRESIGN_EXPIRES_SECONDS, 10) || 6 * 60 * 60; // 6h default: la subida real puede tardar bastante más que el default típico de una URL prefirmada si la conexión de quien sube es lenta (es un video de varios GB)
+app.post('/api/uploads/presign', requireUploadAuth, async (req, res) => {
+  if (!r2.isR2Enabled()) {
+    return res.status(404).json({ error: 'La subida directa no está disponible: este servidor no tiene Cloudflare R2 configurado. Subí el video de la forma habitual.' });
+  }
+  const { filename, contentType } = req.body || {};
+  if (!filename || typeof filename !== 'string') {
+    return res.status(400).json({ error: 'Falta el nombre del archivo.' });
+  }
+  try {
+    const key = r2.makeObjectKey(filename);
+    const uploadUrl = await r2.getPresignedUploadUrl(key, contentType, R2_PRESIGN_EXPIRES_SECONDS);
+    res.json({ key, uploadUrl, expiresIn: R2_PRESIGN_EXPIRES_SECONDS });
+  } catch (err) {
+    console.error('Error generando URL prefirmada de R2:', err.message);
+    res.status(502).json({ error: 'No se pudo preparar la subida directa a Cloudflare R2 (revisá credenciales/conexión).' });
+  }
+});
+
 app.post('/create-room', requireUploadAuth, upload.single('video'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No llegó ningún video' });
   const roomId = makeRoomId();

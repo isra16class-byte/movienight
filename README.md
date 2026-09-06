@@ -197,6 +197,52 @@ reutilizar un video, borrar) va a fallar con un mensaje de error legible en vez 
 silencio — a propósito no hay "modo de emergencia" que caiga solo a disco si R2 falla, para no
 terminar con videos mezclados entre disco y bucket sin darte cuenta.
 
+### Subida directa a R2 (para que no corte Cloudflare al subir un video real)
+
+Si compartís la sala por **Cloudflare Tunnel con el proxy naranja activado** ("proxied", no "DNS
+only"), vas a notar que subir un video de prueba de pocos KB funciona bien, pero un video real (varios
+GB) falla con `413 Payload Too Large` — una página de error de **Cloudflare**, no de MovieNight. Esto
+pasa porque Cloudflare limita el tamaño máximo de request que deja pasar (100MB en planes Free/Pro,
+200MB en Business), sin importar qué límite configures en el server.
+
+Con R2 ya configurado (ver arriba), MovieNight resuelve esto subiendo el video **directo desde tu
+navegador al bucket**, sin pasar por el Tunnel en absoluto: el server solo emite una URL prefirmada de
+subida, el navegador sube el archivo con esa URL, y recién después le avisa al server que ya está
+listo. No hace falta activar nada aparte — si R2 está configurado, este camino se usa automáticamente
+(las páginas lo detectan solas); si no lo está, todo sigue funcionando igual que antes, con el mismo
+límite de Cloudflare para videos reales.
+
+**Paso extra necesario: configurar CORS en el bucket.** Como el navegador hace el PUT directo contra
+`https://<tu-cuenta>.r2.cloudflarestorage.com` (o el dominio de tu bucket), que es un origen distinto
+al de tu sala, el bucket necesita una regla de CORS que lo permita — si no, el navegador va a rechazar
+la subida con un error de CORS (no vas a ver `413`, sino un error distinto, típicamente en la consola
+del navegador). En el dashboard de Cloudflare, dentro de tu bucket → **Settings** → **CORS Policy**,
+agregá una regla como esta (reemplazando el origen por el dominio real de tu sala):
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://sala.tu-dominio.uk"],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["Content-Type"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+Sin esta regla, la subida directa falla y el resto del sitio sigue andando igual (crear sala, listar
+biblioteca, etc.) — es un paso de configuración de infraestructura aparte, no algo que MovieNight pueda
+hacer por vos automáticamente.
+
+**Limitación conocida**: esto firma un PUT simple contra R2, no una subida multipart — el límite de un
+PUT simple es **5GB por archivo**. Para películas muy pesadas (4K, o un encoding poco eficiente) eso
+puede no alcanzar; en ese caso, por ahora, conviene comprimir el video antes de subirlo. Una subida
+multipart prefirmada (varias URLs firmadas, una por parte) resolvería esto, pero es trabajo bastante
+mayor del lado del cliente y queda pendiente para más adelante si este límite resulta un problema real.
+
+El tiempo que queda válida la URL de subida es configurable con `R2_PRESIGN_EXPIRES_SECONDS` en tu
+`.env` (default: 6 horas — pensado para que alcance incluso con una conexión de subida lenta).
+
 ## Proceso supervisado (para no depender de una terminal abierta)
 
 Correr `npm start` en una terminal funciona para probar, pero si esa terminal se cierra

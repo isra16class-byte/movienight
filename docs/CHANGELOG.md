@@ -10,7 +10,49 @@ si hace falta, puede ir en el mensaje de commit).
 
 ---
 
-## 2026-09-06 — Fase 2bis: verificación independiente en entorno real
+## 2026-09-06 — Fase 2.7: subida directa a R2 vía URL prefirmada (pendiente de probar contra R2 real)
+
+- **Resuelve el hallazgo bloqueante** de `413 Payload Too Large` (Cloudflare,
+  no el server) al subir un video real por Cloudflare Tunnel — solo en modo
+  R2, ver más abajo qué pasa en modo disco local.
+- **Nueva función `r2.getPresignedUploadUrl(key, contentType,
+  expiresInSeconds)`** en `lib/r2.js`, sobre `PutObjectCommand` +
+  `getSignedUrl` de `@aws-sdk/s3-request-presigner` (dependencia nueva).
+- **Nueva ruta `POST /api/uploads/presign`** (mismo gate `requireUploadAuth`
+  de siempre): devuelve `{ key, uploadUrl, expiresIn }`. Responde `404`
+  explícito si el server no tiene R2 configurado. Nueva variable de entorno
+  opcional `R2_PRESIGN_EXPIRES_SECONDS` (default 6h).
+- **Cliente**: `public/index.html` (crear sala) y `public/library.html`
+  (cambiar cinta desde una sala activa) ahora piden la URL prefirmada, suben
+  el archivo DIRECTO a R2 (barra de progreso real sobre ese PUT, no sobre un
+  request a este server) y recién después confirman — reusando **sin
+  tocarlas** las rutas que ya existían (`POST /create-room-from-upload`,
+  `POST /room/:id/change-video-from-upload`), que ya sabían recibir la key
+  de un archivo ya presente en el bucket. Si `/api/uploads/presign` responde
+  404, el cliente cae solo al flujo clásico de multipart de siempre
+  (`/create-room`, `/room/:id/change-video`, sin cambios).
+- **Modo disco local sigue exactamente igual que antes** (limitación
+  conocida, no resuelta por este cambio): sigue sujeto al mismo límite de
+  Cloudflare si se comparte por Tunnel proxied.
+- **Limitación documentada, no resuelta**: la URL prefirmada firma un PUT
+  simple, no una subida multipart — tope de **5GB por archivo**. Una subida
+  multipart prefirmada lo resolvería pero es bastante más trabajo del lado
+  del cliente; queda anotada como posible mejora futura si el límite resulta
+  un problema real.
+- **Paso de infraestructura a cargo de quien despliega**: el bucket de R2
+  necesita una regla de **CORS** que permita `PUT` desde el origen de la
+  sala — documentado en el README con el JSON de ejemplo para pegar en el
+  dashboard de Cloudflare.
+- **No probado end-to-end contra un R2 real** (no había credenciales de R2
+  disponibles en el entorno donde se implementó este cambio) — revisado por
+  lectura de código y verificada la sintaxis de los tres archivos tocados
+  (`server.js`, `index.html`, `library.html`). Queda pendiente confirmar en
+  la práctica: pedir la URL, subir un archivo real, confirmar la sala, el
+  fallback en modo disco, y la regla de CORS.
+
+---
+
+
 
 - Se corrió el plan de pruebas completo (`PRUEBAS-FASE-2BIS.md`) en un
   entorno separado del usado para cerrar la fase (Windows, PowerShell,

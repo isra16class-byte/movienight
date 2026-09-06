@@ -447,9 +447,114 @@ if (fromRoom) {
     newTapeFileName.textContent = file.name;
     newTapeProgressWrap.classList.add('active');
 
-    // Intenta subir con `pw`; si el server responde 401 y todavía quedan intentos, vuelve a pedir la
-    // contraseña y reintenta con el MISMO archivo ya seleccionado (no hace falta re-elegirlo).
-    function tryUpload(pw) {
+    function resetUi(msg) {
+      newTapeStatus.textContent = msg;
+      newTapeProgressWrap.classList.remove('active');
+    }
+
+    // --- Fase 2.7 del plan de producción: subida directa a Cloudflare R2 ---------------------------
+    // Mismo motivo y mismo camino que en index.html (ver ese archivo para el comentario completo): si
+    // el server tiene R2 configurado, el archivo sube DIRECTO al bucket con una URL prefirmada, sin
+    // pasar por este server ni por el Cloudflare Tunnel — así se evita el `413 Payload Too Large` de
+    // Cloudflare con videos reales. Si /api/uploads/presign responde 404 (sin R2 configurado), se sigue
+    // con el flujo clásico de multipart directo a /room/:id/change-video.
+
+    async function requestPresign(pw) {
+      const res = await fetch('/api/uploads/presign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-library-password': pw },
+        body: JSON.stringify({ filename: file.name, contentType: file.type || 'application/octet-stream' })
+      });
+      let data;
+      try { data = await res.json(); } catch { data = {}; }
+      return { httpStatus: res.status, data };
+    }
+
+    function putDirectToR2(uploadUrl) {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', uploadUrl);
+        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            newTapeProgressBar.style.width = pct + '%';
+            newTapeStatus.innerHTML = `${cassetteIcon} Subiendo cinta... ${pct}%`;
+          }
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new Error(`Cloudflare R2 rechazó la subida (código ${xhr.status}). Si esto persiste, revisá la configuración de CORS del bucket (ver README).`));
+        };
+        xhr.onerror = () => reject(new Error('No se pudo subir el archivo directo a Cloudflare R2. Revisá tu conexión o la configuración de CORS del bucket (ver README).'));
+        xhr.send(file);
+      });
+    }
+
+    // Reusa /room/:id/change-video-from-upload tal cual — hasta ahora solo servía para reutilizar una
+    // cinta ya presente en la biblioteca, pero no necesita saber si la key llegó de ahí o de recién
+    // subirla directo a R2.
+    async function confirmChangeVideoFromKey(key) {
+      const res = await fetch(`/room/${fromRoom}/change-video-from-upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: key, hostToken: roomHostToken })
+      });
+      let data;
+      try { data = await res.json(); } catch { data = { error: 'Respuesta inválida del servidor' }; }
+      return { httpStatus: res.status, data };
+    }
+
+    async function confirmChangeVideo(key) {
+      newTapeStatus.textContent = 'Preparando la sala...';
+      const { httpStatus, data } = await confirmChangeVideoFromKey(key);
+      if (httpStatus < 200 || httpStatus >= 300 || data.error) {
+        resetUi('Error: ' + (data.error || 'no se pudo cambiar la cinta'));
+        return;
+      }
+      newTapeProgressBar.style.width = '100%';
+      newTapeStatus.textContent = 'Listo, volviendo a la sala...';
+      window.location = `/room/${fromRoom}`;
+    }
+
+    async function uploadDirectToR2(pw) {
+      newTapeStatus.innerHTML = `${cassetteIcon} Preparando subida...`;
+      const { httpStatus, data } = await requestPresign(pw);
+
+      if (httpStatus === 404) return legacyUploadViaServer(pw); // sin R2 configurado
+
+      if (httpStatus === 401 || httpStatus === 429) {
+        if (httpStatus === 401 && data.attemptsLeft > 0) {
+          const nextPw = await getUploadPassword(`Contraseña incorrecta. Te quedan ${data.attemptsLeft} intento${data.attemptsLeft === 1 ? '' : 's'}.`);
+          if (nextPw === null) { resetUi('Subida cancelada.'); return; }
+          return uploadDirectToR2(nextPw);
+        }
+        resetUi('Error: ' + (data.error || 'no se pudo preparar la subida'));
+        return;
+      }
+      if (httpStatus < 200 || httpStatus >= 300 || data.error) {
+        resetUi('Error: ' + (data.error || 'no se pudo preparar la subida'));
+        return;
+      }
+
+      try {
+        newTapeStatus.innerHTML = `${cassetteIcon} Subiendo cinta... 0%`;
+        newTapeProgressBar.style.width = '0%';
+        await putDirectToR2(data.uploadUrl);
+        newTapeProgressBar.style.width = '100%';
+      } catch (err) {
+        resetUi(err.message || 'No se pudo subir el archivo. Intenta de nuevo.');
+        return;
+      }
+
+      localStorage.setItem('mn_library_pw', pw); // correcta: no se vuelve a pedir en este navegador
+      await confirmChangeVideo(data.key);
+    }
+
+    // --- Flujo clásico (modo disco local, sin R2 configurado): multipart directo a change-video, igual
+    // que siempre — sigue sujeto al límite de Cloudflare si se comparte por Tunnel (ver Fase 2.7 en
+    // docs/PLAN-PRODUCCION.md), limitación conocida de este modo.
+    function legacyUploadViaServer(pw) {
       newTapeStatus.innerHTML = `${cassetteIcon} Subiendo cinta... 0%`;
       newTapeProgressBar.style.width = '0%';
 
@@ -475,22 +580,16 @@ if (fromRoom) {
         if (xhr.status === 401 || xhr.status === 429) {
           if (xhr.status === 401 && data.attemptsLeft > 0) {
             const nextPw = await getUploadPassword(`Contraseña incorrecta. Te quedan ${data.attemptsLeft} intento${data.attemptsLeft === 1 ? '' : 's'}.`);
-            if (nextPw === null) {
-              newTapeStatus.textContent = 'Subida cancelada.';
-              newTapeProgressWrap.classList.remove('active');
-              return;
-            }
-            tryUpload(nextPw);
+            if (nextPw === null) { resetUi('Subida cancelada.'); return; }
+            legacyUploadViaServer(nextPw);
             return;
           }
-          newTapeStatus.textContent = 'Error: ' + (data.error || 'no se pudo cambiar la cinta');
-          newTapeProgressWrap.classList.remove('active');
+          resetUi('Error: ' + (data.error || 'no se pudo cambiar la cinta'));
           return;
         }
 
         if (xhr.status < 200 || xhr.status >= 300 || data.error) {
-          newTapeStatus.textContent = 'Error: ' + (data.error || 'no se pudo cambiar la cinta');
-          newTapeProgressWrap.classList.remove('active');
+          resetUi('Error: ' + (data.error || 'no se pudo cambiar la cinta'));
           return;
         }
         localStorage.setItem('mn_library_pw', pw); // correcta: no se vuelve a pedir en este navegador
@@ -499,13 +598,12 @@ if (fromRoom) {
         window.location = `/room/${fromRoom}`;
       };
       xhr.onerror = () => {
-        newTapeStatus.textContent = 'No se pudo subir el archivo. Intenta de nuevo.';
-        newTapeProgressWrap.classList.remove('active');
+        resetUi('No se pudo subir el archivo. Intenta de nuevo.');
       };
       xhr.send(form);
     }
 
-    tryUpload(pw);
+    uploadDirectToR2(pw);
   });
 }
 

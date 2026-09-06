@@ -22,7 +22,7 @@ reacciones. Repo: `https://github.com/isra16class-byte/movienight`.
 ## Stack
 
 - **Backend**: Node + Express + Socket.io (sync de video, chat, presencia, todo en tiempo real).
-- **Subida de video**: Multer → disco local (`public/uploads/`) **o** Cloudflare R2 si está configurado (modo dual, ver `lib/r2.js` y README).
+- **Subida de video**: Multer → disco local (`public/uploads/`) **o** Cloudflare R2 si está configurado (modo dual, ver `lib/r2.js` y README). Con R2 configurado, desde la Fase 2.7 el video sube **directo del navegador al bucket** vía URL prefirmada (`POST /api/uploads/presign`), sin pasar por este server — evita el `413 Payload Too Large` que corta Cloudflare al subir un video real por Cloudflare Tunnel. Sin R2 configurado, sigue subiendo por el server (multipart de siempre), con el mismo límite de Cloudflare que antes si se comparte por Tunnel.
 - **Frontend**: HTML/CSS/JS vanilla, sin framework.
 - **Estado de las salas**: `rooms` sigue siendo un objeto en memoria dentro de `server.js` (las lecturas son síncronas, sensibles a latencia por el sync de video/chat en tiempo real), pero desde la Fase 1.1 cada mutación relevante se respalda en **Redis** (`lib/roomStore.js`), y al arrancar el server se repuebla desde ahí — sobrevive a un reinicio del proceso. Si Redis no responde, el server no arranca (mismo criterio "fallar rápido" que ya usaba R2); `DISABLE_REDIS=1` es un escape hatch solo para desarrollo local, nunca para producción.
 - **Cuentas de usuario**: desde la Fase 2bis, **PostgreSQL** (`lib/db.js`, vía `pg`) guarda el modelo de usuario (tabla `users`: email, password hasheado con bcrypt). Motor separado de Redis a propósito — Redis sigue siendo solo para el estado efímero de las salas. Sin `DATABASE_URL` configurada, el registro/login queda deshabilitado pero el resto de la app sigue funcionando igual (no es un escape hatch de producción, es un feature opcional todavía no activado); si SÍ está configurada y Postgres no responde al arrancar, mismo criterio de "fallar rápido" que Redis/R2. Con `DATABASE_URL` configurada, un login exitoso también deja una **sesión de servidor real** (`lib/sessionStore.js`, sobre la misma conexión de Redis que ya usa `roomStore.js`): cookie `movienight.sid` httpOnly/sameSite=lax, contenido (`userId`/`email`) guardado server-side, revocable con `POST /auth/logout` — ver más abajo el detalle y lo que todavía falta de esta fase. Desde la fase "biblioteca por sesión" (2026-09-06), la sesión también alcanza sola (sin `LIBRARY_PASSWORD`) para listar/borrar/subir en `/library.html` — los dos caminos conviven, ninguno reemplaza al otro. La recuperación de contraseña (`POST /auth/forgot-password` / `POST /auth/reset-password`) manda el email vía **Resend** (`lib/mailer.js`, HTTP directo, sin SDK); sin `RESEND_API_KEY` configurada, el link de reseteo se loguea por consola en vez de mandarse — solo válido para desarrollo local.
@@ -33,7 +33,8 @@ reacciones. Repo: `https://github.com/isra16class-byte/movienight`.
 ```
 movienight/
   server.js              # Todo el backend: rutas HTTP + lógica de sockets
-  lib/r2.js                # Cloudflare R2 (opcional): subir/listar/borrar videos
+  lib/r2.js                # Cloudflare R2 (opcional): subir/listar/borrar videos, y URLs prefirmadas
+                            # de subida directa desde el navegador (Fase 2.7 del plan de producción)
   lib/roomStore.js          # Persistencia de salas en Redis (Fase 1.1 del plan de producción)
   lib/db.js                # Postgres: modelo de usuario, registro/login (Fase 2bis del plan de producción)
   lib/sessionStore.js      # Sesiones de usuario sobre Redis (Fase 2bis del plan de producción)
@@ -109,13 +110,12 @@ mover la barra de progreso — cualquier intento se revierte.
   "sin login" en sí, no algo que se pueda cerrar del todo mientras eso siga existiendo como opción.
 - Sin validación real de tipo de archivo (solo `Content-Type` del navegador).
 - Las salas nunca expiran — se acumulan en memoria y en R2 indefinidamente.
-- **Nuevo (2026-09-05, encontrado probando en producción real)**: subir un
-  video real vía `create-room` devuelve `413 Payload Too Large` de
-  **Cloudflare** (no del server) — el proxy corta el request antes de que
-  llegue a Node. Bloqueante para el caso de uso central del proyecto (subir
-  películas de varios GB). Detalle y camino a evaluar (subida directa a R2
-  con URL prefirmada, sin pasar por el Tunnel) en la Fase 2.7 de
-  `docs/PLAN-PRODUCCION.md`.
+- ~~Subir un video real vía `create-room` devuelve `413 Payload Too Large` de
+  Cloudflare~~ → **resuelto en modo R2 (Fase 2.7, 2026-09-06)**: subida
+  directa del navegador al bucket vía URL prefirmada, sin pasar por el
+  Tunnel. **Sigue siendo el mismo problema en modo disco local** (sin R2
+  configurado) — limitación conocida de ese modo, no resuelta por este
+  cambio. Detalle completo en la Fase 2.7 de `docs/PLAN-PRODUCCION.md`.
 
 ## Cómo se trabaja en este repo
 
@@ -136,7 +136,34 @@ agnóstico de proveedor mientras tanto).
 
 Orden recomendado: persistencia externa + manejo de errores + supervisión de
 proceso (Fase 1) → hashing de contraseñas + rate limiting (Fase 2.1/2.2) →
-sistema de cuentas reales (Fase 2bis) → expiración de salas/storage (Fase 2.6).
+sistema de cuentas reales (Fase 2bis) → subida directa a R2 para no cortar
+con Cloudflare (Fase 2.7) → expiración de salas/storage (Fase 2.6).
+
+**Fase 2.7 (subida directa a R2 vía URL prefirmada) implementada, pendiente de
+probar contra un R2 real (2026-09-06)**: resuelve el hallazgo bloqueante de
+`413 Payload Too Large` de Cloudflare al subir un video real (ver más abajo).
+Nueva ruta `POST /api/uploads/presign` (mismo `requireUploadAuth` de siempre)
+que devuelve una URL prefirmada de R2 (`r2.getPresignedUploadUrl()`, nueva
+función en `lib/r2.js` sobre `@aws-sdk/s3-request-presigner`, dependencia
+nueva). El cliente (`index.html` al crear sala, `library.html` al cambiar
+cinta desde una sala activa) sube el archivo DIRECTO a R2 con esa URL — el
+binario nunca atraviesa el Cloudflare Tunnel — y recién después confirma la
+sala reusando **rutas que ya existían sin tocarlas**
+(`POST /create-room-from-upload`, `POST /room/:id/change-video-from-upload`):
+esas rutas ya sabían recibir la key de un archivo ya en el bucket, solo que
+antes esa key siempre venía de una subida hecha por el propio server. Si el
+server no tiene R2 configurado, `/api/uploads/presign` responde 404 y el
+cliente cae solo al flujo clásico de multipart de siempre (mismo límite de
+Cloudflare que antes, en ese modo). Limitación documentada y no resuelta:
+firma un PUT simple, no multipart — tope de 5GB por archivo (ver
+`docs/PLAN-PRODUCCION.md`, Fase 2.7, para el detalle completo). **Falta un
+paso de infraestructura a cargo de quien despliega**: configurar CORS en el
+bucket de R2 para permitir el PUT desde el navegador (documentado en el
+README con el JSON de ejemplo). No se pudo probar end-to-end contra un R2
+real en este cambio (no había credenciales de R2 disponibles en el entorno
+donde se implementó) — revisado por lectura de código, queda pendiente esa
+prueba (subida real, fallback en modo disco, y la regla de CORS) antes de
+darlo por cerrado del todo.
 
 **Fase 1 completa (2026-09-05)**: los cinco puntos (persistencia externa 1.1,
 manejo de errores no capturados 1.2, proceso supervisado 1.3, graceful
