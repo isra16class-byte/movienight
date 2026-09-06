@@ -334,11 +334,25 @@ secundario.
       evaluar el trade-off (se pierden protecciones de Cloudflare como
       DDoS/WAF delante del server). Sigue siendo relevante solo para el modo
       disco local, ya que el modo R2 no depende de esto.
-- [ ] **Pendiente de probar end-to-end contra un R2 real** (no había
+- [x] **Bug bloqueante encontrado y resuelto (2026-09-06), antes de la prueba
+      contra R2 real**: `@aws-sdk/client-s3` (desde v3.729.0) calcula por
+      default un checksum CRC32 y lo agrega a cualquier `PutObject` —
+      incluida una URL prefirmada, donde ese checksum queda calculado sobre
+      un body vacío (el archivo real no existe todavía al momento de firmar)
+      y R2 lo rechaza con `501 NotImplemented` apenas se usa la URL. Habría
+      roto la subida directa con cualquier archivo real. Confirmado
+      localmente (comparando la URL firmada con y sin el fix, sin necesitar
+      un bucket real — la firma se arma enteramente en el proceso Node) y
+      resuelto agregando `requestChecksumCalculation: 'WHEN_REQUIRED'` +
+      `responseChecksumValidation: 'WHEN_REQUIRED'` al `S3Client` en
+      `lib/r2.js` (recomendación oficial de Cloudflare para este SDK contra
+      R2). Detalle completo en `docs/CHANGELOG.md`, entrada del mismo día.
+- [ ] **Sigue pendiente de probar end-to-end contra un R2 real** (no había
       credenciales de R2 disponibles en el entorno donde se implementó este
-      cambio) — revisado por lectura de código, pero falta confirmar en la
-      práctica: pedir la URL prefirmada, subir un archivo real con ella,
-      confirmar la sala, y el camino de fallback en modo disco (sin R2
+      cambio ni en el de este fix) — revisado por lectura de código y
+      confirmado el fix del bug de checksum de arriba, pero falta confirmar
+      en la práctica: pedir la URL prefirmada, subir un archivo real con
+      ella, confirmar la sala, y el camino de fallback en modo disco (sin R2
       configurado). Falta también configurar y probar la regla de CORS
       documentada arriba contra un bucket real.
 

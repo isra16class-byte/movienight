@@ -1,5 +1,50 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-06 — Fase 2.7: bug bloqueante encontrado y resuelto (checksum CRC32 de `aws-sdk` vs R2)
+
+- **Encontrado revisando el código antes de la prueba end-to-end contra un R2
+  real** (todavía sin credenciales disponibles en este entorno, pero se pudo
+  reproducir y confirmar el problema sin necesitarlas — ver más abajo): desde
+  `@aws-sdk/client-s3` **v3.729.0** (diciembre 2024), el SDK calcula por
+  default un checksum CRC32 y lo suma a cualquier `PutObject`/`UploadPart`
+  — incluida una URL prefirmada, donde ese checksum queda calculado sobre un
+  body **vacío** (el archivo real todavía no existe al momento de firmar, solo
+  se conoce recién cuando el navegador hace el PUT) y viaja horneado en la
+  propia URL (`x-amz-checksum-crc32`, `x-amz-sdk-checksum-algorithm`). R2 no
+  implementa esto y devuelve `501 NotImplemented` apenas alguien intenta usar
+  esa URL — la subida directa de la Fase 2.7 (`/api/uploads/presign`) habría
+  fallado con **cualquier archivo real**, no es un caso límite. Es un problema
+  conocido y documentado por Cloudflare (ver su ejemplo oficial en
+  `developers.cloudflare.com/r2/examples/aws/aws-sdk-js-v3/`) y reportado por
+  varios proyectos que integran R2 con SDKs de AWS actualizados (flysystem,
+  vector, LocalStack, entre otros) — el paquete del proyecto está en
+  `^3.1115.0`, bien por encima de la versión donde se introdujo.
+- **Confirmado localmente sin necesitar un bucket real**: como el problema
+  está en qué queda *horneado en la URL firmada* (la firma se calcula
+  enteramente en el proceso Node, sin red), se pudo comparar la URL generada
+  por `r2.getPresignedUploadUrl()` antes y después del fix y confirmar que el
+  parámetro de checksum desaparece — no hizo falta un PUT real contra R2 para
+  detectar ni verificar este bug puntual, aunque la prueba end-to-end contra
+  R2 real (subida de un archivo real, con y sin CORS configurado) sigue
+  pendiente por falta de credenciales en este entorno.
+- **Resuelto**: se agregó `requestChecksumCalculation: 'WHEN_REQUIRED'` y
+  `responseChecksumValidation: 'WHEN_REQUIRED'` al `S3Client` en
+  `lib/r2.js` (único punto de instanciación del cliente en todo el proyecto,
+  confirmado por `grep`) — restaura el comportamiento previo a esa versión
+  del SDK: solo calcula/valida checksum cuando la operación realmente lo
+  exige (no es el caso de `PutObject`). Como el cliente es un singleton
+  compartido, el fix corrige tanto la subida directa por URL prefirmada
+  (Fase 2.7) como el camino viejo de multipart server-side (`uploadStream`,
+  usado si se sube sin pasar por la URL prefirmada) con un solo cambio.
+- **Sigue pendiente** (sin cambios respecto de lo ya documentado en
+  `docs/PLAN-PRODUCCION.md`, Fase 2.7): probar el flujo completo contra un
+  bucket de R2 real (subida de un archivo real, confirmar la sala, y la regla
+  de CORS) — no había credenciales de R2 disponibles en este entorno para
+  cerrar esa prueba. Este cambio reduce bastante el riesgo de que esa prueba
+  fallara por este motivo puntual, pero no reemplaza la prueba end-to-end en
+  sí.
+
+
 Registro cronológico de cambios importantes, de más reciente a más antiguo. Este
 archivo arranca vacío a partir de la reorganización de la documentación — el
 historial completo de versiones anteriores (V1 a V24+) quedó archivado en

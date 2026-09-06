@@ -142,6 +142,19 @@ con Cloudflare (Fase 2.7) → expiración de salas/storage (Fase 2.6).
 **Fase 2.7 (subida directa a R2 vía URL prefirmada) implementada, pendiente de
 probar contra un R2 real (2026-09-06)**: resuelve el hallazgo bloqueante de
 `413 Payload Too Large` de Cloudflare al subir un video real (ver más abajo).
+**Segundo hallazgo bloqueante encontrado y resuelto (2026-09-06), este antes de
+llegar a probar contra R2 real**: `@aws-sdk/client-s3` (desde v3.729.0) suma
+por default un checksum CRC32 a cualquier `PutObject`, incluida una URL
+prefirmada — ahí ese checksum queda calculado sobre un body vacío (el archivo
+real no existe todavía al firmar) y R2 lo rechaza con `501 NotImplemented`
+apenas se usa la URL, con cualquier archivo real. Confirmado sin necesitar un
+bucket real (la firma se arma entera en el proceso Node, se pudo comparar la
+URL firmada con y sin el fix) y resuelto con
+`requestChecksumCalculation: 'WHEN_REQUIRED'` +
+`responseChecksumValidation: 'WHEN_REQUIRED'` en el `S3Client` de `lib/r2.js`
+(recomendación oficial de Cloudflare para este SDK). Como el cliente es un
+singleton compartido, corrige de paso también el camino viejo de multipart
+server-side (`uploadStream`). Detalle en `docs/CHANGELOG.md`.
 Nueva ruta `POST /api/uploads/presign` (mismo `requireUploadAuth` de siempre)
 que devuelve una URL prefirmada de R2 (`r2.getPresignedUploadUrl()`, nueva
 función en `lib/r2.js` sobre `@aws-sdk/s3-request-presigner`, dependencia
