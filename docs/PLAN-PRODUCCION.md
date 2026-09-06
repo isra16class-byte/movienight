@@ -254,7 +254,7 @@ secundario.
 - [ ] Igual para subtítulos (`.srt`/`.vtt`): validar que el contenido tenga
       estructura de subtítulo válida antes de aceptarlo, no solo la extensión.
 
-### 2.6 Expiración de salas y limpieza de storage ✅ (resuelta el 2026-09-06)
+### 2.6 Expiración de salas y limpieza de storage ✅ (resuelta el 2026-09-06, verificada en entorno real el mismo día)
 - [x] **Política de expiración: 24hs sin actividad (decisión de producto tomada
       el 2026-09-06)**. "Actividad" reusa exactamente lo que ya disparaba
       `roomStore.saveRoom()` desde fases anteriores (join, play/pause/seek,
@@ -305,6 +305,19 @@ secundario.
       chequeo mismo falla (ej. R2 lento): es un límite de costo, no de
       seguridad, no debería bloquear una subida legítima por un error de
       este chequeo puntual.
+- [x] **Verificado end-to-end en un entorno real** (Windows, Redis y R2
+      reales, no solo en el sandbox donde se escribió el código): expiración
+      de sala confirmada por HTTP (`404`) y por Redis (`TTL`/`EXISTS`), el
+      video de la sala expirada siguió disponible en la biblioteca, el
+      límite de storage rechazó una subida nueva con `413`, y el reporte de
+      huérfanos listó correctamente los candidatos. En el camino se encontró
+      y corrigió un bug real (`LIBRARY_ORPHAN_DAYS=0`/`MULTIPART_ABANDON_DAYS=0`
+      caían al default por el patrón `parseFloat(...) || N`, que trata `0`
+      como si no hubiera venido nada — reemplazado por un chequeo explícito
+      con `Number.isFinite`). Detalle completo en `docs/CHANGELOG.md`. Queda
+      sin confirmar en positivo (no bloqueante) la cancelación automática de
+      una subida multipart real abandonada, por no haber ninguna disponible
+      en el momento de probar.
 
 ### 2.7 Límite de tamaño de subida vía Cloudflare Tunnel/Proxy ✅ (resuelta el 2026-09-06, solo en modo R2)
 - [x] **Encontrado probando en producción real** (dominio

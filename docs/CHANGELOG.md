@@ -1,5 +1,44 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-06 — Fase 2.6: fix confirmado en entorno real, verificación end-to-end completa
+
+- **Confirmación del fix de `LIBRARY_ORPHAN_DAYS=0`/`MULTIPART_ABANDON_DAYS=0`**
+  (ver entrada anterior, mismo día): se corrió de nuevo
+  `LIBRARY_ORPHAN_DAYS=0 npm run library:orphans` contra el mismo entorno
+  real (Windows, Redis y R2 reales) con el fix ya aplicado. La salida ahora
+  dice literalmente **"con más de 0 días"** en vez de "30" — confirma que el
+  `0` explícito ya se respeta y no cae al default. Reportó 6 candidatos, y
+  los 6 coinciden exactamente con los objetos que había en el bucket sin
+  ninguna sala activa usándolos (incluye videos de prueba de la fase
+  anterior, ver más abajo).
+- Con este último chequeo, el **plan de pruebas completo de la Fase 2.6 quedó
+  verificado de punta a punta en un entorno real** (no solo en el sandbox
+  donde se escribió el código):
+  - Expiración de sala por inactividad: confirmada por HTTP (`404` tras
+    vencer el TTL) y por Redis (`TTL`/`EXISTS` reflejando la expiración).
+  - El video de una sala expirada sigue disponible en la biblioteca de R2
+    (no se borra al expirar la sala, la decisión de producto tomada).
+  - Límite de storage (`MAX_LIBRARY_VIDEOS`): una subida nueva por encima
+    del límite se rechaza con `413` y el mensaje esperado.
+  - Reporte de videos huérfanos (`library:orphans`): lista correctamente
+    los candidatos sin ninguna sala activa usándolos, con el fix de `0`
+    confirmado; nunca borra nada sin `--delete`.
+- **Pendiente de confirmar en positivo, no bloqueante**: la limpieza
+  automática de subidas multipart abandonadas en R2
+  (`sweepAbandonedMultipartUploads`) arrancó bien en las pruebas, pero no
+  hubo ninguna subida multipart real abandonada disponible en ese momento
+  para confirmar que el barrido efectivamente la cancela — solo se confirmó
+  que no rompe nada cuando no hay candidatos. Queda para la próxima vez que
+  se corte una subida real a R2 a mitad de camino.
+- **Nota aparte, no relacionada con esta fase** (sin resolver todavía):
+  `POST /create-room-from-upload` devolvió `502` en la prueba anterior con
+  un archivo de referencia que probablemente no existía de verdad en el
+  bucket (comportamiento esperable en ese caso, no necesariamente un bug) —
+  a confirmar con un archivo real si se quiere descartar del todo.
+- Con esto, la **Fase 2.6 queda completa y verificada en entorno real**
+  (mismo criterio de verificación independiente que ya se aplicó en la
+  Fase 2bis).
+
 ## 2026-09-06 — Fase 2.6: fix encontrado probando en un entorno real (LIBRARY_ORPHAN_DAYS=0)
 
 - **Encontrado probando la Fase 2.6 en un entorno real** (Windows, Redis y R2
