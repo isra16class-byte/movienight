@@ -24,11 +24,14 @@
   `x-library-password` en el header llegó a Sentry (evento visible en el dashboard, `checks.sentry`
   en `{ enabled: true, ok: true }`), y el header no apareció en ningún lado del evento —ni en Tags,
   Contexts, ni en el JSON crudo— porque el SDK ni siquiera llegó a capturarlo (`sendDefaultPii:
-  false`). Esto confirma que no hay fuga en este caso puntual, pero **no llegó a ejercitar la rama de
-  `beforeSend()` que redacta activamente un campo sensible ya presente en el evento** (por ejemplo, un
-  `password` viajando en el body de un login real). Queda pendiente, como verificación de refuerzo no
-  bloqueante, forzar un error en un punto donde ese tipo de dato sí llegue a Sentry y confirmar que se
-  reemplaza por `[Redacted]`.
+  false`). Esto confirma que no hay fuga en ese caso, pero no ejercitaba la rama de `beforeSend()`
+  que redacta activamente un campo sensible ya presente en el evento. **Verificado aparte (mismo
+  día)**: con una ruta de prueba temporal (no commiteada) que llama a `captureException()` con
+  `extra: { password, hostToken, normalField }`, el evento real en Sentry muestra `password` y
+  `hostToken` como `[Filtered]` (el label propio de Sentry para datos scrubbeados) y `normalField`
+  sin tocar — confirma que `redactSensitiveData()` sí actúa cuando el dato sensible llega a estar
+  presente, y que no redacta de más. Con las dos pruebas (dato no capturado / dato capturado y
+  redactado), la verificación de `beforeSend()` queda completa.
 
 ## 2026-09-06 — Fase 4: logs estructurados (JSON) en vez de `console.log`/`console.error`
 
