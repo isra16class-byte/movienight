@@ -162,7 +162,15 @@ pero esa opción exige un array y el SDK fallaba con `defaultIntegrations.forEac
 is not a function`, dejando Sentry deshabilitado. El filtro se movió a
 `integrations`, que sí acepta callback. La misma auditoría agregó
 `libraryPassword` a la regex de redacción, porque esa clave puede llegar por
-query/body y no coincidía antes.
+query/body y no coincidía antes. **Verificado en entorno real (2026-09-07)**:
+un error disparado con `x-library-password` en el header sí llegó a Sentry
+(evento visible, `checks.sentry` en `ok: true`), y el header no aparece en
+ningún lugar del evento —ni redactado, porque el SDK ni siquiera lo capturó
+(`sendDefaultPii: false`). Confirma que no hay fuga en este caso, pero
+**todavía no se probó la rama de `beforeSend()` que sí tiene que redactar
+activamente** un dato sensible que llegue a estar presente en el evento (ej.
+un `password` en el body de un login real) — queda como verificación de
+refuerzo pendiente, no bloqueante para dar la fase por buena.
 
 **Fase 2.5 (validación real de archivos subidos) completa (2026-09-07)**:
 nuevo `lib/fileValidation.js` con `isValidVideoBuffer()` (magic bytes vía

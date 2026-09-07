@@ -20,6 +20,15 @@
   mover allí el filtro de `OnUncaughtException`/`OnUnhandledRejection`. Además, la auditoría de
   `beforeSend()` encontró que `libraryPassword` (query/body) no coincidía con la regex; se agregó
   explícitamente para evitar enviar esa contraseña a Sentry.
+- **Verificación end-to-end en entorno real (2026-09-07):** un error real disparado con
+  `x-library-password` en el header llegó a Sentry (evento visible en el dashboard, `checks.sentry`
+  en `{ enabled: true, ok: true }`), y el header no apareció en ningún lado del evento —ni en Tags,
+  Contexts, ni en el JSON crudo— porque el SDK ni siquiera llegó a capturarlo (`sendDefaultPii:
+  false`). Esto confirma que no hay fuga en este caso puntual, pero **no llegó a ejercitar la rama de
+  `beforeSend()` que redacta activamente un campo sensible ya presente en el evento** (por ejemplo, un
+  `password` viajando en el body de un login real). Queda pendiente, como verificación de refuerzo no
+  bloqueante, forzar un error en un punto donde ese tipo de dato sí llegue a Sentry y confirmar que se
+  reemplaza por `[Redacted]`.
 
 ## 2026-09-06 — Fase 4: logs estructurados (JSON) en vez de `console.log`/`console.error`
 
