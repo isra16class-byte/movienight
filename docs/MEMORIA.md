@@ -44,6 +44,7 @@ movienight/
   lib/logger.js            # Logger estructurado (JSON) sobre pino, con redacción de campos sensibles — Fase 4
   lib/sentry.js            # Reporte opcional de excepciones a Sentry, con redacción de secretos — Fase 4
   lib/metrics.js           # Contadores en memoria para GET /metrics (uploads en curso, errores de R2) — Fase 4
+  lib/alerts.js            # Alertas mínimas por email si el healthcheck o R2 vienen fallando — Fase 4
   scripts/r2-cleanup-multipart.js
   public/
     index.html            # Crear sala / unirse por código; también login/registro/logout (Fase 2bis)
@@ -131,6 +132,28 @@ mover la barra de progreso — cualquier intento se revierte.
 - Cada cambio importante debería reflejarse acá (este archivo, `docs/MEMORIA.md`, si cambia algo esencial) y como entrada nueva en `docs/CHANGELOG.md` — no en los archivos de `docs/historico/`, que quedaron congelados como registro del estado anterior a esta reorganización.
 
 ## Por dónde seguir
+
+**Fase 4 (observabilidad) ✅ COMPLETA (2026-09-07) — alertas mínimas**: nuevo
+`lib/alerts.js` + un job interno en `server.js` (`runAlertChecks`, cada
+`ALERT_CHECK_INTERVAL_MS`, default 1 min) que reusa `computeHealthStatus()`
+(la misma función que ya usa `/health`, extraída para no duplicar lógica) y
+`metrics.snapshot()`, y manda un email vía `lib/mailer.js` (Resend, ya
+integrado desde la Fase 2bis) si el healthcheck lleva varios chequeos
+seguidos en falla (`ALERT_HEALTH_FAILURE_THRESHOLD`, default 3) o si
+`r2ErrorCount` sube desde el último chequeo. Un `ALERT_COOLDOWN_MS` (default
+30min) evita reenviar en cada chequeo mientras el problema siga sin
+resolverse, y un único email de "recuperado" avisa cuando vuelve a estar
+sano. Todo opcional: sin `ALERT_EMAIL_TO` configurada, no arranca ningún
+chequeo de más (mismo criterio que Sentry/R2/Postgres); sin
+`RESEND_API_KEY`, la alerta se loguea por consola en vez de mandarse (mismo
+fallback que ya usaba `sendPasswordResetEmail`). Probado en sandbox: ciclo
+completo (bajo el umbral → sin alerta, cruza el umbral → alerta, sigue
+fallando en cooldown → sin alerta nueva, se recupera → email de
+"recuperado", vuelve a fallar → nuevo ciclo) con un harness aislado, y
+contra un servidor real con credenciales de R2 inválidas (el healthcheck y
+el contador de errores de R2 dispararon ambas alertas correctamente). Con
+esto, **la Fase 4 (observabilidad) queda completa del todo** — no quedan
+ítems pendientes en esa fase.
 
 **Fase 4 — fix de `uploads.inProgress` pegado tras una desconexión abrupta (2026-09-07)**:
 probando las métricas contra un servidor real (subida de 300MB limitada a 1MB/s, cortada con

@@ -327,6 +327,28 @@ curl -H "x-metrics-token: tu-token" https://tu-dominio.com/metrics
 Sin la variable definida, cualquiera puede consultarlo sin autenticarse — cómodo para desarrollo
 local o un grupo chico que confía en su propia red, pero conviene fijarla en un despliegue real.
 
+## Alertas mínimas
+
+Sin depender de que alguien mire `/health` o `/metrics` a mano, un job interno puede avisar por
+email si el healthcheck lleva varios chequeos seguidos en falla, o si Cloudflare R2 empieza a
+devolver errores nuevos. Es opcional: sin `ALERT_EMAIL_TO` definida, no arranca ningún chequeo
+extra y el resto de la app sigue funcionando igual.
+
+```
+ALERT_EMAIL_TO=vos@tu-dominio.com
+```
+
+Reusa `RESEND_API_KEY`/`EMAIL_FROM` (misma sección de "Recuperación de contraseña" del `.env`) para
+mandar el email — sin `RESEND_API_KEY` configurada, la alerta se loguea por consola en vez de
+mandarse, para poder probar el flujo en desarrollo local sin una cuenta de Resend real. El job
+corre cada `ALERT_CHECK_INTERVAL_MS` (default 1 minuto), espera `ALERT_HEALTH_FAILURE_THRESHOLD`
+chequeos seguidos en falla antes de la primera alerta (default 3, para no disparar por un timeout
+aislado de un segundo), y una vez que ya avisó, espera `ALERT_COOLDOWN_MS` (default 30 minutos)
+antes de volver a avisar si el problema sigue sin resolverse — para no saturar la casilla con un
+email por minuto mientras dure una caída real. Cuando el healthcheck vuelve a estar OK después de
+haber alertado, manda un único email de "recuperado". Ver `.env.example` para el detalle de cada
+variable.
+
 ## Estructura del proyecto
 
 ```
@@ -338,6 +360,7 @@ movienight/
   lib/
     r2.js                 # Cloudflare R2 (opcional, ver sección arriba) — subir/listar/borrar videos en R2
     metrics.js             # Contadores en memoria para GET /metrics (Fase 4 del plan de producción)
+    alerts.js              # Alertas mínimas por email (Fase 4 del plan de producción)
   public/
     index.html            # Página para crear sala
     room.html              # Página de la sala (reproductor, chat, controles)

@@ -79,6 +79,7 @@ const sentry = require('./lib/sentry');
 // R2). Ver lib/metrics.js para el detalle de qué se cuenta y por qué es en memoria (una sola
 // instancia, Fase 0).
 const metrics = require('./lib/metrics');
+const alerts = require('./lib/alerts');
 
 // SENTRY_DSN se lee después de loadDotEnv() (arriba), igual que DATABASE_URL/RESEND_API_KEY. Si no
 // está configurado, esto no hace nada y el resto del servidor conserva exactamente el mismo modo de
@@ -1495,14 +1496,7 @@ function withTimeout(promise, ms, label) {
   ]);
 }
 
-app.get(['/health', '/healthz'], async (req, res) => {
-  // Durante un graceful shutdown en curso (Fase 1.4) ya se dejaron de aceptar conexiones nuevas
-  // (`server.close()`), así que en la práctica esta rama casi no se llega a ejecutar — queda como
-  // red de seguridad para alguna request que ya estaba en camino cuando arrancó el shutdown.
-  if (shuttingDown) {
-    return res.status(503).json({ status: 'shutting_down', uptime: process.uptime() });
-  }
-
+async function computeHealthStatus() {
   const checks = {};
   let healthy = true;
 
@@ -1554,6 +1548,19 @@ app.get(['/health', '/healthz'], async (req, res) => {
   // igual que se hace con R2/Postgres cuando no aplican; nunca cuenta como una falla del healthcheck.
   checks.email = { enabled: mailer.isEnabled(), ok: true };
   checks.sentry = sentry.health();
+
+  return { healthy, checks };
+}
+
+app.get(['/health', '/healthz'], async (req, res) => {
+  // Durante un graceful shutdown en curso (Fase 1.4) ya se dejaron de aceptar conexiones nuevas
+  // (`server.close()`), así que en la práctica esta rama casi no se llega a ejecutar — queda como
+  // red de seguridad para alguna request que ya estaba en camino cuando arrancó el shutdown.
+  if (shuttingDown) {
+    return res.status(503).json({ status: 'shutting_down', uptime: process.uptime() });
+  }
+
+  const { healthy, checks } = await computeHealthStatus();
 
   res.status(healthy ? 200 : 503).json({
     status: healthy ? 'ok' : 'error',
@@ -2123,6 +2130,35 @@ async function sweepAbandonedMultipartUploads() {
 
 let roomSweepIntervalHandle = null;
 let multipartSweepIntervalHandle = null;
+let alertCheckIntervalHandle = null;
+
+// --- Alertas mínimas (Fase 4 del plan de producción, último punto pendiente de la fase) -----------
+// Corre `computeHealthStatus()` (la misma función que usa /health) y revisa `metrics.snapshot()`
+// cada ALERT_CHECK_INTERVAL_MS, delegando la decisión de "¿esto amerita un email?" a lib/alerts.js
+// (umbral de fallas seguidas + cooldown, ver ese archivo para el detalle). Si `ALERT_EMAIL_TO` no
+// está configurada, ni siquiera arranca el intervalo — no tiene sentido correr chequeos extra cada
+// un rato si no hay a quién avisarle (ver alerts.isEnabled()).
+const ALERT_CHECK_INTERVAL_MS = parseInt(process.env.ALERT_CHECK_INTERVAL_MS, 10) || 60 * 1000; // cada 1 min
+
+async function runAlertChecks() {
+  try {
+    const { healthy, checks } = await computeHealthStatus();
+    await alerts.checkHealthAndAlert(healthy, checks);
+  } catch (err) {
+    logger.error({ err }, 'Error corriendo el chequeo de salud para alertas (Fase 4)');
+  }
+
+  try {
+    const snapshot = metrics.snapshot();
+    await alerts.checkR2ErrorsAndAlert({
+      enabled: r2.isR2Enabled(),
+      errorCount: snapshot.r2ErrorCount,
+      lastError: snapshot.r2LastError
+    });
+  } catch (err) {
+    logger.error({ err }, 'Error revisando errores de R2 para alertas (Fase 4)');
+  }
+}
 
 // --- Arranque del server (Fase 1.1 del plan de producción) ---------------------------------------
 // Se envuelve en una función async (en vez de llamar a server.listen directo) porque ahora hay un
@@ -2237,6 +2273,17 @@ async function startServer() {
     sweepAbandonedMultipartUploads();
   }, MULTIPART_SWEEP_INTERVAL_MS);
 
+  // Fase 4 (alertas mínimas): feature opcional, igual criterio que Sentry/Resend — sin ALERT_EMAIL_TO
+  // configurada, no arranca ningún intervalo nuevo ni corre chequeos de más.
+  if (alerts.isEnabled()) {
+    logger.info({ intervalMs: ALERT_CHECK_INTERVAL_MS }, 'Alertas mínimas habilitadas (ALERT_EMAIL_TO configurada) — chequeando salud/errores de R2 periódicamente.');
+    alertCheckIntervalHandle = setInterval(() => {
+      runAlertChecks();
+    }, ALERT_CHECK_INTERVAL_MS);
+  } else {
+    logger.info('ALERT_EMAIL_TO no configurada — alertas mínimas deshabilitadas (el resto de la app sigue funcionando igual).');
+  }
+
   server.listen(PORT, () => {
     logger.info({ port: PORT }, `MovieNight corriendo en http://localhost:${PORT}`);
 
@@ -2306,6 +2353,7 @@ function gracefulShutdown(signal) {
   // modos), pero cortarlos prolijamente evita que un barrido dispare a mitad del shutdown.
   if (roomSweepIntervalHandle) clearInterval(roomSweepIntervalHandle);
   if (multipartSweepIntervalHandle) clearInterval(multipartSweepIntervalHandle);
+  if (alertCheckIntervalHandle) clearInterval(alertCheckIntervalHandle);
 
   // Evento dedicado (no reutilizamos 'room-error' ni similares: esto no es un error de la sala, es
   // el servidor entero bajando) — el cliente (room.html) lo escucha para mostrar un banner en vez de

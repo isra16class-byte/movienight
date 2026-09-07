@@ -731,7 +731,7 @@ instancia alcanza por ahora. Queda documentada para cuando haga falta retomarla)
 
 ---
 
-## Fase 4 — Observabilidad
+## Fase 4 — Observabilidad ✅ (completa el 2026-09-07)
 
 - [ ] Logs estructurados (JSON) en vez de `console.log` — más fácil de indexar en
       cualquier servicio de logs (Datadog, Better Stack, CloudWatch, etc. según
@@ -749,9 +749,26 @@ instancia alcanza por ahora. Queda documentada para cuando haga falta retomarla)
       `METRICS_TOKEN`, excluido del rate limiter general (mismo criterio
       que `/health`). Detalle completo en `docs/MEMORIA.md` y
       `docs/CHANGELOG.md`.
-- [ ] Alertas mínimas: si el healthcheck (1.5) falla repetidas veces, o si R2
-      empieza a devolver errores, alguien se tiene que enterar (email, Slack,
-      lo que sea) sin tener que estar mirando la consola.
+- [x] Alertas mínimas ✅ (completa el 2026-09-07): nuevo `lib/alerts.js`, un job
+      interno (`server.js`, `runAlertChecks`) que corre cada `ALERT_CHECK_INTERVAL_MS`
+      (default 1 min) reusando `computeHealthStatus()` (la misma función que ya usa
+      `/health`, sin duplicar lógica) y `metrics.snapshot()`. Manda un email vía
+      `lib/mailer.js` (reusa Resend, ya integrado desde la Fase 2bis) si el healthcheck
+      lleva `ALERT_HEALTH_FAILURE_THRESHOLD` chequeos seguidos en falla (default 3, para
+      no disparar por un timeout aislado), o si `r2ErrorCount` sube desde el último
+      chequeo. Un `ALERT_COOLDOWN_MS` (default 30 min) evita reenviar en cada chequeo
+      mientras el problema siga sin resolverse, y un único email de "recuperado" avisa
+      cuando vuelve a estar sano. Todo opcional: sin `ALERT_EMAIL_TO` configurada, no
+      arranca ningún chequeo de más (mismo criterio que Sentry/Resend/R2/Postgres —
+      feature no activada, no un escape hatch). Sin `RESEND_API_KEY`, la alerta se
+      loguea por consola en vez de mandarse (mismo fallback que ya usaba
+      `sendPasswordResetEmail`). Probado en sandbox: reproducido el ciclo completo
+      (bajo el umbral → sin alerta, cruza el umbral → alerta, sigue fallando en
+      cooldown → sin alerta nueva, se recupera → email de "recuperado", vuelve a
+      fallar → nuevo ciclo de alerta) con un harness aislado, y contra un servidor
+      real con credenciales de R2 inválidas (el healthcheck y el contador de errores
+      de R2 dispararon ambas alertas como se esperaba). Detalle completo en
+      `docs/CHANGELOG.md`.
 
 ---
 
@@ -840,14 +857,13 @@ Con las decisiones de Fase 0 ya tomadas, el orden recomendado queda así:
    real, presign → PUT directo → confirmación de sala), incluyendo el caso
    de un archivo inválido subido por ese camino (se rechaza y se borra del
    bucket correctamente).
-8. **Fase 4 en curso** (observabilidad): logs estructurados ✅, Sentry ✅ y
-   métricas básicas ✅ (completa el 2026-09-07, ver `docs/MEMORIA.md`) ya
-   resueltos. Queda pendiente el último punto: alertas mínimas.
+8. **Fase 4 ✅ completa** (observabilidad): logs estructurados ✅, Sentry ✅,
+   métricas básicas ✅ y alertas mínimas ✅ (completa el 2026-09-07, ver
+   `docs/MEMORIA.md`). No quedan ítems pendientes en esta fase.
 9. **Fase 3 queda pospuesta** (una instancia alcanza por ahora, según Fase 0) y
    **Fase 6 de multi-tenancy queda descartada** — no vuelven a este orden salvo
    que cambie la necesidad real de escala. Lo que queda pendiente ahora es
-   **Fase 4** (alertas mínimas), **Fase 5** (tests/CI/deploy) y, dentro de Fase
-   6, términos de uso/privacidad.
+   **Fase 5** (tests/CI/deploy) y, dentro de Fase 6, términos de uso/privacidad.
 
 ---
 

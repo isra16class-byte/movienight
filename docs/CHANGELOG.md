@@ -1,5 +1,54 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-07 — Fase 4: alertas mínimas ✅ (último punto pendiente de la fase, ahora completa)
+
+- **Motivo**: `/health` y `/metrics` ya exponían si el proceso está sano y si R2 viene fallando,
+  pero ambos son "pull" — alguien tiene que estar mirando la consola o consultando el endpoint a
+  mano para enterarse. Esto agrega la mitad que faltaba ("push").
+- **`server.js`**: se extrajo la lógica de `/health` a una función reusable
+  `computeHealthStatus()`, para que el job nuevo de alertas revise exactamente lo mismo que ya
+  reporta la ruta HTTP, sin una segunda definición de "sano" que se pueda desincronizar con el
+  tiempo. Nuevo job `runAlertChecks()`, corrido cada `ALERT_CHECK_INTERVAL_MS` (default 1 min) vía
+  `setInterval` (mismo patrón que `sweepExpiredRooms`/`sweepAbandonedMultipartUploads`, limpiado en
+  el graceful shutdown), que llama a `computeHealthStatus()` y a `metrics.snapshot()` y delega la
+  decisión de alertar a `lib/alerts.js`.
+- **Nuevo `lib/alerts.js`**: mantiene el estado (en memoria, una sola instancia, mismo criterio que
+  `lib/metrics.js`) de cuántos chequeos seguidos lleva fallando el healthcheck y cuál era el último
+  `r2ErrorCount` visto. Manda un email si:
+  - El healthcheck lleva `ALERT_HEALTH_FAILURE_THRESHOLD` chequeos SEGUIDOS en falla (default 3 —
+    con el intervalo por default, 3 minutos de caída sostenida antes de la primera alerta, para no
+    disparar por un timeout aislado de un segundo).
+  - `r2ErrorCount` (de `metrics.snapshot()`) subió desde el último chequeo — se ignora el valor
+    absoluto (que solo crece con el tiempo) y se compara contra la última lectura.
+  - Una vez mandada la primera alerta de cualquiera de los dos tipos, un `ALERT_COOLDOWN_MS`
+    (default 30 min) evita reenviar en cada chequeo mientras el problema siga sin resolverse — sin
+    esto, un R2 caído durante horas mandaría un email por minuto.
+  - Cuando el healthcheck vuelve a estar OK después de haber alertado, manda un único email de
+    "recuperado", para no obligar a consultar `/health` a mano para saber si ya se solucionó solo.
+- **`lib/mailer.js`**: se extrajo el POST a la API de Resend a un helper interno
+  (`sendViaResend()`), compartido ahora por `sendPasswordResetEmail()` y la nueva
+  `sendAlertEmail()`. Sin `RESEND_API_KEY` configurada, `sendAlertEmail()` loguea el contenido
+  completo de la alerta como warning en vez de intentar mandarla — a diferencia de
+  `sendPasswordResetEmail` (que loguea un link para que alguien lo abra), acá no hay un link que
+  loguear, así que se loguea directamente el mensaje entero.
+- **Feature opcional, mismo criterio que Sentry/Postgres/R2**: sin `ALERT_EMAIL_TO` configurada, el
+  job ni siquiera arranca — no tiene sentido correr chequeos periódicos de más si no hay a quién
+  avisarle. Nuevas variables documentadas en `.env.example`: `ALERT_EMAIL_TO`,
+  `ALERT_CHECK_INTERVAL_MS`, `ALERT_HEALTH_FAILURE_THRESHOLD`, `ALERT_COOLDOWN_MS`.
+- **Probado en sandbox**: con un harness aislado que llama directo a
+  `alerts.checkHealthAndAlert()` con distintas secuencias de resultados, se confirmó el ciclo
+  completo — chequeo bajo el umbral (sin alerta) → cruza el umbral (alerta de "Healthcheck en
+  falla") → sigue fallando dentro del cooldown (sin alerta nueva) → se recupera (email de
+  "Recuperado") → sigue sano (sin alerta) → vuelve a fallar dos veces (nuevo ciclo de alerta,
+  confirma que el estado se reinicia bien tras una recuperación). Probado además contra un servidor
+  real (modo disco local, `DISABLE_REDIS=1`, credenciales de R2 inválidas a propósito): con
+  `ALERT_HEALTH_FAILURE_THRESHOLD=2` y `ALERT_CHECK_INTERVAL_MS=2000`, el healthcheck empezó a
+  fallar por R2 (`checks.r2.ok: false`) y a los 2 chequeos se dispararon correctamente tanto la
+  alerta de "Healthcheck en falla" como la de "R2 está devolviendo errores" (`r2ErrorCount` subiendo
+  en cada intento fallido); confirmado también que `ALERT_COOLDOWN_MS` evita reenviar en cada
+  chequeo mientras el problema sigue, y que sí vuelve a alertar una vez cumplido el cooldown si la
+  falla persiste.
+
 ## 2026-09-07 — Fase 4: fix de `uploads.inProgress` pegado tras una desconexión abrupta
 
 - **Bug encontrado probando en un entorno real**: cortar a la fuerza (`kill -9`) el proceso cliente
