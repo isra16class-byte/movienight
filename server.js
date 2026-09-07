@@ -68,6 +68,11 @@ const mailer = require('./lib/mailer');
 // navegador, y cómo se valida cada tipo (video por firma binaria, subtítulos por estructura).
 const fileValidation = require('./lib/fileValidation');
 
+// Logger estructurado (Fase 4 del plan de producción, "logs estructurados") — reemplaza los
+// `console.log`/`console.error` de texto libre que usaba el server hasta acá. Ver lib/logger.js para
+// el detalle de por qué pino, el criterio de redacción de campos sensibles, y LOG_LEVEL/LOG_PRETTY.
+const logger = require('./lib/logger');
+
 // --- Manejo de errores no capturados (Fase 1.2 del plan de producción) ---------------------------
 // Sin esto, un error que se escapa de cualquier lugar del código (una excepción sincrónica que nadie
 // atrapó, o una Promise rechazada sin `.catch`) tira abajo el proceso Node entero sin dejar rastro
@@ -81,10 +86,7 @@ const fileValidation = require('./lib/fileValidation');
 // servidor se queda caído hasta que alguien lo reinicie a mano — es la razón por la que el plan de
 // producción ordena 1.2 y 1.3 juntas dentro de la misma fase.
 process.on('uncaughtException', (err) => {
-  console.error('');
-  console.error('💥 Excepción no capturada — el proceso va a cerrarse (revisar logs arriba):');
-  console.error(err);
-  console.error('');
+  logger.fatal({ err }, 'Excepción no capturada — el proceso va a cerrarse');
   process.exit(1);
 });
 
@@ -94,10 +96,7 @@ process.on('uncaughtException', (err) => {
 // loguea, sin salir, para no reiniciar el servidor (y cortar todas las salas activas) por errores que
 // pueden ser puntuales de una sola operación (ej. una subida a R2 que falló para un solo usuario).
 process.on('unhandledRejection', (reason) => {
-  console.error('');
-  console.error('⚠️  Promesa rechazada sin manejar (revisar si falta un try/catch o un .catch):');
-  console.error(reason);
-  console.error('');
+  logger.error({ err: reason }, 'Promesa rechazada sin manejar (revisar si falta un try/catch o un .catch)');
 });
 
 const app = express();
@@ -385,7 +384,7 @@ async function requireLibraryAuth(req, res, next) {
     if (!valid) return res.status(401).json({ error: 'Contraseña de biblioteca requerida o incorrecta.' });
     next();
   } catch (err) {
-    console.error('⚠️  Error verificando la contraseña de biblioteca:', err.message);
+    logger.error({ err }, 'Error verificando la contraseña de biblioteca');
     res.status(500).json({ error: 'Error interno verificando la contraseña.' });
   }
 }
@@ -481,7 +480,7 @@ async function requireUploadAuth(req, res, next) {
     }
     return res.status(401).json({ error: 'Contraseña incorrecta.', attemptsLeft });
   } catch (err) {
-    console.error('⚠️  Error verificando la contraseña de subida:', err.message);
+    logger.error({ err }, 'Error verificando la contraseña de subida');
     res.status(500).json({ error: 'Error interno verificando la contraseña.' });
   }
 }
@@ -581,7 +580,7 @@ app.post('/auth/register', requireDbEnabled, async (req, res) => {
     if (err.code === '23505') {
       return res.status(409).json({ error: 'Ya existe una cuenta con ese email.' });
     }
-    console.error('⚠️  Error registrando usuario:', err.message);
+    logger.error({ err }, 'Error registrando usuario');
     res.status(500).json({ error: 'No se pudo completar el registro. Intentá de nuevo en un momento.' });
   }
 });
@@ -630,7 +629,7 @@ app.post('/auth/login', requireDbEnabled, async (req, res) => {
     // apunta a la sesión nueva (vacía) — recién ahí se le escribe el usuario logueado.
     req.session.regenerate((err) => {
       if (err) {
-        console.error('⚠️  Error creando la sesión tras login:', err.message);
+        logger.error({ err }, 'Error creando la sesión tras login');
         return res.status(500).json({ error: 'No se pudo iniciar sesión. Intentá de nuevo en un momento.' });
       }
       req.session.userId = user.id;
@@ -640,14 +639,14 @@ app.post('/auth/login', requireDbEnabled, async (req, res) => {
       // devolver 200 con una cookie que en la práctica no quedó respaldada en el store.
       req.session.save((saveErr) => {
         if (saveErr) {
-          console.error('⚠️  Error guardando la sesión tras login:', saveErr.message);
+          logger.error({ err: saveErr }, 'Error guardando la sesión tras login');
           return res.status(500).json({ error: 'No se pudo iniciar sesión. Intentá de nuevo en un momento.' });
         }
         res.json({ id: user.id, email: user.email });
       });
     });
   } catch (err) {
-    console.error('⚠️  Error en login:', err.message);
+    logger.error({ err }, 'Error en login');
     res.status(500).json({ error: 'No se pudo iniciar sesión. Intentá de nuevo en un momento.' });
   }
 });
@@ -660,7 +659,7 @@ app.post('/auth/logout', (req, res) => {
   if (!req.session) return res.json({ ok: true });
   req.session.destroy((err) => {
     if (err) {
-      console.error('⚠️  Error cerrando la sesión:', err.message);
+      logger.error({ err }, 'Error cerrando la sesión');
       return res.status(500).json({ error: 'No se pudo cerrar la sesión. Intentá de nuevo en un momento.' });
     }
     res.clearCookie('movienight.sid');
@@ -712,12 +711,12 @@ app.post('/auth/forgot-password', requireDbEnabled, async (req, res) => {
         // No se le devuelve el error a quien pidió el reseteo (seguiría siendo el mismo mensaje
         // genérico) — pero sí queda bien visible en los logs del server, porque acá el fallo es real
         // (Resend caído, API key mal puesta, etc.) y nadie más se va a enterar si no se loguea.
-        console.error('⚠️  Error mandando el email de reseteo de contraseña:', err.message);
+        logger.error({ err }, 'Error mandando el email de reseteo de contraseña');
       }
     }
     res.json(genericResponse);
   } catch (err) {
-    console.error('⚠️  Error en forgot-password:', err.message);
+    logger.error({ err }, 'Error en forgot-password');
     // Mismo mensaje genérico incluso ante un error interno: no hay forma de distinguirlo desde afuera
     // de "no encontré ese email", y no tiene sentido filtrar detalle de un error de base de datos acá.
     res.json(genericResponse);
@@ -745,7 +744,7 @@ app.post('/auth/reset-password', requireDbEnabled, async (req, res) => {
     await db.deletePasswordResetsForUser(reset.user_id);
     res.json({ ok: true });
   } catch (err) {
-    console.error('⚠️  Error en reset-password:', err.message);
+    logger.error({ err }, 'Error en reset-password');
     res.status(500).json({ error: 'No se pudo cambiar la contraseña. Intentá de nuevo en un momento.' });
   }
 });
@@ -1031,7 +1030,7 @@ async function rejectIfInvalidVideo(req, res, next) {
     }
     next();
   } catch (err) {
-    console.error('Error validando video subido (modo disco):', err.message);
+    logger.error({ err }, 'Error validando video subido (modo disco)');
     res.status(500).json({ error: 'No se pudo validar el video subido.' });
   }
 }
@@ -1112,7 +1111,7 @@ async function rejectIfInvalidExistingVideo(filename) {
     try {
       await deleteExistingVideo(filename);
     } catch (err) {
-      console.error('Error borrando de la biblioteca un archivo que no pasó la validación:', err.message);
+      logger.error({ err, filename }, 'Error borrando de la biblioteca un archivo que no pasó la validación');
     }
   }
   return result;
@@ -1216,7 +1215,7 @@ async function checkStorageLimits(req, res, next) {
   } catch (err) {
     // Falla "abierta" a propósito: esto es un límite de costo, no de seguridad — un error listando la
     // biblioteca (ej. R2 momentáneamente lento) no debería bloquear una subida legítima.
-    console.error('⚠️  Error chequeando límites de storage de la biblioteca (se deja pasar la subida):', err.message);
+    logger.error({ err }, 'Error chequeando límites de storage de la biblioteca (se deja pasar la subida)');
     next();
   }
 }
@@ -1233,7 +1232,7 @@ app.post('/api/uploads/presign', requireUploadAuth, checkStorageLimits, async (r
     const uploadUrl = await r2.getPresignedUploadUrl(key, contentType, R2_PRESIGN_EXPIRES_SECONDS);
     res.json({ key, uploadUrl, expiresIn: R2_PRESIGN_EXPIRES_SECONDS });
   } catch (err) {
-    console.error('Error generando URL prefirmada de R2:', err.message);
+    logger.error({ err }, 'Error generando URL prefirmada de R2');
     res.status(502).json({ error: 'No se pudo preparar la subida directa a Cloudflare R2 (revisá credenciales/conexión).' });
   }
 });
@@ -1287,7 +1286,7 @@ app.post('/create-room-from-upload', requireUploadAuth, async (req, res) => {
     await roomStore.saveRoom(roomId, room);
     res.json({ roomId, hostToken: room.hostToken });
   } catch (err) {
-    console.error('Error creando sala desde biblioteca (R2):', err.message);
+    logger.error({ err }, 'Error creando sala desde biblioteca (R2)');
     res.status(502).json({ error: 'No se pudo consultar Cloudflare R2 (revisa credenciales/conexión).' });
   }
 });
@@ -1327,7 +1326,7 @@ app.post('/room/:id/change-video-from-upload', async (req, res) => {
     const validation = await rejectIfInvalidExistingVideo(filename);
     if (!validation.valid) return res.status(400).json({ error: `El video no pasó la validación de contenido: ${validation.reason}` });
   } catch (err) {
-    console.error('Error validando cinta de biblioteca (R2):', err.message);
+    logger.error({ err, filename }, 'Error validando cinta de biblioteca (R2)');
     return res.status(502).json({ error: 'No se pudo consultar Cloudflare R2 (revisa credenciales/conexión).' });
   }
   room.videoFile = videoUrlForExistingFile(filename);
@@ -1497,7 +1496,7 @@ app.get('/api/uploads', requireLibraryAuth, async (req, res) => {
         .sort((a, b) => b.mtime - a.mtime);
       return res.json(list);
     } catch (err) {
-      console.error('Error listando la biblioteca en Cloudflare R2:', err.message);
+      logger.error({ err }, 'Error listando la biblioteca en Cloudflare R2');
       return res.status(502).json({ error: 'No se pudo listar la biblioteca de Cloudflare R2 (revisa credenciales/conexión).' });
     }
   }
@@ -1519,7 +1518,7 @@ app.delete('/api/uploads/:filename', requireLibraryAuth, async (req, res) => {
   try {
     if (!(await isValidUploadReference(filename))) return res.status(400).json({ error: 'Ese archivo no existe' });
   } catch (err) {
-    console.error('Error validando cinta antes de borrar (R2):', err.message);
+    logger.error({ err, filename }, 'Error validando cinta antes de borrar (R2)');
     return res.status(502).json({ error: 'No se pudo consultar Cloudflare R2 (revisa credenciales/conexión).' });
   }
   if (r2.isR2Enabled()) {
@@ -1527,7 +1526,7 @@ app.delete('/api/uploads/:filename', requireLibraryAuth, async (req, res) => {
       await r2.deleteObject(filename);
       return res.json({ ok: true });
     } catch (err) {
-      console.error('Error borrando de Cloudflare R2:', err.message);
+      logger.error({ err, filename }, 'Error borrando de Cloudflare R2');
       return res.status(502).json({ error: 'No se pudo borrar el archivo de Cloudflare R2.' });
     }
   }
@@ -1557,7 +1556,7 @@ app.use((err, req, res, next) => {
   if (err.isVideoValidationError) {
     return res.status(400).json({ error: err.message });
   }
-  console.error('Error subiendo video:', err.message);
+  logger.error({ err }, 'Error subiendo video');
   const msg = r2.isR2Enabled()
     ? 'No se pudo subir el video a Cloudflare R2 (revisa credenciales/conexión en el .env).'
     : 'No se pudo guardar el video.';
@@ -1636,7 +1635,7 @@ function safeSocketHandler(eventName, handler) {
       // `this` es el socket que disparó el evento (así es como Socket.io invoca los listeners) —
       // socket.id siempre está disponible; username puede no estarlo todavía si el error pasa antes
       // del join-room exitoso.
-      console.error(`⚠️  Error en el handler de socket '${eventName}' (socket.id: ${this.id}, username: ${this.username || 'sin asignar'}):`, err);
+      logger.error({ err, event: eventName, socketId: this.id, username: this.username || null }, 'Error en handler de socket');
     };
     try {
       // Fase 2.1 del plan de producción: 'join-room' ahora verifica la contraseña con bcrypt
@@ -1896,7 +1895,7 @@ io.on('connection', (socket) => {
         io.to(currentRoom).emit('chat-message', leftMsg);
         roomStore.saveRoom(currentRoom, room); // fire-and-forget: refleja el mutedUserIds actualizado
       } catch (err) {
-        console.error(`⚠️  Error en el timer de "salió de la sala" (roomId: ${currentRoom}):`, err);
+        logger.error({ err, roomId: currentRoom }, 'Error en el timer de "salió de la sala"');
       }
     }, RECONNECT_GRACE_MS);
     room.recentDisconnects.set(userId, { timer, username });
@@ -1956,10 +1955,10 @@ async function sweepExpiredRooms() {
       delete rooms[roomId];
       await roomStore.deleteRoom(roomId);
     } catch (err) {
-      console.error(`⚠️  Error expirando la sala ${roomId} (Fase 2.6):`, err.message);
+      logger.error({ err, roomId }, 'Error expirando sala (Fase 2.6)');
     }
   }
-  console.log(`🧹 Barrido de salas inactivas (Fase 2.6): ${expiredIds.length} sala(s) cerrada(s) por 24hs+ sin actividad. El video de cada una sigue disponible en la biblioteca.`);
+  logger.info({ count: expiredIds.length, roomIds: expiredIds }, 'Barrido de salas inactivas (Fase 2.6): cerradas por 24hs+ sin actividad. El video de cada una sigue disponible en la biblioteca.');
 }
 
 // --- Limpieza automática de subidas multipart abandonadas en R2 (Fase 2.6 del plan de producción) -
@@ -1985,13 +1984,13 @@ async function sweepAbandonedMultipartUploads() {
     for (const u of stale) {
       try {
         await r2.abortMultipartUpload(u.key, u.uploadId);
-        console.log(`🧹 Subida multipart abandonada cancelada en R2 (Fase 2.6): ${u.key}`);
+        logger.info({ key: u.key }, 'Subida multipart abandonada cancelada en R2 (Fase 2.6)');
       } catch (err) {
-        console.error(`⚠️  No se pudo cancelar la subida multipart abandonada ${u.key}:`, err.message);
+        logger.error({ err, key: u.key }, 'No se pudo cancelar la subida multipart abandonada');
       }
     }
   } catch (err) {
-    console.error('⚠️  Error revisando subidas multipart abandonadas en R2 (Fase 2.6):', err.message);
+    logger.error({ err }, 'Error revisando subidas multipart abandonadas en R2 (Fase 2.6)');
   }
 }
 
@@ -2016,17 +2015,16 @@ async function startServer() {
   if (roomStore.isEnabled()) {
     try {
       await roomStore.testConnection();
-      console.log('🗄️  Redis: conectado. El estado de las salas persiste entre reinicios.');
+      logger.info('Redis: conectado. El estado de las salas persiste entre reinicios.');
     } catch (err) {
-      console.error('');
-      console.error('💥 No se pudo conectar a Redis — el server NO va a arrancar:');
-      console.error(`   ${err.message}`);
-      console.error('   Revisá REDIS_URL (o que haya un Redis corriendo en redis://127.0.0.1:6379, el valor');
-      console.error('   por defecto si no se define REDIS_URL).');
-      console.error('   Si es desarrollo local y no tenés Redis instalado, corré con DISABLE_REDIS=1 —');
-      console.error('   pero OJO: en ese modo las salas vuelven a vivir solo en memoria, sin persistencia');
-      console.error('   real, exactamente el problema que esta fase resuelve. No usar en producción.');
-      console.error('');
+      logger.fatal(
+        { err },
+        'No se pudo conectar a Redis — el server NO va a arrancar. Revisá REDIS_URL (o que haya un ' +
+        'Redis corriendo en redis://127.0.0.1:6379, el valor por defecto si no se define REDIS_URL). ' +
+        'Si es desarrollo local y no tenés Redis instalado, corré con DISABLE_REDIS=1 — pero OJO: en ' +
+        'ese modo las salas vuelven a vivir solo en memoria, sin persistencia real, exactamente el ' +
+        'problema que esta fase resuelve. No usar en producción.'
+      );
       process.exit(1);
     }
 
@@ -2034,43 +2032,45 @@ async function startServer() {
       const recovered = await roomStore.loadAllRooms();
       Object.assign(rooms, recovered); // repuebla el objeto `rooms` ya declarado (const, no se reasigna)
       const count = Object.keys(recovered).length;
-      if (count > 0) console.log(`🔄 ${count} sala(s) recuperada(s) desde Redis (sobrevivieron al reinicio).`);
+      if (count > 0) logger.info({ count }, 'Sala(s) recuperada(s) desde Redis (sobrevivieron al reinicio)');
     } catch (err) {
       // Redis respondió al ping (testConnection ya pasó) pero algo falló leyendo las salas — se
       // arranca igual (en 0 salas) en vez de bloquear el server entero por esto, pero bien visible.
-      console.error('⚠️  Redis conectó pero no se pudieron recuperar las salas guardadas (se arranca sin ellas):', err.message);
+      logger.error({ err }, 'Redis conectó pero no se pudieron recuperar las salas guardadas (se arranca sin ellas)');
     }
 
     // Fase 2.6: un barrido inicial ACÁ (antes de aceptar tráfico), además del setInterval de abajo,
     // por si el proceso estuvo caído más de ROOM_SWEEP_INTERVAL_MS y se recuperaron desde Redis salas
     // que en realidad ya deberían haber expirado (su key en Redis podría no haber llegado a expirar
     // sola si el TTL se refrescó justo antes de la caída — este barrido las limpia igual, en memoria).
-    sweepExpiredRooms().catch((err) => console.error('⚠️  Error en el barrido inicial de salas expiradas:', err.message));
+    sweepExpiredRooms().catch((err) => logger.error({ err }, 'Error en el barrido inicial de salas expiradas'));
     roomSweepIntervalHandle = setInterval(() => {
-      sweepExpiredRooms().catch((err) => console.error('⚠️  Error en el barrido periódico de salas expiradas:', err.message));
+      sweepExpiredRooms().catch((err) => logger.error({ err }, 'Error en el barrido periódico de salas expiradas'));
     }, ROOM_SWEEP_INTERVAL_MS);
   } else {
-    console.log('');
-    console.log('⚠️  DISABLE_REDIS=1: las salas viven SOLO en memoria, sin persistencia entre reinicios.');
-    console.log('   Pensado solo para desarrollo local sin Redis a mano — no usar en producción.');
-    console.log('   Las sesiones de usuario (Fase 2bis) también corren en memoria en este modo: nadie');
-    console.log('   queda logueado tras un reinicio, y no sirve con más de un proceso.');
-    console.log('');
+    logger.warn(
+      'DISABLE_REDIS=1: las salas viven SOLO en memoria, sin persistencia entre reinicios. Pensado ' +
+      'solo para desarrollo local sin Redis a mano — no usar en producción. Las sesiones de usuario ' +
+      '(Fase 2bis) también corren en memoria en este modo: nadie queda logueado tras un reinicio, y ' +
+      'no sirve con más de un proceso.'
+    );
   }
 
   if (sessionSecretWasGenerated) {
-    console.log('');
-    console.log('🔑 SESSION_SECRET no está configurada — se generó una al azar para esta corrida.');
-    console.log('   Esto NO rompe nada del servidor, pero SÍ desloguea a todo el mundo en cada reinicio');
-    console.log('   del proceso (la cookie de sesión de nadie va a validar contra un secreto nuevo).');
-    console.log('   Para que las sesiones sobrevivan a un reinicio, definí SESSION_SECRET en el .env');
-    console.log('   (cualquier string largo y random sirve, ej. el que devuelve `openssl rand -hex 32`).');
-    console.log('');
+    logger.warn(
+      'SESSION_SECRET no está configurada — se generó una al azar para esta corrida. Esto NO rompe ' +
+      'nada del servidor, pero SÍ desloguea a todo el mundo en cada reinicio del proceso (la cookie ' +
+      'de sesión de nadie va a validar contra un secreto nuevo). Para que las sesiones sobrevivan a ' +
+      'un reinicio, definí SESSION_SECRET en el .env (cualquier string largo y random sirve, ej. el ' +
+      'que devuelve `openssl rand -hex 32`).'
+    );
   }
   if (SESSION_COOKIE_INSECURE) {
-    console.log('⚠️  SESSION_COOKIE_INSECURE=1: la cookie de sesión viaja sin el flag `secure`, o sea que');
-    console.log('   el navegador la manda también por HTTP plano. Pensado solo para desarrollo local sin');
-    console.log('   HTTPS (ej. http://localhost sin túnel) — nunca en producción.');
+    logger.warn(
+      'SESSION_COOKIE_INSECURE=1: la cookie de sesión viaja sin el flag `secure`, o sea que el ' +
+      'navegador la manda también por HTTP plano. Pensado solo para desarrollo local sin HTTPS ' +
+      '(ej. http://localhost sin túnel) — nunca en producción.'
+    );
   }
 
   // Postgres (cuentas de usuario, Fase 2bis) — a diferencia de Redis, no configurar DATABASE_URL es
@@ -2081,25 +2081,24 @@ async function startServer() {
     try {
       await db.testConnection();
       await db.runMigrations();
-      console.log('🐘 Postgres: conectado y migraciones al día. Registro/login habilitados.');
+      logger.info('Postgres: conectado y migraciones al día. Registro/login habilitados.');
     } catch (err) {
-      console.error('');
-      console.error('💥 No se pudo conectar a Postgres (o correr las migraciones) — el server NO va a arrancar:');
-      console.error(`   ${err.message}`);
-      console.error('   Revisá DATABASE_URL, o quitala del .env si todavía no querés habilitar cuentas de usuario.');
-      console.error('');
+      logger.fatal(
+        { err },
+        'No se pudo conectar a Postgres (o correr las migraciones) — el server NO va a arrancar. ' +
+        'Revisá DATABASE_URL, o quitala del .env si todavía no querés habilitar cuentas de usuario.'
+      );
       process.exit(1);
     }
   } else {
-    console.log('👤 DATABASE_URL no configurada — las cuentas de usuario (registro/login) están deshabilitadas.');
-    console.log('   El resto de la app sigue funcionando igual (salas anónimas por hostToken, como hasta ahora).');
+    logger.info('DATABASE_URL no configurada — las cuentas de usuario (registro/login) están deshabilitadas. El resto de la app sigue funcionando igual (salas anónimas por hostToken, como hasta ahora).');
   }
 
   if (db.isEnabled()) {
     if (mailer.isEnabled()) {
-      console.log('📧 Resend configurado — /auth/forgot-password manda emails de verdad.');
+      logger.info('Resend configurado — /auth/forgot-password manda emails de verdad.');
     } else {
-      console.log('📧 RESEND_API_KEY no configurada — /auth/forgot-password loguea el link por consola en vez de mandar un email (solo sirve para desarrollo local).');
+      logger.info('RESEND_API_KEY no configurada — /auth/forgot-password loguea el link por consola en vez de mandar un email (solo sirve para desarrollo local).');
     }
   }
 
@@ -2112,7 +2111,7 @@ async function startServer() {
   }, MULTIPART_SWEEP_INTERVAL_MS);
 
   server.listen(PORT, () => {
-    console.log(`MovieNight corriendo en http://localhost:${PORT}`);
+    logger.info({ port: PORT }, `MovieNight corriendo en http://localhost:${PORT}`);
 
     // Cloudflare R2 — Fase 2: si está configurado, se valida la conexión ACÁ (una sola vez, al
     // arrancar) en vez de dejar que el primer error confuso aparezca recién cuando alguien intente
@@ -2122,29 +2121,33 @@ async function startServer() {
     if (r2.isR2Enabled()) {
       r2.testConnection()
         .then(() => {
-          console.log('☁️  Cloudflare R2: conectado. Las cintas nuevas se suben directo al bucket (no a disco local).');
+          logger.info('Cloudflare R2: conectado. Las cintas nuevas se suben directo al bucket (no a disco local).');
         })
         .catch((err) => {
-          console.log('');
-          console.log('⚠️  Cloudflare R2 está configurado en .env pero la conexión de prueba falló:');
-          console.log(`   ${err.message}`);
-          console.log('   Revisá R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET_NAME.');
-          console.log('   Mientras esto no se arregle, crear sala o cambiar de cinta va a fallar (no hay respaldo a disco).');
-          console.log('');
+          logger.warn(
+            { err },
+            'Cloudflare R2 está configurado en .env pero la conexión de prueba falló. Revisá ' +
+            'R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET_NAME. Mientras esto ' +
+            'no se arregle, crear sala o cambiar de cinta va a fallar (no hay respaldo a disco).'
+          );
         });
     } else {
-      console.log('💾 Cloudflare R2 no está configurado — los videos se siguen guardando en disco local (public/uploads).');
+      logger.info('Cloudflare R2 no está configurado — los videos se siguen guardando en disco local (public/uploads).');
     }
 
     if (libraryPasswordWasGenerated) {
-      console.log('');
-      console.log('🔒 Contraseña de biblioteca (protege /library.html — listar y borrar cintas):');
-      console.log(`   ${LIBRARY_PASSWORD}`);
-      console.log('   Se generó al azar porque no definiste LIBRARY_PASSWORD como variable de entorno.');
-      console.log('   Compártela con tu grupo por otro canal (no por el link de la sala) y va a cambiar');
-      console.log('   cada vez que reinicies el servidor. Para que sea fija, copiá ".env.example" a ".env"');
-      console.log('   y completá LIBRARY_PASSWORD ahí (se carga solo, no hace falta escribirla cada vez).');
-      console.log('');
+      // La contraseña generada va directo en el mensaje (no como campo estructurado aparte, ej.
+      // { password: ... }) a propósito: los campos llamados "password" se redactan automáticamente
+      // (ver lib/logger.js, REDACT_PATHS) para que ningún error de por vida se filtre esa clave a los
+      // logs — pero acá el propósito explícito de esta línea es justo mostrársela a quien opera el
+      // server, así que redactarla sería contraproducente.
+      logger.warn(
+        `Contraseña de biblioteca (protege /library.html — listar y borrar cintas): ${LIBRARY_PASSWORD}. ` +
+        'Se generó al azar porque no definiste LIBRARY_PASSWORD como variable de entorno. Compártela ' +
+        'con tu grupo por otro canal (no por el link de la sala) y va a cambiar cada vez que reinicies ' +
+        'el servidor. Para que sea fija, copiá ".env.example" a ".env" y completá LIBRARY_PASSWORD ahí ' +
+        '(se carga solo, no hace falta escribirla cada vez).'
+      );
     }
   });
 }
@@ -2170,8 +2173,7 @@ function gracefulShutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
 
-  console.log('');
-  console.log(`🛑 ${signal} recibido — cerrando MovieNight (margen de ${SHUTDOWN_GRACE_MS / 1000}s para avisar a los clientes conectados)...`);
+  logger.info({ signal, graceMs: SHUTDOWN_GRACE_MS }, `${signal} recibido — cerrando MovieNight (margen de ${SHUTDOWN_GRACE_MS / 1000}s para avisar a los clientes conectados)`);
 
   // Fase 2.6: no tiene efecto funcional dejarlos correr (el proceso está por terminar de todos
   // modos), pero cortarlos prolijamente evita que un barrido dispare a mitad del shutdown.
@@ -2187,14 +2189,14 @@ function gracefulShutdown(signal) {
   // abiertas (quedan vivas hasta el io.close() de abajo) — el callback recién dispara cuando ya no
   // quede ninguna conexión abierta, así que no bloquea el timeout de más abajo.
   server.close((err) => {
-    if (err) console.error('⚠️  Error cerrando el servidor HTTP:', err.message);
+    if (err) logger.error({ err }, 'Error cerrando el servidor HTTP');
   });
 
   setTimeout(async () => {
     io.close(); // corta todas las conexiones de Socket.io activas
     await roomStore.closeConnection(); // cierra la conexión a Redis prolijamente (QUIT en vez de matar el socket)
     await db.closeConnection(); // cierra el pool de Postgres prolijamente (Fase 2bis)
-    console.log('👋 MovieNight cerrado.');
+    logger.info('MovieNight cerrado.');
     process.exit(0);
   }, SHUTDOWN_GRACE_MS);
 }

@@ -41,6 +41,7 @@ movienight/
   lib/sessionStore.js      # Sesiones de usuario sobre Redis (Fase 2bis del plan de producción)
   lib/mailer.js            # Envío de emails vía Resend, para recuperación de contraseña (Fase 2bis)
   lib/fileValidation.js    # Validación real de video (magic bytes) y subtítulos (estructura) — Fase 2.5
+  lib/logger.js            # Logger estructurado (JSON) sobre pino, con redacción de campos sensibles — Fase 4
   scripts/r2-cleanup-multipart.js
   public/
     index.html            # Crear sala / unirse por código; también login/registro/logout (Fase 2bis)
@@ -128,6 +129,28 @@ mover la barra de progreso — cualquier intento se revierte.
 - Cada cambio importante debería reflejarse acá (este archivo, `docs/MEMORIA.md`, si cambia algo esencial) y como entrada nueva en `docs/CHANGELOG.md` — no en los archivos de `docs/historico/`, que quedaron congelados como registro del estado anterior a esta reorganización.
 
 ## Por dónde seguir
+
+**Fase 4 (observabilidad) en curso — logs estructurados completo (2026-09-06)**:
+nuevo `lib/logger.js` sobre **pino** (JSON por línea) que reemplaza los
+`console.log`/`console.error` de texto libre que usaba el server hasta acá —
+`server.js`, `lib/db.js`, `lib/roomStore.js` y `lib/mailer.js` ahora loguean
+con campos estructurados (`err`, `roomId`, `socketId`, `event`, etc.) en vez
+de mensajes armados a mano. Incluye **redacción automática** de campos
+sensibles (contraseñas, `hostToken`, cookies de sesión, headers de auth) en
+cualquier nivel de anidamiento, para que un error a futuro no termine
+filtrando una credencial a los logs. `LOG_LEVEL` controla el nivel (default
+`info`); `LOG_PRETTY=1` da formato legible para desarrollo local (cae a JSON
+con un aviso si no está instalado `pino-pretty`, nunca rompe el arranque).
+Los scripts de CLI (`scripts/library-orphan-report.js`,
+`scripts/r2-cleanup-multipart.js`) quedan con `console.log` a propósito —
+están pensados para leerse en una terminal, no para un sistema de logs.
+Probado: arranque completo con `DISABLE_REDIS=1` (JSON válido línea por
+línea, campos esperados), graceful shutdown vía `SIGTERM` con el mismo
+formato, y la redacción tapando correctamente contraseñas/tokens/cookies de
+prueba anidados. Detalle completo en `docs/CHANGELOG.md`. **Quedan
+pendientes los otros tres puntos de la Fase 4**: reporte de errores (Sentry,
+todavía sin evaluar cuenta/proveedor), métricas básicas (`/metrics`), y
+alertas mínimas (probablemente vía Resend, ya integrado desde la Fase 2bis).
 
 **Fase 2.5 (validación real de archivos subidos) completa (2026-09-07)**:
 nuevo `lib/fileValidation.js` con `isValidVideoBuffer()` (magic bytes vía

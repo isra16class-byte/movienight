@@ -1,5 +1,60 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-06 — Fase 4: logs estructurados (JSON) en vez de `console.log`/`console.error`
+
+- **Motivo**: hasta ahora todo el server logueaba con `console.log`/`console.error`
+  y texto libre armado a mano con template strings — funciona para leer en una
+  terminal, pero es difícil de indexar/filtrar en cualquier servicio de logs real
+  (Datadog, Better Stack, CloudWatch, etc., según el hosting que se termine
+  eligiendo — ver Fase 0) sin parsear texto con regex.
+- **Nuevo `lib/logger.js`**, sobre **pino** (JSON por línea, rápido, sin bindings
+  nativos — se agrega como dependencia real, mismo criterio que ya se usó con
+  `helmet`/`express-rate-limit`/`file-type`: la funcionalidad que hace falta acá
+  no vale la pena reimplementarla a mano, a diferencia de `loadDotEnv()`):
+  - `LOG_LEVEL` (default `info`) controla el nivel; `LOG_PRETTY=1` da un formato
+    legible en una sola línea para desarrollo local (requiere `pino-pretty`
+    instalado aparte — no es una dependencia obligatoria del proyecto; si no
+    está instalado, cae a JSON normal con un aviso, nunca rompe el arranque).
+  - **Redacción automática de campos sensibles**: contraseñas (`password`,
+    `passwordHash`, `libraryPasswordHash`), `hostToken`, `sessionId`, `token`,
+    y headers/cookies (`req.headers.cookie`, `x-library-password`) — en
+    cualquier nivel de anidamiento (paths con comodín `*.campo`) — se
+    reemplazan por `[Redacted]` antes de escribirse, para que ningún error a
+    futuro termine filtrando una credencial cruda a los logs. Probado con un
+    objeto de prueba anidado (`nested.passwordHash`, `req.headers.cookie`):
+    los tres campos salen redactados, el resto del objeto intacto.
+  - Serialización estándar de errores (`pino.stdSerializers.err`) para los
+    campos `err`/`error` — stack trace y mensaje consistentes, en vez de lo
+    que salga de pasar un `Error` crudo a JSON.stringify.
+- **Reemplazados los ~96 `console.log`/`console.error` de `server.js`** por
+  `logger.info/warn/error/fatal(...)` con campos estructurados (`err`, `roomId`,
+  `socketId`, `event`, `filename`, `key`, etc.) en vez de texto concatenado —
+  cubre el manejo de errores no capturados (Fase 1.2), todas las rutas de
+  `/auth/*`, validación de video/subtítulos, subida a R2, creación/cambio de
+  sala, el wrapper `safeSocketHandler`, los barridos de salas expiradas y de
+  multipart abandonado (Fase 2.6), y el arranque/apagado del server (Fases 1.1,
+  1.4). Mismo reemplazo en `lib/db.js`, `lib/roomStore.js` y `lib/mailer.js`
+  (12 usos entre los tres).
+- **`scripts/library-orphan-report.js` y `scripts/r2-cleanup-multipart.js`
+  quedan con `console.log` tal cual, a propósito**: son scripts de CLI para
+  correr a mano, pensados para que una persona lea el output en la terminal,
+  no para alimentar un sistema de logs — convertirlos a JSON estructurado
+  sería peor para ese caso de uso.
+- **Caso especial: secretos que SÍ deben verse en consola.** Dos lugares del
+  código imprimen un secreto a propósito para que quien opera el server lo
+  lea (la `LIBRARY_PASSWORD` generada al azar en `server.js`, y el link de
+  reseteo de contraseña en modo desarrollo sin `RESEND_API_KEY`, en
+  `lib/mailer.js`). En los dos casos el valor va directo en el string del
+  mensaje, no como campo estructurado aparte (ej. `{ password: ... }`) —
+  pasarlo por un campo así activaría la redacción automática de arriba y
+  ocultaría justo el valor que esa línea existe para mostrar.
+- **Probado**: arranque completo del server con `DISABLE_REDIS=1` (sin
+  Redis/Postgres/R2 reales) — logs de arranque en JSON válido, línea por
+  línea, con los campos esperados (`port`, `signal`, `graceMs`, etc.); un
+  `SIGTERM` real dispara el log de graceful shutdown (Fase 1.4) con el mismo
+  formato, y el proceso cierra limpio. `LOG_PRETTY=1` sin `pino-pretty`
+  instalado cae a JSON con el aviso esperado, sin romper el arranque.
+
 ## 2026-09-07 — Fase 2.5: fix — 0 bytes reales subidos a R2 en modo streaming (encontrado probando contra R2 real)
 
 - **Hallazgo**: verificando la Fase 2.5 en un entorno con credenciales reales
