@@ -1,5 +1,57 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-07 — Fase 5: tests unitarios (setHost, auth, modo dual disco/R2) + CI en GitHub Actions
+
+- **Motivo**: primer punto de la Fase 5 ("Calidad de código y proceso") — el plan pedía tests para lo
+  más crítico y menos obvio a simple vista (`setHost`, autenticación de sala/biblioteca, el modo dual
+  disco/R2), más CI básico que corra esos tests en cada cambio.
+- **Extracción sin cambio de comportamiento**: `server.js` (2394 líneas, todo en un solo archivo)
+  no se puede testear directo — `startServer()` se ejecuta al cargar el módulo y se conecta a
+  Redis/Postgres reales (con `process.exit(1)` si no responden). En vez de reescribir esa estructura,
+  se extrajo la lógica puntual a testear a cuatro módulos nuevos bajo `lib/`, dejando en `server.js`
+  wrappers que llaman a esos módulos con la MISMA firma de siempre (por clausura, sin tocar ningún
+  call site existente):
+  - `lib/passwordAuth.js`: hashing bcrypt + la migración transparente desde el esquema legacy sha256
+    (Fase 2.1) — `isBcryptHash`, `isLegacySha256Hash`, `legacySha256`, `hashPassword`, `verifyPassword`.
+  - `lib/rateLimiter.js`: `makeAttemptLimiter` (Fase 2.2, 3 intentos fallidos → bloqueo de 15 min),
+    ahora con un reloj (`now`) inyectable para poder testear el paso del tiempo sin `setTimeout`s
+    reales de 15 minutos.
+  - `lib/hostAuth.js`: `isRoomOwner` (quién puede reclamar el host de una sala — Fase 2bis, "migración
+    del rol de host") y `setHost` (el traspaso de host, que ya tuvo un bug real de "hosts duplicados",
+    ver `docs/historico/MEMORIA.md` 5bis), con `io` recibido por parámetro en vez de leído de la
+    variable global del módulo, para poder testearlo con un `io` de mentira.
+  - `lib/uploadReference.js`: `isValidUploadReference`, `displayNameFor`, `videoDisplayName`,
+    `videoUrlForExistingFile` — el modo dual disco local/R2, con `r2` y `fs` inyectables por parámetro.
+- **27 tests nuevos** (`test/*.test.js`) con el test runner nativo de Node (`node:test` + `node:assert`,
+  disponible desde Node 18+ sin sumar Jest/Mocha ni ninguna dependencia nueva de testing):
+  - `test/passwordAuth.test.js` (8 tests): reconocimiento de hash bcrypt vs. legacy, hasheo, y
+    verificación en los cuatro casos (sin contraseña configurada, bcrypt correcta/incorrecta, legacy
+    correcta con `needsRehash: true`, legacy incorrecta, hash con forma irreconocible).
+  - `test/rateLimiter.test.js` (5 tests): intentos por debajo del límite, bloqueo al 3er intento,
+    `recordSuccess` olvidando intentos previos, recuperación de intentos frescos tras vencer el
+    bloqueo (con un reloj controlado, sin esperar de verdad), y que dos claves distintas no se pisen.
+  - `test/hostAuth.test.js` (7 tests): `isRoomOwner` en sala anónima (el hostToken alcanza solo) y en
+    sala con dueño (solo la sesión de esa cuenta autoriza, el hostToken solo ya no); `setHost`
+    asignando por primera vez, degradando al host anterior antes de promover al nuevo (el caso que
+    causó el bug de hosts duplicados), sin romper si el host anterior ya no está conectado, y
+    reasignando al mismo socket que ya es host sin un degrade espurio.
+  - `test/uploadReference.test.js` (7 tests): `displayNameFor`/`videoDisplayName` con y sin el
+    separador `__`; `isValidUploadReference` rechazando filenames vacíos/no-string/con path traversal/
+    con subcarpetas en los dos modos, consultando `fs.existsSync` en modo disco e ignorando el
+    filesystem por completo en modo R2 (consulta `r2.objectExists`); `videoUrlForExistingFile` en
+    ambos modos.
+- **CI**: nuevo `.github/workflows/ci.yml` — corre `npm ci` + `npm test` en cada push a
+  `main`/`plan-produccion` y en cada Pull Request contra `main`. A propósito simple por ahora: sin
+  lint (no hay una config de ESLint en el proyecto todavía), sin matriz de versiones de Node, y sin
+  levantar Redis/Postgres como servicios — los tests actuales son unitarios sobre `lib/*.js`, no
+  necesitan infraestructura real.
+- **`package.json`**: nuevo script `"test": "node --test"`.
+- **Probado**: los 27 tests pasan (`npm test`); `node -c server.js` sin errores de sintaxis tras el
+  refactor; y un smoke test end-to-end real — servidor levantado con `DISABLE_REDIS=1`, `GET /health`
+  en `200`, y `GET /api/uploads` devolviendo `401`/`401`/`200` según falte la contraseña de biblioteca,
+  sea incorrecta, o sea la correcta — confirmando que el refactor no cambió ningún comportamiento
+  observable de la app real.
+
 ## 2026-09-07 — Fase 4: verificación independiente de alertas mínimas en entorno real
 
 - **Motivo**: la entrada anterior ("Fase 4: alertas mínimas") ya había probado el ciclo completo en

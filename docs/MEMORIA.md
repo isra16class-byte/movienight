@@ -41,11 +41,17 @@ movienight/
   lib/sessionStore.js      # Sesiones de usuario sobre Redis (Fase 2bis del plan de producción)
   lib/mailer.js            # Envío de emails vía Resend, para recuperación de contraseña (Fase 2bis)
   lib/fileValidation.js    # Validación real de video (magic bytes) y subtítulos (estructura) — Fase 2.5
+  lib/passwordAuth.js      # Hashing bcrypt + migración desde sha256 legacy (extraído en Fase 5, ver docs/CHANGELOG.md)
+  lib/rateLimiter.js       # Limitador de intentos fallidos (extraído en Fase 5)
+  lib/hostAuth.js          # isRoomOwner + setHost, el sistema de roles (extraído en Fase 5)
+  lib/uploadReference.js   # Modo dual disco/R2 para referencias a videos ya subidos (extraído en Fase 5)
   lib/logger.js            # Logger estructurado (JSON) sobre pino, con redacción de campos sensibles — Fase 4
   lib/sentry.js            # Reporte opcional de excepciones a Sentry, con redacción de secretos — Fase 4
   lib/metrics.js           # Contadores en memoria para GET /metrics (uploads en curso, errores de R2) — Fase 4
   lib/alerts.js            # Alertas mínimas por email si el healthcheck o R2 vienen fallando — Fase 4
   scripts/r2-cleanup-multipart.js
+  test/                    # Tests unitarios (node:test) de la lógica extraída a lib/*.js — Fase 5
+  .github/workflows/ci.yml # CI: corre npm test en cada push/PR — Fase 5
   public/
     index.html            # Crear sala / unirse por código; también login/registro/logout (Fase 2bis)
     library.html            # Biblioteca de videos ya subidos (con contraseña propia o sesión de cuenta)
@@ -132,6 +138,27 @@ mover la barra de progreso — cualquier intento se revierte.
 - Cada cambio importante debería reflejarse acá (este archivo, `docs/MEMORIA.md`, si cambia algo esencial) y como entrada nueva en `docs/CHANGELOG.md` — no en los archivos de `docs/historico/`, que quedaron congelados como registro del estado anterior a esta reorganización.
 
 ## Por dónde seguir
+
+**Fase 5 — tests unitarios (setHost, auth, modo dual disco/R2) + CI en GitHub
+Actions (2026-09-07)**: primer punto de la Fase 5 resuelto. Como `server.js`
+(2394 líneas) conecta a Redis/Postgres reales apenas se carga el módulo, no
+se puede testear directo — se extrajo la lógica puntual a testear a cuatro
+módulos nuevos bajo `lib/` (`passwordAuth.js`, `rateLimiter.js`,
+`hostAuth.js`, `uploadReference.js`), dejando en `server.js` wrappers que
+llaman a esos módulos con la misma firma de siempre, sin tocar ningún call
+site existente ni cambiar comportamiento. 27 tests nuevos en `test/*.test.js`
+con el test runner nativo de Node (`node:test`, sin sumar Jest/Mocha),
+cubriendo el traspaso de host (el caso que ya tuvo el bug de "hosts
+duplicados"), autenticación de sala/biblioteca (contraseñas + rate
+limiting), y el modo dual disco/R2. Nuevo `.github/workflows/ci.yml`: corre
+`npm ci` + `npm test` en cada push/PR — simple a propósito, sin lint ni
+servicios de Redis/Postgres todavía. Verificado con los 27 tests en verde,
+`node -c server.js` sin errores, y un smoke test end-to-end real (servidor
+levantado con `DISABLE_REDIS=1`, `/health` en `200`, `/api/uploads` con
+401/401/200 según la contraseña de biblioteca) confirmando que el refactor
+no cambió nada observable. Quedan los demás puntos de la Fase 5: CI con
+lint, documentar/automatizar el deploy, y validar variables de entorno al
+arrancar.
 
 **Fase 4 — verificación independiente de alertas mínimas en entorno real
 (2026-09-07)**: además de la prueba end-to-end contra un servidor real hecha
