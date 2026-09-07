@@ -274,6 +274,20 @@ secundario.
       `connect-src`/`media-src`; sin R2, la CSP no los suma. Sin
       `SESSION_COOKIE_INSECURE=1`, no aparecen `Strict-Transport-Security` ni
       `upgrade-insecure-requests` en la respuesta.
+- [x] **Verificado en un navegador real, contra R2 real** (hallazgo real de esta
+      verificación, ver `docs/CHANGELOG.md`): la primera versión de la CSP
+      bloqueaba la hoja de estilos de **Google Fonts**
+      (`fonts.googleapis.com`), que las 4 páginas cargan por `<link>` — sin eso
+      permitido, las 3 tipografías reales del proyecto (Monoton/Space
+      Grotesk/VT323) caían a la fuente por default del navegador, silencioso
+      (no rompía nada funcional, solo la tipografía). Se sumó
+      `https://fonts.googleapis.com` a `style-src` y
+      `https://fonts.gstatic.com` a `font-src` (ahí vive el archivo real de
+      cada fuente que pide esa hoja de estilos). El resto del flujo — subida
+      directa a R2 vía URL prefirmada y reproducción del video desde el bucket
+      público — no tuvo NINGÚN error de CSP ni de CORS: confirmado con el
+      elemento `<video>` reproduciendo de verdad (`paused: false`,
+      `readyState: 4`) contra una URL real de `*.r2.dev`.
 - **Nota (no bloqueante, mejora futura)**: `'unsafe-inline'` en `script-src`/
   `style-src` sigue siendo necesario porque `index.html`, `library.html`,
   `room.html` y `reset-password.html` tienen todo su JS/CSS inline, sin nonces

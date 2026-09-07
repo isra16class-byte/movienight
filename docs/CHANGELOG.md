@@ -1,5 +1,33 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-06 — Fase 2.4: fix — Google Fonts bloqueado por la CSP (encontrado en navegador real)
+
+- **Hallazgo**: la primera versión de la CSP (ver entrada anterior, mismo día)
+  bloqueaba la hoja de estilos de **Google Fonts**
+  (`https://fonts.googleapis.com/css2?family=Monoton&family=Space+Grotesk...`)
+  que las 4 páginas (`index.html`, `library.html`, `room.html`,
+  `reset-password.html`) cargan por `<link rel="stylesheet">` — sin haber
+  probado en un navegador real, esto no se veía con los checks de headers por
+  `curl`, solo aparecía como violación en la consola del navegador
+  (`Refused to load the stylesheet ... violates ... "style-src"`). No rompía
+  nada funcional (subida, salas, chat, sync seguían andando), pero las 3
+  tipografías reales del proyecto (Monoton/Space Grotesk/VT323) caían
+  silenciosamente a la fuente por default del navegador.
+- **Fix**: se sumó `https://fonts.googleapis.com` a `style-src` (de ahí sale la
+  hoja de estilos en sí) y `https://fonts.gstatic.com` a `font-src` (de ahí
+  sale el archivo real de cada fuente, `.woff2`, que esa hoja de estilos
+  termina pidiendo) — sin estos dos, la hoja de estilos hubiera cargado pero
+  las fuentes en sí hubieran seguido bloqueadas.
+- **Verificado además, en el mismo pase por el navegador**: el flujo completo
+  de subida directa a R2 (URL prefirmada, PUT desde el navegador) y
+  reproducción del video desde el bucket público — **sin ningún error de CSP
+  ni de CORS**, confirmado con el estado real del elemento `<video>`
+  (`paused: false`, `readyState: 4`, `currentSrc` apuntando a una URL real de
+  `*.r2.dev`) en dos salas de prueba distintas.
+- Con este fix, la **Fase 2.4 queda confirmada también contra un navegador
+  real y R2 real**, no solo contra los checks de headers/CORS por `curl` de
+  la entrada anterior.
+
 ## 2026-09-06 — Fase 2.4: headers de seguridad (helmet) y CORS explícito
 
 - **`helmet`** agrega ahora el set estándar de headers HTTP de seguridad —

@@ -247,7 +247,7 @@ El tiempo que queda válida la URL de subida es configurable con `R2_PRESIGN_EXP
 
 El server manda un set estándar de headers de seguridad HTTP (vía [`helmet`](https://www.npmjs.com/package/helmet)), sin necesitar ninguna variable de entorno para que esto ande:
 
-- **Content-Security-Policy**: restringe de qué orígenes puede cargar scripts/estilos/medios/etc. la página. Permite `'self'` para casi todo, `'unsafe-inline'` en scripts/estilos (todo el JS/CSS de este proyecto vive inline en el HTML, sin nonces), y agrega automáticamente los hosts de Cloudflare R2 (bucket público + endpoint de subida prefirmada) a `connect-src`/`media-src` **solo si tenés R2 configurado** (ver sección de arriba) — no hace falta tocar nada a mano.
+- **Content-Security-Policy**: restringe de qué orígenes puede cargar scripts/estilos/medios/etc. la página. Permite `'self'` para casi todo, `'unsafe-inline'` en scripts/estilos (todo el JS/CSS de este proyecto vive inline en el HTML, sin nonces), `fonts.googleapis.com`/`fonts.gstatic.com` (las 4 páginas cargan ahí las tipografías Monoton/Space Grotesk/VT323), y agrega automáticamente los hosts de Cloudflare R2 (bucket público + endpoint de subida prefirmada) a `connect-src`/`media-src` **solo si tenés R2 configurado** (ver sección de arriba) — no hace falta tocar nada a mano.
 - **Strict-Transport-Security (HSTS)** y `upgrade-insecure-requests`: activos siempre, salvo que estés en desarrollo local sin HTTPS (`SESSION_COOKIE_INSECURE=1`, ver sección de Sesiones más abajo) — con HTTPS real (Cloudflare Tunnel, o el hosting que elijas) no hace falta tocar nada.
 - El resto (`X-Frame-Options`, `X-Content-Type-Options`, etc.) son los defaults de `helmet`, pensados para andar bien sin configuración adicional.
 

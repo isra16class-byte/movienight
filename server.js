@@ -174,10 +174,19 @@ app.use(helmet({
       scriptSrc: ["'self'", "'unsafe-inline'"],
       scriptSrcAttr: ["'none'"],
       // Mismo motivo que scriptSrc: hay estilos inline (style="...") en todas las páginas.
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      // https://fonts.googleapis.com además, porque las 4 páginas cargan ahí la hoja de estilos de
+      // Google Fonts (<link rel="stylesheet" href="https://fonts.googleapis.com/css2?...">) — sin
+      // esto, la CSP bloqueaba esa hoja entera y con ella las 3 tipografías reales del proyecto
+      // (Monoton/Space Grotesk/VT323), cayendo todo a la fuente por default del navegador. Hallazgo
+      // real probando en un navegador de verdad (no se veía con curl/headers solos, hacía falta la
+      // consola del navegador) — ver docs/CHANGELOG.md.
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       // 'data:' hace falta porque style.css usa un SVG de ruido como fondo vía data URL.
       imgSrc: ["'self'", 'data:'],
-      fontSrc: ["'self'"],
+      // https://fonts.gstatic.com: ahí es donde vive el archivo real de cada fuente (.woff2) que la
+      // hoja de estilos de Google Fonts (permitida arriba en styleSrc) termina pidiendo — sin esto,
+      // la hoja de estilos cargaría pero las fuentes en sí seguirían bloqueadas.
+      fontSrc: ["'self'", 'https://fonts.gstatic.com'],
       // 'self' + (si hay R2) el endpoint de subida prefirmada y el bucket público — el navegador
       // hace fetch()/XHR directo contra esos hosts (ver public/index.html y public/library.html,
       // putDirectToR2()).
