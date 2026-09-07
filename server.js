@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
-const { PassThrough } = require('stream');
+const { Transform } = require('stream');
 const { Server } = require('socket.io');
 const bcrypt = require('bcryptjs');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
@@ -865,8 +865,9 @@ const storage = multer.diskStorage({
 // HTTP — en vez de escribirlo a disco (como hace el motor `storage` de arriba), lo empalmamos
 // directo a `r2.uploadStream`, que lo sube a R2 en partes (multipart) a medida que llega. El archivo
 // nunca toca el disco del host ni se carga entero en memoria en ningún punto del camino.
-// El `PassThrough` intermedio solo cuenta bytes (para poder devolver `size`, igual que hace el motor
-// de disco); no altera ni retiene los datos que pasan por él.
+// El `Transform` intermedio (`counter`, ver comentario dentro de `_handleFile`) solo cuenta bytes
+// (para poder devolver `size`, igual que hace el motor de disco); no altera los datos que pasan por
+// él, solo los deja pasar tal cual mientras cuenta.
 const r2VideoStorage = {
   // Fase 2.5 del plan de producción: antes de este cambio, el stream se empalmaba directo a
   // `r2.uploadStream` sin mirar su contenido — cualquier binario (o texto) con `Content-Type:
@@ -877,8 +878,24 @@ const r2VideoStorage = {
   _handleFile(req, file, cb) {
     const key = r2.makeObjectKey(file.originalname);
     let bytes = 0;
-    const counter = new PassThrough();
-    counter.on('data', (chunk) => { bytes += chunk.length; });
+    // Fase 2.5 — bug real encontrado probando esto en un entorno con R2 real (no se detectaba en el
+    // harness con mock, que no reproduce el timing real de los streams): antes acá había un
+    // `PassThrough` con un `counter.on('data', ...)` externo para contar bytes. Adjuntar un listener
+    // 'data' a un Readable lo pone en modo *flowing* de inmediato — así que los chunks que se
+    // escriben más abajo (línea "para el chunk ya juntado, counter.write(chunk)") se drenaban ahí
+    // mismo, consumidos por ese listener, ANTES de que `r2.uploadStream` llegara a engancharse como
+    // consumidor real. Resultado: el conteo de `bytes` daba el tamaño correcto (por eso la respuesta
+    // era 200 con un `size` válido), pero el objeto subido a R2 quedaba con 0 bytes reales — el
+    // consumidor de verdad nunca vio los datos, ya drenados y descartados por el contador.
+    // Fix: contar los bytes DENTRO de un `Transform` propio (en su método de escritura), sin ningún
+    // listener 'data' externo — así el lado de lectura queda en modo pausado hasta que
+    // `r2.uploadStream` lo consuma de verdad, sin perder nada en el medio.
+    const counter = new Transform({
+      transform(chunk, encoding, callback) {
+        bytes += chunk.length;
+        callback(null, chunk);
+      }
+    });
 
     const chunks = [];
     let sniffLength = 0;
@@ -945,7 +962,7 @@ const r2VideoStorage = {
         return callback(err);
       }
       // Válido: lo ya juntado para el sniff (chunks) más lo que siga llegando (si el stream no había
-      // terminado todavía) va a `counter` — el mismo PassThrough de siempre, que sigue contando bytes
+      // terminado todavía) va a `counter` — el mismo Transform de siempre, que sigue contando bytes
       // para el `size` final y alimenta a r2.uploadStream sin que ese lado note ningún cambio.
       for (const chunk of chunks) counter.write(chunk);
       if (streamAlreadyEnded) {
