@@ -133,6 +133,21 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Fase 4 — verificación independiente de alertas mínimas en entorno real
+(2026-09-07)**: además de la prueba end-to-end contra un servidor real hecha
+al cerrar la fase (ver entrada de abajo), se corrió una segunda verificación
+independiente en el entorno real del usuario (Redis y R2 reales). Se probó
+el ciclo completo: Redis apagado → `/health` en `503` en ~11s → a los 2
+chequeos seguidos en falla dispara "Healthcheck en falla" → silencio durante
+todo el cooldown → Redis levantado (sin reiniciar Node) → `/health` vuelve a
+`200` → llega "Recuperado"; y por separado, credencial de R2 inválida → R2
+responde `403`, `/health` en `503`, se disparan ambas alertas ("Healthcheck
+en falla" + "R2 está devolviendo errores"). `.env` quedó restaurado a su
+estado original (sin las variables `ALERT_*` usadas solo para la prueba) y
+sin backups temporales sueltos. Con dos verificaciones independientes
+(sandbox + entorno real del usuario, mismo criterio que se usó para cerrar
+la Fase 2bis), **la Fase 4 (observabilidad) queda confirmada del todo**.
+
 **Fase 4 (observabilidad) ✅ COMPLETA (2026-09-07) — alertas mínimas**: nuevo
 `lib/alerts.js` + un job interno en `server.js` (`runAlertChecks`, cada
 `ALERT_CHECK_INTERVAL_MS`, default 1 min) que reusa `computeHealthStatus()`

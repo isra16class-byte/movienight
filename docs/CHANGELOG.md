@@ -1,5 +1,28 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-07 — Fase 4: verificación independiente de alertas mínimas en entorno real
+
+- **Motivo**: la entrada anterior ("Fase 4: alertas mínimas") ya había probado el ciclo completo en
+  sandbox y contra un servidor real controlado desde acá — esto suma una segunda verificación,
+  independiente, corrida por el usuario en su propio entorno (mismo criterio de doble verificación
+  que ya se usó para cerrar la Fase 2bis).
+- **Healthcheck + R2, probado con Redis y R2 reales**:
+  - Redis apagado → `/health` pasó a `503` en ~11s.
+  - A los 2 chequeos seguidos en falla (`ALERT_HEALTH_FAILURE_THRESHOLD=2` para la prueba) →
+    se disparó el email de "Healthcheck en falla".
+  - Silencio durante toda la ventana de `ALERT_COOLDOWN_MS` → confirmado que no reenvía de más
+    mientras el problema sigue.
+  - Redis levantado de nuevo (sin reiniciar el proceso de Node) → `/health` volvió a `200` → llegó
+    el email de "Recuperado".
+  - Credencial de R2 inválida a propósito → R2 respondió `403`, `/health` pasó a `503`, y se
+    dispararon **ambas** alertas ("Healthcheck en falla" + "R2 está devolviendo errores").
+- **Limpieza post-prueba confirmada**: `.env` restaurado a su estado original (sin las variables
+  `ALERT_*` usadas solo para la prueba), sin backups temporales sueltos, servidor final corriendo
+  limpio con `/health` en `200`.
+- **Resultado**: con esta segunda verificación (sandbox + entorno real del usuario), la Fase 4
+  (observabilidad) queda confirmada del todo — no quedan dudas pendientes sobre el comportamiento
+  de las alertas en un entorno real. Sin cambios de código en esta entrada.
+
 ## 2026-09-07 — Fase 4: alertas mínimas ✅ (último punto pendiente de la fase, ahora completa)
 
 - **Motivo**: `/health` y `/metrics` ya exponían si el proceso está sano y si R2 viene fallando,
