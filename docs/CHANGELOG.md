@@ -1,5 +1,29 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-07 — Fase 4: fix de `uploads.inProgress` pegado tras una desconexión abrupta
+
+- **Bug encontrado probando en un entorno real**: cortar a la fuerza (`kill -9`) el proceso cliente
+  a mitad de una subida real (300MB, limitada a 1MB/s para poder observarla) dejaba
+  `uploads.inProgress` pegado en `1` para siempre — 30+ segundos de polling después de matar el
+  cliente, sin volver nunca a `0`, aunque no había ninguna otra subida en curso.
+- **Causa**: `trackVideoUpload()` (agregado en la entrada de más abajo, "Fase 4: métricas básicas")
+  solo llamaba a `metrics.uploadFinished()` dentro del callback de
+  `multerMiddleware(req, res, callback)`. Cuando el cliente corta la conexión a mitad de la subida,
+  Busboy/Multer no llegan a terminar de parsear el `multipart/form-data` — ni error ni éxito, el
+  callback simplemente nunca se invoca — así que `uploadFinished()` no se ejecutaba jamás para ese
+  caso.
+- **Fix**: `trackVideoUpload()` ahora también escucha `req.on('aborted', ...)` y `res.on('close',
+  ...)` (los dos, por si en alguna versión/plataforma de Node uno no dispara) y llama a
+  `metrics.uploadFinished()` desde ahí si el callback normal de Multer todavía no lo hizo. Una
+  bandera (`finished`) evita descontar dos veces si terminan disparando ambos caminos.
+- **Probado end-to-end en sandbox** (modo disco local, `DISABLE_REDIS=1`, sin R2): reproducido el
+  bug exacto de la prueba original (subida de 300MB a 1MB/s, `kill -9` al proceso `curl` a mitad de
+  camino, `uploads.inProgress` confirmado en `1` durante la subida) — con el fix aplicado, la
+  primera consulta a `/metrics` después del corte ya muestra `0` (antes se quedaba en `1` durante
+  los 30s completos de polling). Probada también la regresión del camino normal: una subida chica
+  sin cortar sigue subiendo el contador a `1` y bajándolo a `0` al terminar con éxito, sin doble
+  descuento.
+
 ## 2026-09-07 — Fase 4: métricas básicas
 
 - Nuevo `lib/metrics.js`: contadores en memoria (`uploadsInProgress`, `r2ErrorCount`, `r2LastError`),

@@ -1045,8 +1045,31 @@ const upload = multer({ storage: videoStorage, limits: { fileSize: 8 * 1024 * 10
 function trackVideoUpload(multerMiddleware) {
   return (req, res, next) => {
     metrics.uploadStarted();
-    multerMiddleware(req, res, (err) => {
+    // Si el cliente corta la conexión a mitad de la subida (cierra la pestaña, pierde la red, mata el
+    // proceso), Multer/Busboy no siempre llegan a invocar el callback de abajo — el stream se corta
+    // antes de que terminen de parsear el multipart, así que ni éxito ni error se disparan nunca y
+    // `uploadFinished()` no se llamaba jamás, dejando `uploads.inProgress` pegado para siempre.
+    // Bug real encontrado probando en un entorno real (ver docs/CHANGELOG.md): cortar un `curl` a mitad
+    // de una subida de 300MB dejaba el contador en 1 durante más de 30s después de terminado el proceso
+    // cliente, sin volver nunca a 0.
+    // `finishOnce` cubre los dos caminos (fin normal vía callback, o corte abrupto vía estos eventos) sin
+    // decrementar dos veces.
+    let finished = false;
+    const finishOnce = () => {
+      if (finished) return;
+      finished = true;
+      req.removeListener('aborted', finishOnce);
+      res.removeListener('close', finishOnce);
       metrics.uploadFinished();
+    };
+    // 'aborted' es el evento específico de una request HTTP cortada a mitad de camino; 'close' es un
+    // respaldo (dispara siempre que se cierra la conexión, incluida una desconexión abrupta que en
+    // alguna versión/plataforma de Node no llegue a emitir 'aborted') — con la guarda de `finished` no
+    // importa cuál dispare primero ni si ambos disparan.
+    req.on('aborted', finishOnce);
+    res.on('close', finishOnce);
+    multerMiddleware(req, res, (err) => {
+      finishOnce();
       next(err);
     });
   };

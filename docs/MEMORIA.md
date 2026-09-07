@@ -132,6 +132,17 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Fase 4 — fix de `uploads.inProgress` pegado tras una desconexión abrupta (2026-09-07)**:
+probando las métricas contra un servidor real (subida de 300MB limitada a 1MB/s, cortada con
+`kill -9` a mitad de camino) se encontró que el contador quedaba pegado en `1` para siempre —
+Multer/Busboy no invocan su callback si el cliente corta la conexión antes de terminar de parsear
+el `multipart/form-data`, y `metrics.uploadFinished()` solo se llamaba desde ese callback.
+`trackVideoUpload()` en `server.js` ahora también escucha `req.on('aborted', ...)` y
+`res.on('close', ...)` para descontar el contador en ese caso, con una bandera para no descontar
+dos veces si el callback normal de Multer sí llega a dispararse. Reproducido y confirmado en
+sandbox (modo disco local): con el fix, `/metrics` vuelve a `0` en la primera consulta después de
+matar el proceso cliente, en vez de quedarse en `1`. Detalle completo en `docs/CHANGELOG.md`.
+
 **Fase 4 (observabilidad) en curso — métricas básicas completas (2026-09-07)**: nuevo
 `lib/metrics.js` con contadores en memoria (una sola instancia, ver Fase 0 —
 no hace falta un backend compartido tipo Redis para esto). Nueva ruta
