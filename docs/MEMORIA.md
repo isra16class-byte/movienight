@@ -40,6 +40,7 @@ movienight/
   lib/db.js                # Postgres: modelo de usuario, registro/login (Fase 2bis del plan de producción)
   lib/sessionStore.js      # Sesiones de usuario sobre Redis (Fase 2bis del plan de producción)
   lib/mailer.js            # Envío de emails vía Resend, para recuperación de contraseña (Fase 2bis)
+  lib/fileValidation.js    # Validación real de video (magic bytes) y subtítulos (estructura) — Fase 2.5
   scripts/r2-cleanup-multipart.js
   public/
     index.html            # Crear sala / unirse por código; también login/registro/logout (Fase 2bis)
@@ -109,7 +110,10 @@ mover la barra de progreso — cualquier intento se revierte.
   (`room.ownerUserId`) y ahí `hostToken` deja de alcanzar por sí solo, la sesión es lo único que
   cuenta. Sigue siendo el mismo riesgo para salas anónimas (sin cuenta) — inherente al esquema
   "sin login" en sí, no algo que se pueda cerrar del todo mientras eso siga existiendo como opción.
-- Sin validación real de tipo de archivo (solo `Content-Type` del navegador).
+- ~~Sin validación real de tipo de archivo (solo `Content-Type` del
+  navegador)~~ → **resuelto en Fase 2.5 (2026-09-07)**: video validado por
+  magic bytes (`file-type`), subtítulos por estructura real. Detalle más
+  abajo en "Por dónde seguir" y en `docs/PLAN-PRODUCCION.md`.
 - Las salas nunca expiran — se acumulan en memoria y en R2 indefinidamente.
 - ~~Subir un video real vía `create-room` devuelve `413 Payload Too Large` de
   Cloudflare~~ → **resuelto en modo R2 (Fase 2.7, 2026-09-06)**: subida
@@ -124,6 +128,32 @@ mover la barra de progreso — cualquier intento se revierte.
 - Cada cambio importante debería reflejarse acá (este archivo, `docs/MEMORIA.md`, si cambia algo esencial) y como entrada nueva en `docs/CHANGELOG.md` — no en los archivos de `docs/historico/`, que quedaron congelados como registro del estado anterior a esta reorganización.
 
 ## Por dónde seguir
+
+**Fase 2.5 (validación real de archivos subidos) completa (2026-09-07)**:
+nuevo `lib/fileValidation.js` con `isValidVideoBuffer()` (magic bytes vía
+`file-type` v22, detecta mp4/mkv/mov/webm/avi/m4v a partir de los primeros
+4100 bytes) e `isValidSubtitleContent()` (estructura real de `.srt`/`.vtt`:
+bloque de timestamp con el separador correcto, cabecera `WEBVTT` en VTT, y
+un chequeo de proporción de bytes de control para descartar binarios).
+Integrado en los tres caminos por los que un video puede entrar a la
+biblioteca — modo disco local (valida la cabecera del archivo ya escrito y
+lo borra si no matchea), modo streaming a R2 (valida los primeros bytes
+ANTES de completar la subida, cortando la conexión si no pasa — acá se
+encontró y corrigió un bug real: un video más chico que el umbral de sniff
+colgaba la subida para siempre, porque el stream terminaba antes de
+alcanzar ese umbral) y la confirmación de subida directa a R2 por URL
+prefirmada (Fase 2.7, donde el server nunca ve el archivo mientras sube: se
+lee el rango inicial del objeto ya en el bucket con la `getObjectHead()`
+nueva de `lib/r2.js`, y se borra de la biblioteca si no pasa la
+validación) — y en la subida de subtítulos. Probado end-to-end en modo
+disco local contra un servidor real (`curl`): archivo falso rechazado y
+borrado, mp4 real aceptado, subtítulos válidos/inválidos en ambos formatos.
+El camino de streaming a R2 se probó con un harness aislado que reproduce
+la lógica exacta contra un mock de `r2.uploadStream` (sin necesitar
+credenciales reales) — los 4 casos (chico/grande × válido/inválido) se
+comportan bien, sin cuelgues. **Todavía no se confirmó contra un bucket R2
+real** (no bloqueante, pendiente para cuando haya credenciales
+disponibles).
 
 Ver `docs/PLAN-PRODUCCION.md` para el roadmap completo de qué falta para
 producción, con las fases priorizadas. Decisiones de arquitectura ya tomadas

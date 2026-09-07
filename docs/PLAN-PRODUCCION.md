@@ -289,12 +289,69 @@ secundario.
   `express.static`, un cambio de arquitectura más grande que no formaba parte
   de este ítem.
 
-### 2.5 Validación real de archivos subidos
-- [ ] Hoy solo se confía en el `Content-Type` que manda el navegador (`video/*`),
+### 2.5 Validación real de archivos subidos ✅ (resuelta el 2026-09-07)
+- [x] Hoy solo se confía en el `Content-Type` que manda el navegador (`video/*`),
       que es trivial de falsificar. Validar por **magic bytes** del archivo real
       (ej. con la librería `file-type`), no por el header ni la extensión.
-- [ ] Igual para subtítulos (`.srt`/`.vtt`): validar que el contenido tenga
+      Nuevo `lib/fileValidation.js` (`isValidVideoBuffer()`, sobre `file-type`
+      v22 — ESM-only, importada con `import()` dinámico desde este módulo
+      CommonJS) detecta el contenedor real (mp4/mkv/mov/webm/avi/m4v) a partir
+      de los primeros `SNIFF_BYTES` (4100, la muestra mínima que recomienda la
+      librería para detectar con confianza) — no hace falta el archivo entero.
+      Integrado en los **tres caminos** por los que un video puede llegar a la
+      biblioteca:
+  - **Modo disco local** (`rejectIfInvalidVideo`, middleware tras
+    `upload.single('video')`): como `multer.diskStorage` no da ningún gancho
+    para mirar el contenido antes de escribirlo, se valida leyendo la cabecera
+    del archivo ya escrito y se borra si no matchea.
+  - **Modo R2 streaming** (`r2VideoStorage._handleFile`): el caso más
+    delicado, porque el archivo se sube a R2 en streaming a medida que llega
+    — se juntan los primeros `SNIFF_BYTES` ANTES de completar la subida y se
+    valida ahí; si no pasa, se corta la conexión (`file.stream.destroy()`) sin
+    terminar de subir un archivo que ya se sabe inválido. Encontrado y
+    corregido acá un bug real: un video más chico que `SNIFF_BYTES` termina
+    (`'end'`) antes de que el evento `'data'` alcance el umbral de sniff —
+    sin un chequeo síncrono (`validationStarted`) la subida quedaba colgada
+    para siempre, sin llamar nunca al callback de Multer.
+  - **Subida directa a R2 por URL prefirmada** (Fase 2.7): el server nunca ve
+    el archivo mientras sube por este camino, así que la única oportunidad
+    real de validarlo es cuando el cliente confirma la sala
+    (`/create-room-from-upload`, `/room/:id/change-video-from-upload`) — nueva
+    `r2.getObjectHead(key, maxBytes)` (`GetObject` con header `Range`) lee solo
+    el comienzo del objeto ya en el bucket, sin bajarlo entero, y
+    `rejectIfInvalidExistingVideo()` lo borra de la biblioteca si no pasa la
+    validación (no tiene sentido dejarlo disponible para reusar si ya se sabe
+    que no es un video real).
+- [x] Igual para subtítulos (`.srt`/`.vtt`): validar que el contenido tenga
       estructura de subtítulo válida antes de aceptarlo, no solo la extensión.
+      `isValidSubtitleContent()` en el mismo módulo: exige un bloque de
+      timestamp con el separador correcto (coma en SRT, punto en VTT) y la
+      cabecera `WEBVTT` en VTT (por spec), más un chequeo de proporción de
+      bytes de control para descartar binarios que por casualidad contengan
+      la secuencia `-->` en algún punto. Integrado en
+      `/room/:id/upload-subtitle`, antes de convertir SRT→VTT y guardar.
+- [x] El manejador de errores genérico de subida distingue un error de
+      validación de contenido (`err.isVideoValidationError`, 400) de un error
+      real de infraestructura (R2/disco inalcanzable, 502) — antes de este
+      cambio, un video rechazado durante el streaming a R2 se reportaba igual
+      que una caída de R2.
+- [x] **Probado end-to-end en modo disco local** (servidor real, `curl`): un
+      archivo de texto renombrado a `.mp4` → `400` y se borra del disco; un
+      mp4 real → `200` y se guarda; un binario renombrado a `.srt` → `400`;
+      un `.srt` válido → `200`; un `.srt` sin ningún timestamp → `400`; un
+      `.vtt` válido → `200`.
+- [x] **Probado el camino de streaming a R2 con un harness aislado** (mock de
+      `r2.uploadStream`, sin necesitar credenciales reales de R2, reproduciendo
+      exactamente la lógica de `r2VideoStorage._handleFile`): los 4 casos
+      (video real más chico que `SNIFF_BYTES`, falso más chico, falso más
+      grande, real más grande) se comportan como se espera — en particular,
+      confirma el fix del bug de "video chico" (sube bien, sin colgarse) y que
+      `r2.uploadStream` se invoca exactamente en los 2 casos que corresponden
+      (los reales). No se llegó a probar contra un bucket R2 real por no tener
+      credenciales disponibles en esta sesión — queda como verificación
+      pendiente (no bloqueante, mismo criterio que otras fases de este plan
+      cuando el sandbox no tiene acceso a infraestructura real) si se quiere
+      confirmar además contra R2 de verdad.
 
 ### 2.6 Expiración de salas y limpieza de storage ✅ (resuelta el 2026-09-06, verificada en entorno real el mismo día)
 - [x] **Política de expiración: 24hs sin actividad (decisión de producto tomada
@@ -737,12 +794,21 @@ Con las decisiones de Fase 0 ya tomadas, el orden recomendado queda así:
    una Content-Security-Policy explícita (antes no había ninguna), HSTS, y CORS
    explícito (`ALLOWED_ORIGINS`) compartido entre Express y Socket.io. Ver
    `docs/CHANGELOG.md` para el detalle de las pruebas.
-7. **Fase 3 queda pospuesta** (una instancia alcanza por ahora, según Fase 0) y
+7. **Fase 2.5 ✅ completa (2026-09-07)** (validación real de archivos subidos)
+   — video validado por magic bytes (`file-type`) en los tres caminos de
+   subida (disco local, streaming a R2, y confirmación de subida directa por
+   URL prefirmada), subtítulos validados por estructura real (no solo
+   extensión). Se encontró y corrigió un bug real de streaming a R2 con
+   videos más chicos que el umbral de sniff. Probado end-to-end en modo disco
+   local contra un servidor real, y el camino de streaming a R2 con un
+   harness aislado (mock de `r2.uploadStream`); queda pendiente, no
+   bloqueante, confirmarlo también contra un bucket R2 real cuando haya
+   credenciales disponibles.
+8. **Fase 3 queda pospuesta** (una instancia alcanza por ahora, según Fase 0) y
    **Fase 6 de multi-tenancy queda descartada** — no vuelven a este orden salvo
    que cambie la necesidad real de escala. Lo que queda pendiente ahora es
-   **Fase 2.5** (validación real de archivos subidos), **Fase 4**
-   (observabilidad), **Fase 5** (tests/CI/deploy) y, dentro de Fase 6, términos
-   de uso/privacidad.
+   **Fase 4** (observabilidad), **Fase 5** (tests/CI/deploy) y, dentro de Fase
+   6, términos de uso/privacidad.
 
 ---
 

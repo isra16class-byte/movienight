@@ -1,5 +1,80 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-07 — Fase 2.5: validación real de archivos subidos (magic bytes/estructura)
+
+- Hasta ahora la única validación de un video subido era el `Content-Type`
+  que manda el navegador en el multipart — trivial de falsificar desde
+  cualquier cliente HTTP. Igual para subtítulos, donde solo se chequeaba la
+  extensión del nombre de archivo.
+- Nuevo `lib/fileValidation.js`:
+  - `isValidVideoBuffer(buffer)`: detecta el contenedor real por **magic
+    bytes** (librería `file-type` v22, ESM-only, importada con `import()`
+    dinámico desde este módulo CommonJS) contra la lista ya aceptada por el
+    proyecto (mp4/mkv/mov/webm/avi/m4v). `SNIFF_BYTES = 4100` — la muestra
+    mínima que recomienda la librería para detectar con confianza sin
+    necesitar el archivo entero.
+  - `isValidSubtitleContent(text, ext)`: valida estructura real de
+    `.srt`/`.vtt` — un bloque de timestamp con el separador correcto (coma en
+    SRT, punto en VTT), la cabecera `WEBVTT` obligatoria en VTT (por spec), y
+    un chequeo de proporción de bytes de control para descartar binarios que
+    por casualidad contengan la secuencia `-->` en algún punto.
+- `lib/r2.js`: nueva `getObjectHead(key, maxBytes)` — `GetObject` con header
+  `Range` para leer solo el comienzo de un objeto ya en el bucket, sin bajar
+  el archivo entero.
+- `server.js`, integrado en los **tres caminos** por los que un video puede
+  llegar a la biblioteca:
+  - **Modo disco local** (`rejectIfInvalidVideo`, middleware nuevo tras
+    `upload.single('video')` en `/create-room` y `/room/:id/change-video`):
+    `multer.diskStorage` no da ningún gancho para mirar el contenido antes de
+    escribirlo entero, así que se valida leyendo la cabecera del archivo ya
+    escrito y se borra si no matchea.
+  - **Modo R2 streaming** (`r2VideoStorage._handleFile`): se juntan los
+    primeros `SNIFF_BYTES` ANTES de completar la subida a R2 y se valida ahí
+    — si no pasa, se corta la conexión (`file.stream.destroy()`) sin
+    terminar de subir un archivo que ya se sabe inválido, así nunca llega a
+    ocupar espacio en el bucket. **Bug real encontrado y corregido acá**: un
+    video más chico que `SNIFF_BYTES` termina (evento `'end'`) antes de que
+    `'data'` alcance ese umbral — sin un chequeo síncrono (`validationStarted`)
+    la subida quedaba colgada para siempre, porque nunca se llamaba al
+    callback de Multer.
+  - **Confirmación de subida directa a R2 por URL prefirmada** (Fase 2.7,
+    `rejectIfInvalidExistingVideo`, en `/create-room-from-upload` y
+    `/room/:id/change-video-from-upload`): el server nunca ve el archivo
+    mientras sube por ese camino (el navegador lo manda directo al bucket),
+    así que esta es la primera oportunidad real de validarlo — se lee el
+    rango inicial del objeto con `r2.getObjectHead()` y se borra de la
+    biblioteca si no pasa.
+- `server.js`, subtítulos (`/room/:id/upload-subtitle`): valida estructura
+  real con `isValidSubtitleContent()` antes de convertir SRT→VTT y guardar.
+- El manejador de errores genérico de subida distingue ahora
+  `err.isVideoValidationError` (400, "el archivo no es un video válido") de
+  un error real de infraestructura (502, R2/disco inalcanzable) — antes de
+  este cambio, un video rechazado durante el streaming a R2 se reportaba
+  igual que una caída de R2.
+- `package.json`/`package-lock.json`: agregada la dependencia
+  `file-type@22.0.2`.
+- **Probado**:
+  - End-to-end en modo disco local, contra un servidor real (`curl`): un
+    archivo de texto renombrado a `.mp4` → `400` y se borra del disco; un mp4
+    real → `200` y se guarda; un binario renombrado a `.srt` → `400`; un
+    `.srt` válido → `200`; un `.srt` sin ningún timestamp → `400`; un `.vtt`
+    válido → `200`.
+  - El camino de streaming a R2, con un harness aislado que reproduce
+    exactamente la lógica de `r2VideoStorage._handleFile` contra un **mock**
+    de `r2.uploadStream` (sin necesitar credenciales reales de R2): los 4
+    casos (video real más chico que `SNIFF_BYTES`, falso más chico, falso más
+    grande, real más grande) se comportan como se espera — en particular
+    confirma el fix del bug de "video chico" (sube bien, sin colgarse) y que
+    `r2.uploadStream` (mock) se invoca exactamente en los 2 casos que
+    corresponden (los reales).
+  - **Pendiente, no bloqueante**: no se llegó a confirmar el camino de
+    streaming a R2 contra un bucket real (sin credenciales disponibles en
+    esta sesión) ni el camino de subida directa por URL prefirmada de punta a
+    punta — el harness cubre la lógica de validación en sí, pero no reemplaza
+    una prueba contra R2 de verdad. Queda para cuando haya credenciales a
+    mano, mismo criterio que otras fases de este plan cuando el sandbox no
+    tiene acceso a infraestructura real.
+
 ## 2026-09-06 — Fase 2.4: fix de Google Fonts confirmado en un segundo pase por el navegador
 
 - Con el fix de la entrada anterior (sumar `fonts.googleapis.com` a
