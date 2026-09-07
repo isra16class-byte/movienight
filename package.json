@@ -31,5 +31,8 @@
     "pg": "^8.13.1",
     "pino": "^10.3.1",
     "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "pino-pretty": "^13.1.3"
   }
 }
