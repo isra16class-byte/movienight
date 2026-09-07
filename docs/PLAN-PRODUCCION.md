@@ -352,6 +352,28 @@ secundario.
       pendiente (no bloqueante, mismo criterio que otras fases de este plan
       cuando el sandbox no tiene acceso a infraestructura real) si se quiere
       confirmar además contra R2 de verdad.
+- [x] **Segundo bug real encontrado probando contra R2 real (2026-09-07)**:
+      subir un video real por `/create-room` en modo streaming a R2 respondía
+      `200` con un `size` correcto, pero el objeto quedaba en el bucket con
+      **0 bytes reales** — se confirmó tanto con un archivo más chico que
+      `SNIFF_BYTES` como con uno más grande. Causa: el `counter` que cuenta
+      bytes era un `PassThrough` con un `counter.on('data', ...)` externo —
+      adjuntar un listener `'data'` a un stream lo pone en modo *flowing* de
+      inmediato, así que los chunks escritos ahí se drenaban consumidos por
+      ese mismo listener antes de que `r2.uploadStream` llegara a engancharse
+      como consumidor real (el SDK de AWS hace un round-trip de red antes de
+      empezar a leer, tiempo de sobra para que ya se haya drenado todo). El
+      harness de la verificación anterior (con mock, sin ese delay real) no
+      lo detectó porque consumía el stream en el mismo tick, sin darle tiempo
+      al bug a manifestarse. **Fix**: reemplazar el `PassThrough`+listener por
+      un `Transform` propio que cuenta bytes en su método de escritura, sin
+      ningún listener externo — el lado de lectura queda en pausa hasta que
+      `r2.uploadStream` lo consume de verdad. Reproducido el bug en aislado,
+      confirmado el fix con el mismo patrón, y re-corrido el harness de
+      `_handleFile` con un delay async antes de consumir (simulando el
+      round-trip real de red) — los 4 casos se comportan bien con el fix, y
+      el mismo harness contra el código viejo confirma que el bug afectaba a
+      los dos tamaños (chico y grande), no solo al chico.
 
 ### 2.6 Expiración de salas y limpieza de storage ✅ (resuelta el 2026-09-06, verificada en entorno real el mismo día)
 - [x] **Política de expiración: 24hs sin actividad (decisión de producto tomada
@@ -798,12 +820,18 @@ Con las decisiones de Fase 0 ya tomadas, el orden recomendado queda así:
    — video validado por magic bytes (`file-type`) en los tres caminos de
    subida (disco local, streaming a R2, y confirmación de subida directa por
    URL prefirmada), subtítulos validados por estructura real (no solo
-   extensión). Se encontró y corrigió un bug real de streaming a R2 con
-   videos más chicos que el umbral de sniff. Probado end-to-end en modo disco
-   local contra un servidor real, y el camino de streaming a R2 con un
-   harness aislado (mock de `r2.uploadStream`); queda pendiente, no
-   bloqueante, confirmarlo también contra un bucket R2 real cuando haya
-   credenciales disponibles.
+   extensión). Se encontraron y corrigieron **dos** bugs reales en el camino
+   de streaming a R2: uno de "video más chico que el umbral de sniff" que
+   colgaba la subida (detectado en sandbox), y otro más serio de "0 bytes
+   reales subidos pese a responder 200" (detectado recién probando contra un
+   bucket R2 real) — ver el detalle de la causa y el fix en la sección 2.5.
+   Probado end-to-end en modo disco local contra un servidor real, y el
+   camino de streaming a R2 con harnesses aislados (mock de
+   `r2.uploadStream`, con y sin delay async realista); la subida directa por
+   URL prefirmada se confirmó de punta a punta contra R2 real (navegador
+   real, presign → PUT directo → confirmación de sala), incluyendo el caso
+   de un archivo inválido subido por ese camino (se rechaza y se borra del
+   bucket correctamente).
 8. **Fase 3 queda pospuesta** (una instancia alcanza por ahora, según Fase 0) y
    **Fase 6 de multi-tenancy queda descartada** — no vuelven a este orden salvo
    que cambie la necesidad real de escala. Lo que queda pendiente ahora es

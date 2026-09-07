@@ -1,5 +1,61 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-07 — Fase 2.5: fix — 0 bytes reales subidos a R2 en modo streaming (encontrado probando contra R2 real)
+
+- **Hallazgo**: verificando la Fase 2.5 en un entorno con credenciales reales
+  de R2 (no disponibles en el sandbox donde se implementó la fase), subir un
+  video real por `/create-room` en modo streaming a R2 respondía `200` con un
+  `size` correcto, pero el objeto quedaba en el bucket con **0 bytes reales**.
+  Se confirmó tanto con un video más chico que `SNIFF_BYTES` como con uno más
+  grande — afectaba a los dos casos, no solo a uno.
+- **Causa**: el `counter` que cuenta bytes para el `size` final era un
+  `PassThrough` con un `counter.on('data', (chunk) => { bytes += chunk.length; })`
+  externo. Adjuntar un listener `'data'` a un stream Readable lo pone en modo
+  *flowing* de inmediato — los chunks que se escribían en `counter` (tanto
+  los ya juntados para el sniff como los que seguían llegando) se drenaban
+  consumidos por ese mismo listener contador, **antes** de que
+  `r2.uploadStream` llegara a engancharse como consumidor real (el SDK de AWS
+  hace un round-trip de red, `CreateMultipartUpload`, antes de empezar a leer
+  el stream — tiempo de sobra para que el listener temprano ya hubiera
+  drenado todo). El tamaño se reportaba correctamente (ese mismo listener lo
+  contaba bien), pero el consumidor real nunca llegó a ver los datos.
+- **Por qué no se detectó en la verificación anterior**: el harness de la
+  Parte 1 de esta fase usaba un mock de `r2.uploadStream` que consumía el
+  stream en el mismo tick en que se lo pasaban, sin ningún delay — eso
+  alcanzaba a "ganarle" al drenaje del listener temprano por pura casualidad
+  de timing, ocultando el bug. Un mock más realista (con un `await` antes de
+  empezar a leer, simulando el round-trip real de red) sí lo reproduce.
+- **Fix**: reemplazar el `PassThrough`+listener externo por un `Transform`
+  propio (definido inline en `r2VideoStorage._handleFile`, `server.js`) que
+  cuenta los bytes dentro de su propio método de escritura (`_transform`) —
+  así el conteo no depende de poner el lado de lectura en modo flowing, y ese
+  lado queda en pausa hasta que `r2.uploadStream` lo consume de verdad, sin
+  perder nada en el medio.
+- **Probado**:
+  - Reproducido el bug en aislado, con un script standalone mínimo (un
+    `PassThrough` + listener temprano + un consumidor que se engancha
+    después): confirma 0 bytes recibidos por el consumidor real, pese al
+    conteo correcto del listener.
+  - Confirmado el fix con el mismo patrón, usando un `Transform`: el
+    consumidor tardío recibe ahora los bytes completos.
+  - Harness que reproduce la lógica exacta y completa de
+    `r2VideoStorage._handleFile` (ya con el fix) contra un mock de
+    `r2.uploadStream` con un delay async antes de empezar a leer: los 4 casos
+    (video real chico/grande, falso chico/grande) se comportan bien — los 2
+    reales suben exactamente sus bytes completos, los 2 falsos se rechazan
+    por magic bytes, el mock se invoca exactamente 2 veces (los 2 casos
+    reales).
+  - El mismo harness, corrido contra el código viejo (buggy) con ese mismo
+    delay realista, confirma que el bug afectaba **tanto al caso chico como
+    al grande** (0 bytes reales subidos en los dos).
+- **Verificado además en el entorno real donde se encontró el bug** (según el
+  reporte de esa sesión, antes del fix): archivo inválido rechazado por
+  `/create-room` sin quedar en disco; subtítulos válidos/inválidos en ambos
+  formatos comportándose bien; el flujo completo de subida directa por URL
+  prefirmada (presign → PUT directo al navegador → confirmación de sala)
+  confirmado de punta a punta contra R2 real, incluyendo el rechazo y borrado
+  correcto de un archivo inválido subido por ese camino.
+
 ## 2026-09-07 — Fase 2.5: validación real de archivos subidos (magic bytes/estructura)
 
 - Hasta ahora la única validación de un video subido era el `Content-Type`

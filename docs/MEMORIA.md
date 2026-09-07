@@ -138,22 +138,40 @@ un chequeo de proporción de bytes de control para descartar binarios).
 Integrado en los tres caminos por los que un video puede entrar a la
 biblioteca — modo disco local (valida la cabecera del archivo ya escrito y
 lo borra si no matchea), modo streaming a R2 (valida los primeros bytes
-ANTES de completar la subida, cortando la conexión si no pasa — acá se
-encontró y corrigió un bug real: un video más chico que el umbral de sniff
-colgaba la subida para siempre, porque el stream terminaba antes de
-alcanzar ese umbral) y la confirmación de subida directa a R2 por URL
-prefirmada (Fase 2.7, donde el server nunca ve el archivo mientras sube: se
-lee el rango inicial del objeto ya en el bucket con la `getObjectHead()`
-nueva de `lib/r2.js`, y se borra de la biblioteca si no pasa la
-validación) — y en la subida de subtítulos. Probado end-to-end en modo
-disco local contra un servidor real (`curl`): archivo falso rechazado y
-borrado, mp4 real aceptado, subtítulos válidos/inválidos en ambos formatos.
-El camino de streaming a R2 se probó con un harness aislado que reproduce
-la lógica exacta contra un mock de `r2.uploadStream` (sin necesitar
-credenciales reales) — los 4 casos (chico/grande × válido/inválido) se
-comportan bien, sin cuelgues. **Todavía no se confirmó contra un bucket R2
-real** (no bloqueante, pendiente para cuando haya credenciales
-disponibles).
+ANTES de completar la subida, cortando la conexión si no pasa) y la
+confirmación de subida directa a R2 por URL prefirmada (Fase 2.7, donde el
+server nunca ve el archivo mientras sube: se lee el rango inicial del
+objeto ya en el bucket con la `getObjectHead()` nueva de `lib/r2.js`, y se
+borra de la biblioteca si no pasa la validación) — y en la subida de
+subtítulos.
+
+**Dos bugs reales encontrados y corregidos durante esta fase, los dos en el
+camino de streaming a R2** (`r2VideoStorage._handleFile`): (1) un video más
+chico que el umbral de sniff colgaba la subida para siempre, porque el
+stream terminaba antes de alcanzar ese umbral y sin un chequeo síncrono
+(`validationStarted`) nunca se llamaba al callback de Multer — detectado en
+sandbox, antes de probar contra R2 real. (2) Más serio, encontrado recién
+probando contra un bucket R2 real: la subida de un video real respondía
+`200` con un `size` correcto, pero el objeto quedaba en R2 con **0 bytes
+reales** — la causa era que el contador de bytes (`counter`) usaba un
+`PassThrough` con un `counter.on('data', ...)` externo, que pone al stream
+en modo *flowing* de inmediato; los chunks escritos ahí se drenaban
+consumidos por ese mismo listener antes de que `r2.uploadStream` llegara a
+engancharse como consumidor real. **Fix**: reemplazar ese `PassThrough` por
+un `Transform` propio que cuenta bytes en su método de escritura, sin
+ningún listener externo. Confirmado con un harness que reproduce la lógica
+exacta de `_handleFile` contra un mock de `r2.uploadStream` con un delay
+async realista (a diferencia del harness inicial, que consumía en el mismo
+tick y por eso no llegó a detectar este segundo bug) — los 4 casos (video
+real/falso × chico/grande) se comportan bien con el fix.
+
+Probado end-to-end en modo disco local contra un servidor real (`curl`):
+archivo falso rechazado y borrado, mp4 real aceptado, subtítulos
+válidos/inválidos en ambos formatos. **El camino de subida directa por URL
+prefirmada se confirmó de punta a punta contra R2 real** (navegador real:
+presign → PUT directo al bucket → confirmación de sala, con el video
+reproduciéndose después en `room.html`), incluyendo el caso de un archivo
+inválido subido por ese camino (se rechaza con 400 y se borra del bucket).
 
 Ver `docs/PLAN-PRODUCCION.md` para el roadmap completo de qué falta para
 producción, con las fases priorizadas. Decisiones de arquitectura ya tomadas
