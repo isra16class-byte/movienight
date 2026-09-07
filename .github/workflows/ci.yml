@@ -1,0 +1,27 @@
+name: CI
+
+# Fase 5 del plan de producción ("Calidad de código y proceso"): correr los tests en cada cambio,
+# antes de fusionar. A propósito simple — sin lint todavía (no hay una config de ESLint en el
+# proyecto), sin matriz de versiones de Node (el proyecto corre sobre una sola versión conocida, ver
+# package.json/README), y sin servicios de Redis/Postgres (los tests actuales son unitarios, sobre la
+# lógica extraída a lib/*.js, sin depender de infraestructura real — ver docs/PLAN-PRODUCCION.md).
+on:
+  push:
+    branches: [main, plan-produccion]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm test

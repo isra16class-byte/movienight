@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "test": "node --test",
     "tunnel": "cloudflared tunnel --config cloudflared-config.yml run",
     "r2:cleanup": "node scripts/r2-cleanup-multipart.js",
     "library:orphans": "node scripts/library-orphan-report.js",

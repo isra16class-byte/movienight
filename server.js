@@ -6,7 +6,6 @@ const crypto = require('crypto');
 const multer = require('multer');
 const { Transform } = require('stream');
 const { Server } = require('socket.io');
-const bcrypt = require('bcryptjs');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const session = require('express-session');
 const helmet = require('helmet');
@@ -441,45 +440,16 @@ async function requireLibraryAuth(req, res, next) {
 // que Multer empiece a leer/subir el archivo. El cliente manda la contraseña por el header
 // `x-library-password` (no por un campo del FormData): así queda disponible para este middleware
 // antes de que arranque el parseo del multipart/form-data que trae el video.
-const AUTH_MAX_ATTEMPTS = 3;
-const AUTH_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutos bloqueado tras agotar los 3 intentos
-
 // --- Limitador genérico de intentos fallidos (Fase 2.2 del plan de producción) -------------------
 // Antes esto vivía hardcodeado dentro de requireUploadAuth (V19). Se extrae acá como fábrica
 // reutilizable porque la Fase 2.2 agrega un segundo lugar que necesita exactamente el mismo criterio
 // (3 intentos fallidos → bloqueo de 15 min): la contraseña de sala en 'join-room' (ver más abajo),
 // que hasta ahora no tenía ningún límite. Cada instancia lleva su propio Map de intentos — una para
 // subir cintas (por IP) y otra para join-room (por IP+sala, ver más abajo el porqué de esa clave).
-function makeAttemptLimiter() {
-  const attempts = new Map(); // key -> { count, lockedUntil }
-  return {
-    // Minutos restantes de bloqueo para `key`, o null si puede intentar.
-    lockedMinutes(key) {
-      const entry = attempts.get(key);
-      const now = Date.now();
-      return (entry && entry.lockedUntil > now) ? Math.ceil((entry.lockedUntil - now) / 60000) : null;
-    },
-    recordSuccess(key) { attempts.delete(key); }, // se olvida cualquier intento fallido previo
-    // Registra un intento fallido; devuelve si quedó bloqueada y cuántos intentos quedan.
-    recordFailure(key) {
-      const now = Date.now();
-      let entry = attempts.get(key);
-      // Arranca un contador nuevo si no había uno, o si el bloqueo anterior ya venció (lockedUntil
-      // solo es > 0 tras el 3er intento fallido; mientras se cuenta 1° y 2°, se mantiene en 0 y no
-      // hay que resetear el contador en cada request).
-      if (!entry || (entry.lockedUntil > 0 && entry.lockedUntil <= now)) entry = { count: 0, lockedUntil: 0 };
-      entry.count += 1;
-      if (entry.count >= AUTH_MAX_ATTEMPTS) {
-        entry.lockedUntil = now + AUTH_LOCKOUT_MS;
-        entry.count = 0; // al vencer el bloqueo, vuelve a tener 3 intentos frescos
-        attempts.set(key, entry);
-        return { locked: true, attemptsLeft: 0 };
-      }
-      attempts.set(key, entry);
-      return { locked: false, attemptsLeft: AUTH_MAX_ATTEMPTS - entry.count };
-    }
-  };
-}
+// La fábrica en sí vive en lib/rateLimiter.js desde la Fase 5 (tests), para poder testearla aislada
+// (incluyendo el paso del tiempo, sin `setTimeout`s reales de 15 minutos). Comportamiento sin cambios
+// — acá se usa con los defaults del módulo (3 intentos, 15 minutos de bloqueo).
+const { makeAttemptLimiter } = require('./lib/rateLimiter');
 
 const uploadAuthLimiter = makeAttemptLimiter(); // clave: ip
 const roomJoinAuthLimiter = makeAttemptLimiter(); // clave: ip + roomId (ver 'join-room' más abajo)
@@ -855,45 +825,17 @@ function makeRoomId() { return crypto.randomBytes(3).toString('hex'); }
 // PaaS (Railway/Render/Fly.io) sin un paso de build propio — bindings nativos suman una dependencia
 // de toolchain (Python/gcc) que puede fallar según la plataforma, mientras que bcryptjs es <10% más
 // lento y no tiene ese riesgo. La interfaz (`hash`/`compareSync`) es la misma.
-const BCRYPT_ROUNDS = 10;
-
-function isBcryptHash(hash) {
-  return typeof hash === 'string' && /^\$2[aby]\$\d{2}\$/.test(hash);
-}
-// Detecta un hash del esquema viejo (sha256 hex, 64 caracteres) para la migración transparente de
-// abajo — ver hashPassword/verifyPassword.
-function isLegacySha256Hash(hash) {
-  return typeof hash === 'string' && /^[a-f0-9]{64}$/i.test(hash);
-}
-function legacySha256(pw) { return crypto.createHash('sha256').update(String(pw)).digest('hex'); }
-
-// Hashea una contraseña nueva (sala al crearse, o LIBRARY_PASSWORD al arrancar) siempre con bcrypt —
-// solo se llama con contraseñas nuevas, nunca para migrar una vieja (eso lo hace verifyPassword).
-async function hashPassword(pw) {
-  return bcrypt.hash(String(pw), BCRYPT_ROUNDS);
-}
-
-// Verifica una contraseña contra un hash guardado, que puede ser bcrypt (esquema nuevo) o sha256sin
-// salt (esquema viejo, de la Fase 1 y anteriores — las salas creadas antes de este cambio quedaron
-// con ese hash guardado en Redis). Plan de migración elegido (ver docs/PLAN-PRODUCCION.md, Fase 2.1):
-// NO resetear contraseñas existentes al desplegar — en vez de eso, se detecta el algoritmo viejo, se
-// valida con él, y si es válida se re-hashea con bcrypt para la próxima vez (needsRehash: true, el
-// caller se encarga de persistir el hash nuevo). Así la migración es transparente para quien ya tenía
-// una sala con contraseña: no nota nada, y con el uso normal (cada login exitoso) los hashes viejos
-// van desapareciendo solos.
-async function verifyPassword(pw, hash) {
-  if (!hash) return { valid: !pw, needsRehash: false }; // sala/biblioteca sin contraseña configurada
-  if (isBcryptHash(hash)) {
-    return { valid: await bcrypt.compare(String(pw), hash), needsRehash: false };
-  }
-  if (isLegacySha256Hash(hash)) {
-    const valid = legacySha256(pw) === hash;
-    return { valid, needsRehash: valid }; // solo migrar si la contraseña vieja era correcta
-  }
-  // Hash con una forma que no reconocemos (dato corrupto/inesperado): tratarlo como no válido en vez
-  // de tirar una excepción — más seguro que asumir cualquier otra cosa.
-  return { valid: false, needsRehash: false };
-}
+//
+// La lógica en sí vive en lib/passwordAuth.js desde la Fase 5 (tests) — se movió ahí para poder
+// testearla aislada, sin depender de Redis/Postgres/Express. Comportamiento sin cambios.
+const {
+  BCRYPT_ROUNDS,
+  isBcryptHash,
+  isLegacySha256Hash,
+  legacySha256,
+  hashPassword,
+  verifyPassword
+} = require('./lib/passwordAuth');
 
 const storage = multer.diskStorage({
   destination: UPLOAD_DIR,
@@ -1126,38 +1068,23 @@ const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.mov', '.webm', '.avi', '.m4v'];
 
 // Convierte "abc123__Mi Pelicula.mp4" -> "Mi Pelicula.mp4" para mostrar en la biblioteca.
 // Los archivos subidos antes de este cambio no tienen el separador "__", se muestran con su nombre tal cual (el hash).
-function displayNameFor(filename) {
-  const idx = filename.indexOf('__');
-  return idx >= 0 ? filename.slice(idx + 2) : filename;
-}
-
-// Igual que displayNameFor pero a partir de room.videoFile ('/uploads/archivo.mp4' -> 'archivo.mp4' ->
-// nombre legible). Se usa para los mensajes de chat de "cinta cargada"/"cambiaron la cinta".
-function videoDisplayName(videoFile) {
-  return displayNameFor(path.basename(videoFile));
-}
-
-// --- Cloudflare R2 — Fase 3: validar un filename/key que llega del cliente ----------------------
+// displayNameFor/videoDisplayName/isValidUploadReference/videoUrlForExistingFile viven en
+// lib/uploadReference.js desde la Fase 5 (tests), para poder testear el modo dual disco/R2 aislado
+// (con un `r2` y un `fs` de mentira, sin bucket ni disco reales). Comportamiento sin cambios — acá se
+// dejan con la misma firma de siempre (sin el segundo argumento `{ r2, uploadDir }`), pasándoles el
+// `r2` y el `UPLOAD_DIR` reales de este módulo por clausura.
+//
 // Antes (`isValidUploadFilename`, hasta V16) esto era síncrono y solo miraba disco local
 // (`fs.existsSync`). Ahora, en modo R2, el "filename" que manda `library.html` es en realidad la key
 // del objeto en el bucket (ver `r2.makeObjectKey`), así que hace falta una versión async que
-// pregunte a R2 en vez de al filesystem — de ahí el `await` en las 4 rutas que la usan.
-// El chequeo de path traversal (basename + sin "..") se mantiene en los dos modos: en disco evita
-// escapar de UPLOAD_DIR; en R2 el bucket no tiene "carpetas" reales, pero una key con "../" en el
-// medio seguiría siendo una key válida y confusa (ej. en un listado), así que se rechaza igual.
-async function isValidUploadReference(filename) {
-  if (!filename || typeof filename !== 'string') return false;
-  if (filename !== path.basename(filename)) return false;
-  if (filename.includes('..')) return false;
-  if (r2.isR2Enabled()) return r2.objectExists(filename);
-  return fs.existsSync(path.join(UPLOAD_DIR, filename));
+// pregunte a R2 en vez de al filesystem — de ahí el `await` en las rutas que la usan.
+const uploadReference = require('./lib/uploadReference');
+const { displayNameFor, videoDisplayName } = uploadReference;
+function isValidUploadReference(filename) {
+  return uploadReference.isValidUploadReference(filename, { r2, uploadDir: UPLOAD_DIR });
 }
-
-// Arma la URL que se guarda en room.videoFile a partir de un filename/key ya validado por
-// isValidUploadReference — mismo criterio que videoUrlForUploadedFile (arriba) pero para el caso de
-// "reutilizar una cinta ya subida" en vez de "subida nueva".
 function videoUrlForExistingFile(filename) {
-  return r2.isR2Enabled() ? r2.getPublicUrl(filename) : '/uploads/' + filename;
+  return uploadReference.videoUrlForExistingFile(filename, { r2 });
 }
 
 // --- Fase 2.5 del plan de producción: validar un video YA existente en la biblioteca -------------
@@ -1729,32 +1656,16 @@ function broadcastViewerList(roomId) {
 //     ningún cambio de comportamiento para quien no usa cuentas.
 // Nunca se combinan los dos criterios para una misma sala: si tiene dueño, un `hostToken` que hubiera
 // quedado dando vueltas (ej. compartido sin querer) no sirve para nada.
-function isRoomOwner(room, { hostToken, sessionUserId } = {}) {
-  if (room.ownerUserId) {
-    return !!sessionUserId && sessionUserId === room.ownerUserId;
-  }
-  return !!hostToken && hostToken === room.hostToken;
+// isRoomOwner()/setHost() viven en lib/hostAuth.js desde la Fase 5 (tests), para poder testear el
+// sistema de roles aislado de Socket.io (con un `io` de mentira). Comportamiento sin cambios — acá se
+// deja `setHost` con la misma firma de siempre (sin el parámetro `io`) para no tocar los call sites,
+// pasándole el `io` real de este módulo por clausura.
+const { isRoomOwner, setHost: setHostWithIo } = require('./lib/hostAuth');
+function setHost(room, roomId, socket) {
+  return setHostWithIo(io, room, roomId, socket);
 }
 
 const RECONNECT_GRACE_MS = 15000;
-
-// Único punto por donde una sala cambia de host. Garantiza que nunca haya más de un socket con
-// isHost=true a la vez: si ya había un host distinto (conectado), lo degrada primero (y se lo avisa,
-// para que su UI de host desaparezca) antes de promover al nuevo. Sin esto, un socket viejo con un
-// hostToken todavía válido en localStorage podía "recuperar" el host sin quitárselo a quien ya lo
-// tenía (traspaso automático o manual) — quedaban 2, o más, hosts simultáneos.
-function setHost(room, roomId, socket) {
-  if (room.hostSocketId && room.hostSocketId !== socket.id) {
-    const prevHost = io.sockets.sockets.get(room.hostSocketId);
-    if (prevHost) {
-      prevHost.isHost = false;
-      prevHost.emit('host-status', { isHost: false, hostToken: null });
-    }
-  }
-  room.hostSocketId = socket.id;
-  socket.isHost = true;
-  socket.emit('host-status', { isHost: true, hostToken: room.hostToken });
-}
 
 // Envuelve un handler de evento de socket en try/catch (Fase 1.2 del plan de producción). Antes de
 // esto, un error dentro de cualquier handler (ej. un mensaje malformado que rompe alguna asunción del
