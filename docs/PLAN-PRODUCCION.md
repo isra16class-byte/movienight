@@ -240,12 +240,47 @@ secundario.
   host pasa a resolverse a través de la sesión autenticada del usuario. Ver
   **Fase 2bis** más abajo, que reemplaza este ítem.
 
-### 2.4 Headers de seguridad
-- [ ] Agregar `helmet` (`app.use(helmet())`) para headers estándar (X-Frame-Options,
-      X-Content-Type-Options, etc.).
-- [ ] Definir una Content-Security-Policy explícita — hoy no hay ninguna.
-- [ ] Configurar CORS explícito si el dominio de producción es fijo, en vez de
-      dejar la configuración por defecto de Express/Socket.io.
+### 2.4 Headers de seguridad ✅ (resuelta el 2026-09-06)
+- [x] Agregado `helmet` (`app.use(helmet(...))`) para el set estándar de headers
+      (X-Frame-Options, X-Content-Type-Options, Referrer-Policy, etc.), con HSTS y
+      `upgrade-insecure-requests` activos salvo en desarrollo local sin HTTPS
+      (reusa `SESSION_COOKIE_INSECURE=1`, ya existente desde Fase 2bis — mismo
+      criterio real: "no hay HTTPS todavía", una sola variable para las dos cosas
+      en vez de sumar un segundo escape hatch).
+- [x] Content-Security-Policy explícita (antes no había ninguna): `default-src
+      'self'` con las excepciones puntuales que la app necesita de verdad —
+      `'unsafe-inline'` en `script-src`/`style-src` (todo el JS/CSS de las 4
+      páginas vive inline en el HTML, sin nonces todavía — ver nota abajo),
+      `data:` en `img-src` (el fondo con ruido de `style.css` es un SVG en data
+      URL), y `connect-src`/`media-src` sumando los hosts de R2 (bucket público +
+      endpoint de subida prefirmada) **automáticamente cuando R2 está
+      configurado** — nueva `r2.getCspOrigins()` en `lib/r2.js`, para que la
+      forma real de esas URLs (confirmada imprimiendo una URL firmada real: el
+      SDK usa estilo "virtual-hosted", el bucket como subdominio) viva en un
+      solo lugar. En modo disco local (sin R2) la CSP no necesita nada más que
+      `'self'`.
+- [x] CORS explícito: nueva variable `ALLOWED_ORIGINS` (lista separada por
+      comas, vacía por default) usada tanto por el middleware `cors()` de
+      Express como por la config de CORS de Socket.io (`new Server(server, {
+      cors: ... })`) — sin definirla, ningún origen cruzado queda permitido en
+      ninguno de los dos (mismo comportamiento "solo mismo origen" que ya tenía
+      la app antes de este ítem, ahora explícito en vez de ser solo la ausencia
+      de configuración).
+- [x] Probado localmente: headers presentes en `/` y `/health`; sin
+      `ALLOWED_ORIGINS`, un request con `Origin` cruzado no recibe
+      `Access-Control-Allow-Origin`; con `ALLOWED_ORIGINS` definida, el origen
+      listado sí lo recibe y uno no listado no; con R2 configurado (credenciales
+      de prueba, sin llegar a conectar), la CSP suma los dos hosts esperados a
+      `connect-src`/`media-src`; sin R2, la CSP no los suma. Sin
+      `SESSION_COOKIE_INSECURE=1`, no aparecen `Strict-Transport-Security` ni
+      `upgrade-insecure-requests` en la respuesta.
+- **Nota (no bloqueante, mejora futura)**: `'unsafe-inline'` en `script-src`/
+  `style-src` sigue siendo necesario porque `index.html`, `library.html`,
+  `room.html` y `reset-password.html` tienen todo su JS/CSS inline, sin nonces
+  — una CSP basada en nonces exigiría convertir esas páginas en plantillas
+  renderizadas por request en vez de archivos estáticos servidos tal cual por
+  `express.static`, un cambio de arquitectura más grande que no formaba parte
+  de este ítem.
 
 ### 2.5 Validación real de archivos subidos
 - [ ] Hoy solo se confía en el `Content-Type` que manda el navegador (`video/*`),
@@ -691,12 +726,16 @@ Con las decisiones de Fase 0 ya tomadas, el orden recomendado queda así:
    producto), límites opcionales de storage de la biblioteca, y limpieza
    automática de subidas multipart abandonadas en R2. Ver `docs/MEMORIA.md` y
    `docs/CHANGELOG.md` para el detalle.
-6. **Fase 3 queda pospuesta** (una instancia alcanza por ahora, según Fase 0) y
+6. **Fase 2.4 ✅ completa (2026-09-06)** (headers de seguridad) — `helmet` con
+   una Content-Security-Policy explícita (antes no había ninguna), HSTS, y CORS
+   explícito (`ALLOWED_ORIGINS`) compartido entre Express y Socket.io. Ver
+   `docs/CHANGELOG.md` para el detalle de las pruebas.
+7. **Fase 3 queda pospuesta** (una instancia alcanza por ahora, según Fase 0) y
    **Fase 6 de multi-tenancy queda descartada** — no vuelven a este orden salvo
    que cambie la necesidad real de escala. Lo que queda pendiente ahora es
-   **Fase 2.4** (headers de seguridad), **Fase 2.5** (validación real de
-   archivos subidos), **Fase 4** (observabilidad), **Fase 5** (tests/CI/deploy)
-   y, dentro de Fase 6, términos de uso/privacidad.
+   **Fase 2.5** (validación real de archivos subidos), **Fase 4**
+   (observabilidad), **Fase 5** (tests/CI/deploy) y, dentro de Fase 6, términos
+   de uso/privacidad.
 
 ---
 

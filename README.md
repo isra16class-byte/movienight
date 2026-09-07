@@ -243,6 +243,22 @@ mayor del lado del cliente y queda pendiente para más adelante si este límite 
 El tiempo que queda válida la URL de subida es configurable con `R2_PRESIGN_EXPIRES_SECONDS` en tu
 `.env` (default: 6 horas — pensado para que alcance incluso con una conexión de subida lenta).
 
+## Headers de seguridad y CORS (Fase 2.4 del plan de producción)
+
+El server manda un set estándar de headers de seguridad HTTP (vía [`helmet`](https://www.npmjs.com/package/helmet)), sin necesitar ninguna variable de entorno para que esto ande:
+
+- **Content-Security-Policy**: restringe de qué orígenes puede cargar scripts/estilos/medios/etc. la página. Permite `'self'` para casi todo, `'unsafe-inline'` en scripts/estilos (todo el JS/CSS de este proyecto vive inline en el HTML, sin nonces), y agrega automáticamente los hosts de Cloudflare R2 (bucket público + endpoint de subida prefirmada) a `connect-src`/`media-src` **solo si tenés R2 configurado** (ver sección de arriba) — no hace falta tocar nada a mano.
+- **Strict-Transport-Security (HSTS)** y `upgrade-insecure-requests`: activos siempre, salvo que estés en desarrollo local sin HTTPS (`SESSION_COOKIE_INSECURE=1`, ver sección de Sesiones más abajo) — con HTTPS real (Cloudflare Tunnel, o el hosting que elijas) no hace falta tocar nada.
+- El resto (`X-Frame-Options`, `X-Content-Type-Options`, etc.) son los defaults de `helmet`, pensados para andar bien sin configuración adicional.
+
+**CORS**: por default, este server **no permite ningún origen cruzado** — ni en las rutas HTTP normales ni en Socket.io. Es el caso típico de este proyecto (todo se sirve desde un solo dominio). Si alguna vez necesitás permitir que otro dominio haga requests con credenciales contra este server (ej. un frontend separado consumiendo la misma API), definí `ALLOWED_ORIGINS` en tu `.env` con la lista de orígenes permitidos, separados por coma:
+
+```
+ALLOWED_ORIGINS=https://sala.tu-dominio.uk,https://tu-dominio.uk
+```
+
+**Nota sobre la CSP y el HTML inline**: hoy `index.html`, `library.html`, `room.html` y `reset-password.html` tienen todo su JS y estilos inline (`<script>`/`style="..."`), así que la CSP necesita `'unsafe-inline'` para que esas páginas sigan funcionando — una política más estricta (basada en nonces) exigiría convertirlas en plantillas renderizadas por request en vez de archivos estáticos, un cambio de arquitectura más grande que queda anotado como posible mejora futura, no bloqueante.
+
 ## Proceso supervisado (para no depender de una terminal abierta)
 
 Correr `npm start` en una terminal funciona para probar, pero si esa terminal se cierra

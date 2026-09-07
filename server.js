@@ -9,6 +9,8 @@ const { Server } = require('socket.io');
 const bcrypt = require('bcryptjs');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const session = require('express-session');
+const helmet = require('helmet');
+const cors = require('cors');
 
 // --- Carga variables desde un .env en la raíz del proyecto, si existe (V10) --------------------
 // No se agregó la librería `dotenv` a propósito: el proyecto ya se mantiene con solo 3 dependencias
@@ -95,7 +97,23 @@ process.on('unhandledRejection', (reason) => {
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+
+// --- Fase 2.4 del plan de producción: CORS explícito ---------------------------------------------
+// Se calcula ACÁ (antes de crear `io`) porque Socket.io necesita el mismo valor al construirse (más
+// abajo) — el middleware `cors()` de Express se monta después, junto con `helmet()`. Sin esta
+// variable definida (el caso típico de este proyecto: una sola sala servida por Cloudflare
+// Tunnel/hosting propio, sin frontend separado en otro dominio), ninguno de los dos permite ningún
+// origen cruzado — mismo comportamiento "solo mismo origen" que ya tenía la app antes de esta fase,
+// ahora explícito en vez de ser solo la ausencia de configuración. Lista separada por comas (ej.
+// "https://sala.tu-dominio.uk,https://tu-dominio.uk") si alguna vez hace falta permitir alguno.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+const io = new Server(server, {
+  cors: ALLOWED_ORIGINS.length > 0 ? { origin: ALLOWED_ORIGINS, credentials: true } : undefined
+});
 
 // El server escucha en localhost y se expone con Cloudflare Tunnel (ver README) — todas las
 // requests le llegan físicamente desde `cloudflared` en la propia máquina, no desde el navegador de
@@ -120,6 +138,73 @@ function clientIp(req) {
 function socketClientIp(socket) {
   return socket.handshake.headers['cf-connecting-ip'] || socket.handshake.address || 'unknown';
 }
+
+// --- Fase 2.4 del plan de producción: headers de seguridad (helmet) ------------------------------
+// Hasta acá el server no mandaba NINGÚN header de seguridad más allá de lo que pone Express por
+// default (básicamente nada) — sin Content-Security-Policy, sin X-Frame-Options, sin
+// Strict-Transport-Security, etc. `helmet()` agrega el set estándar; lo que hace falta acá es
+// override puntual sobre sus defaults para que la CSP en particular no rompa nada de lo que la app
+// necesita de verdad (ver cada comentario abajo).
+//
+// RUNNING_WITHOUT_HTTPS reusa el mismo criterio que SESSION_COOKIE_INSECURE (arriba, sección de
+// sesiones): ambos existen por la misma razón real ("estoy probando en http://localhost sin
+// Cloudflare Tunnel/HTTPS por delante"), así que comparten la variable en vez de sumar un segundo
+// escape hatch separado para lo mismo. HSTS y `upgrade-insecure-requests` solo tienen sentido si el
+// server de verdad se sirve siempre por HTTPS (el caso de producción real, vía Tunnel) — en
+// desarrollo local sobre HTTP plano, mandarlos rompe la experiencia de quien está probando (el
+// navegador intentaría forzar HTTPS en el próximo request).
+const RUNNING_WITHOUT_HTTPS = process.env.SESSION_COOKIE_INSECURE === '1';
+
+// Orígenes externos que la CSP necesita permitir cuando R2 está configurado (bucket público +
+// endpoint de subida prefirmada) — ver lib/r2.js::getCspOrigins() para el detalle de por qué esos
+// hosts en particular. Vacío en modo disco local: ahí no hace falta nada más que 'self'.
+const r2CspOrigins = r2.getCspOrigins();
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      // 'unsafe-inline' hace falta porque HOY todo el JS de las 4 páginas (index.html, library.html,
+      // room.html, reset-password.html) vive en <script> inline en el propio HTML, sin nonces ni un
+      // bundle separado — no hay forma de permitir esos scripts con una CSP más estricta sin antes
+      // convertir esas páginas en plantillas renderizadas por request (hoy son archivos estáticos
+      // servidos tal cual por express.static). Queda anotado como posible mejora futura, no bloquea
+      // esta fase: la CSP igual corta XSS vía scripts inyectados desde OTRO origen o vía atributos
+      // on*= (scriptSrcAttr abajo), que es el vector más común en la práctica.
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrcAttr: ["'none'"],
+      // Mismo motivo que scriptSrc: hay estilos inline (style="...") en todas las páginas.
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      // 'data:' hace falta porque style.css usa un SVG de ruido como fondo vía data URL.
+      imgSrc: ["'self'", 'data:'],
+      fontSrc: ["'self'"],
+      // 'self' + (si hay R2) el endpoint de subida prefirmada y el bucket público — el navegador
+      // hace fetch()/XHR directo contra esos hosts (ver public/index.html y public/library.html,
+      // putDirectToR2()).
+      connectSrc: ["'self'", ...r2CspOrigins.connectSrc],
+      // 'self' + (si hay R2) el bucket público — de ahí sale el <video src>/<track src> que reproduce
+      // cada espectador cuando el video vive en R2 en vez de en disco local.
+      mediaSrc: ["'self'", ...r2CspOrigins.mediaSrc],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      // Nadie tiene por qué embeber esta app en un <iframe> de otro sitio.
+      frameAncestors: ["'self'"],
+      manifestSrc: ["'self'"], // manifest.webmanifest (PWA)
+      workerSrc: ["'self'"], // sw.js (service worker)
+      upgradeInsecureRequests: RUNNING_WITHOUT_HTTPS ? null : []
+    }
+  },
+  hsts: RUNNING_WITHOUT_HTTPS ? false : undefined
+}));
+
+// Middleware de Express que hace cumplir el mismo ALLOWED_ORIGINS ya definido arriba (junto a la
+// creación de `io`, que necesita el mismo valor para su propia config de CORS). `origin: false` le
+// dice a `cors()` que no permita ningún origen cruzado cuando la lista queda vacía.
+app.use(cors({
+  origin: ALLOWED_ORIGINS.length > 0 ? ALLOWED_ORIGINS : false,
+  credentials: true // para que la cookie de sesión (movienight.sid) viaje si algún día se permite un origen cruzado
+}));
 
 const UPLOAD_DIR = path.join(__dirname, 'public', 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });

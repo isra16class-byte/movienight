@@ -1,5 +1,42 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-06 — Fase 2.4: headers de seguridad (helmet) y CORS explícito
+
+- **`helmet`** agrega ahora el set estándar de headers HTTP de seguridad —
+  antes el server no mandaba ninguno más allá de lo que pone Express por
+  default. Incluye una **Content-Security-Policy explícita** (`default-src
+  'self'`, con `'unsafe-inline'` en `script-src`/`style-src` porque el JS/CSS
+  de las 4 páginas vive inline en el HTML sin nonces, y `data:` en `img-src`
+  para el fondo con ruido de `style.css`) y **HSTS** — ambos desactivados solo
+  en desarrollo local sin HTTPS, reusando `SESSION_COOKIE_INSECURE=1` (ya
+  existía desde Fase 2bis, mismo motivo real: "no hay HTTPS todavía").
+- Nueva `r2.getCspOrigins()` en `lib/r2.js`: cuando R2 está configurado, suma
+  automáticamente a `connect-src`/`media-src` el endpoint de subida
+  prefirmada (`https://BUCKET.ACCOUNT_ID.r2.cloudflarestorage.com` — estilo
+  "virtual-hosted", confirmado imprimiendo una URL firmada real, no asumido
+  de la documentación) y el bucket público (`R2_PUBLIC_URL`). En modo disco
+  local, la CSP no necesita nada más que `'self'`.
+- **CORS explícito**: nueva variable `ALLOWED_ORIGINS` (lista separada por
+  comas), usada tanto por el middleware `cors()` de Express como por la
+  config de CORS de `new Server(server, { cors: ... })` de Socket.io — sin
+  definirla, ningún origen cruzado queda permitido en ninguno de los dos
+  (mismo comportamiento que ya había de forma implícita, ahora explícito).
+- Probado localmente: headers presentes en `/` y `/health`; sin
+  `ALLOWED_ORIGINS`, un request con header `Origin` cruzado no recibe
+  `Access-Control-Allow-Origin`; con `ALLOWED_ORIGINS=https://sala.ejemplo.uk`,
+  ese origen sí lo recibe y uno no listado no; con R2 "configurado" (valores
+  de prueba, sin llegar a conectar de verdad), la CSP mostró los dos hosts
+  esperados en `connect-src`/`media-src`, y sin R2 no aparecieron; con
+  `SESSION_COOKIE_INSECURE=1` no aparecieron `Strict-Transport-Security` ni
+  `upgrade-insecure-requests` en la respuesta.
+- Documentado en el README (nueva sección "Headers de seguridad y CORS") y en
+  `.env.example` (`ALLOWED_ORIGINS`). Con esto, la **Fase 2.4 queda
+  completa** — la única salvedad anotada (no bloqueante) es que
+  `'unsafe-inline'` en scripts/estilos sigue siendo necesario mientras las
+  páginas no se sirvan como plantillas renderizadas por request (para poder
+  usar nonces); queda como posible mejora futura, no forma parte de esta
+  fase.
+
 ## 2026-09-06 — Fase 2.6: fix confirmado en entorno real, verificación end-to-end completa
 
 - **Confirmación del fix de `LIBRARY_ORPHAN_DAYS=0`/`MULTIPART_ABANDON_DAYS=0`**
