@@ -1,5 +1,22 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-06 — Fase 2.4: fix de Google Fonts confirmado en un segundo pase por el navegador
+
+- Con el fix de la entrada anterior (sumar `fonts.googleapis.com` a
+  `style-src` y `fonts.gstatic.com` a `font-src`) ya aplicado, se repitió la
+  verificación en navegador contra `/`, `/library.html` y `/room/:id`:
+  `document.fonts.status` da `loaded`, `document.fonts.check(...)` confirma
+  `Monoton` y `Space Grotesk` cargadas, y el screenshot de cada página
+  muestra las tipografías reales aplicadas (no la fuente por default del
+  sistema) — confirmación visual, no solo ausencia de error en consola.
+- Cero mensajes de CSP/CORS en las tres páginas. Apareció un
+  `ERR_CONNECTION_REFUSED` transitorio del polling de Socket.IO durante la
+  ventana del reinicio del server (nada que ver con CSP/CORS — el cliente
+  reintentando mientras el proceso viejo terminaba de cerrar, ya cubierto por
+  el graceful shutdown de la Fase 1.4).
+- Con esto, el fix de Google Fonts queda **confirmado de punta a punta**, no
+  solo por el header de la CSP sino por el resultado real en el navegador.
+
 ## 2026-09-06 — Fase 2.4: fix — Google Fonts bloqueado por la CSP (encontrado en navegador real)
 
 - **Hallazgo**: la primera versión de la CSP (ver entrada anterior, mismo día)
