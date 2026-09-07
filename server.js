@@ -63,6 +63,11 @@ const { RedisSessionStore } = require('./lib/sessionStore');
 // para el detalle de por qué Resend y el criterio de "feature opcional" sin RESEND_API_KEY configurada.
 const mailer = require('./lib/mailer');
 
+// Validación real de archivos subidos por magic bytes/estructura (Fase 2.5 del plan de producción) —
+// ver lib/fileValidation.js para el detalle de por qué no alcanza con el Content-Type que manda el
+// navegador, y cómo se valida cada tipo (video por firma binaria, subtítulos por estructura).
+const fileValidation = require('./lib/fileValidation');
+
 // --- Manejo de errores no capturados (Fase 1.2 del plan de producción) ---------------------------
 // Sin esto, un error que se escapa de cualquier lugar del código (una excepción sincrónica que nadie
 // atrapó, o una Promise rechazada sin `.catch`) tira abajo el proceso Node entero sin dejar rastro
@@ -863,15 +868,97 @@ const storage = multer.diskStorage({
 // El `PassThrough` intermedio solo cuenta bytes (para poder devolver `size`, igual que hace el motor
 // de disco); no altera ni retiene los datos que pasan por él.
 const r2VideoStorage = {
+  // Fase 2.5 del plan de producción: antes de este cambio, el stream se empalmaba directo a
+  // `r2.uploadStream` sin mirar su contenido — cualquier binario (o texto) con `Content-Type:
+  // video/mp4` falsificado se subía entero a R2 igual. Ahora se juntan los primeros
+  // `fileValidation.SNIFF_BYTES` del archivo ANTES de completar la subida, se valida por magic bytes,
+  // y solo si pasa esa validación se deja seguir el resto del stream hacia R2 — un archivo inválido
+  // nunca llega a ocupar espacio en el bucket.
   _handleFile(req, file, cb) {
     const key = r2.makeObjectKey(file.originalname);
     let bytes = 0;
     const counter = new PassThrough();
     counter.on('data', (chunk) => { bytes += chunk.length; });
-    file.stream.pipe(counter);
-    r2.uploadStream(key, counter, file.mimetype)
-      .then(() => cb(null, { key, size: bytes }))
-      .catch((err) => cb(err));
+
+    const chunks = [];
+    let sniffLength = 0;
+    // Sincrónico a propósito (a diferencia de `settled` más abajo, que se fija recién cuando
+    // `validate()` termina): evita que 'end' dispare una segunda validación si ya se disparó una
+    // desde 'data' — sin este chequeo, un archivo justo del tamaño del umbral de sniff podía terminar
+    // ('end') en el mismo tick en que se alcanzaba el umbral, corriendo `validate()` dos veces.
+    let validationStarted = false;
+    let settled = false; // true una vez que ya se llamó a cb — evita llamarlo dos veces
+    function callback(err, result) {
+      if (settled) return;
+      settled = true;
+      cb(err, result);
+    }
+
+    const onData = (chunk) => {
+      chunks.push(chunk);
+      sniffLength += chunk.length;
+      if (!validationStarted && sniffLength >= fileValidation.SNIFF_BYTES) {
+        validationStarted = true;
+        file.stream.pause();
+        file.stream.removeListener('data', onData);
+        validate(false);
+      }
+    };
+
+    const onEnd = () => {
+      // Bug real encontrado probando esto: un video más chico que SNIFF_BYTES (4100 bytes) termina de
+      // llegar ('end') antes de que 'data' alcance ese umbral — sin este chequeo de `validationStarted`
+      // se intentaba validar igual, pero como el archivo entero (chico) YA está juntado en `chunks`,
+      // hay que validar con eso, sin esperar bytes que nunca van a llegar.
+      if (validationStarted) return;
+      validationStarted = true;
+      file.stream.removeListener('data', onData);
+      validate(true);
+    };
+
+    const onError = (err) => {
+      file.stream.removeListener('data', onData);
+      file.stream.removeListener('end', onEnd);
+      callback(err);
+    };
+
+    file.stream.on('data', onData);
+    file.stream.on('end', onEnd);
+    file.stream.on('error', onError);
+
+    async function validate(streamAlreadyEnded) {
+      file.stream.removeListener('end', onEnd);
+      file.stream.removeListener('error', onError);
+      let result;
+      try {
+        result = await fileValidation.isValidVideoBuffer(Buffer.concat(chunks));
+      } catch (err) {
+        file.stream.destroy();
+        return callback(err);
+      }
+      if (!result.valid) {
+        // Corta la conexión de una: no tiene sentido seguir recibiendo el resto de un archivo (puede
+        // ser varios GB) que ya se sabe que no va a pasar la validación.
+        file.stream.destroy();
+        const err = new Error(`El video no pasó la validación de contenido: ${result.reason}`);
+        err.isVideoValidationError = true;
+        return callback(err);
+      }
+      // Válido: lo ya juntado para el sniff (chunks) más lo que siga llegando (si el stream no había
+      // terminado todavía) va a `counter` — el mismo PassThrough de siempre, que sigue contando bytes
+      // para el `size` final y alimenta a r2.uploadStream sin que ese lado note ningún cambio.
+      for (const chunk of chunks) counter.write(chunk);
+      if (streamAlreadyEnded) {
+        counter.end();
+      } else {
+        file.stream.on('error', (err) => counter.destroy(err));
+        file.stream.pipe(counter);
+        file.stream.resume();
+      }
+      r2.uploadStream(key, counter, file.mimetype)
+        .then(() => callback(null, { key, size: bytes }))
+        .catch((err) => callback(err));
+    }
   },
   // Multer llama esto para limpiar un archivo ya subido si algo más falla durante la misma request
   // (ej. otro archivo del mismo form, o un límite excedido detectado después). `file.key` es el campo
@@ -899,6 +986,38 @@ function videoUrlForUploadedFile(file) {
 
 // Subtítulos: se leen en memoria para poder convertir .srt -> .vtt antes de guardar
 const subtitleUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+
+// --- Fase 2.5 del plan de producción: validación de video en modo disco local --------------------
+// A diferencia del modo R2 (ver `r2VideoStorage._handleFile` arriba, que valida DURANTE el streaming,
+// antes de terminar de subir a R2), `multer.diskStorage` no da ningún gancho para inspeccionar el
+// archivo antes de que ya esté escrito entero en disco — así que acá la única opción es validar
+// DESPUÉS: se lee la cabecera del archivo que Multer ya terminó de escribir y, si no pasa la
+// validación por magic bytes, se borra y se corta la request con 400 antes de crear la sala o
+// aceptar el cambio de cinta. Middleware de Express (no el handler final de la ruta), para poder
+// encadenarse después de `upload.single('video')` en las rutas que lo necesitan.
+async function rejectIfInvalidVideo(req, res, next) {
+  if (r2.isR2Enabled() || !req.file) return next(); // en modo R2 esto ya se validó en r2VideoStorage._handleFile
+  const filePath = path.join(UPLOAD_DIR, req.file.filename);
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    const buffer = Buffer.alloc(fileValidation.SNIFF_BYTES);
+    let bytesRead;
+    try {
+      bytesRead = fs.readSync(fd, buffer, 0, fileValidation.SNIFF_BYTES, 0);
+    } finally {
+      fs.closeSync(fd);
+    }
+    const result = await fileValidation.isValidVideoBuffer(buffer.slice(0, bytesRead));
+    if (!result.valid) {
+      fs.unlink(filePath, () => {}); // best-effort: no bloquea la respuesta de error por un fallo al borrar
+      return res.status(400).json({ error: `El video no pasó la validación de contenido: ${result.reason}` });
+    }
+    next();
+  } catch (err) {
+    console.error('Error validando video subido (modo disco):', err.message);
+    res.status(500).json({ error: 'No se pudo validar el video subido.' });
+  }
+}
 
 const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.mov', '.webm', '.avi', '.m4v'];
 
@@ -936,6 +1055,50 @@ async function isValidUploadReference(filename) {
 // "reutilizar una cinta ya subida" en vez de "subida nueva".
 function videoUrlForExistingFile(filename) {
   return r2.isR2Enabled() ? r2.getPublicUrl(filename) : '/uploads/' + filename;
+}
+
+// --- Fase 2.5 del plan de producción: validar un video YA existente en la biblioteca -------------
+// Por qué existe esto, además de la validación en la subida (r2VideoStorage._handleFile /
+// rejectIfInvalidVideo, arriba): el camino de subida directa a R2 por URL prefirmada (Fase 2.7) sube
+// el archivo del navegador DIRECTO al bucket, sin pasar por este server en absoluto — el server nunca
+// ve esos bytes mientras suben, así que nunca los pudo validar en ese momento. La primera oportunidad
+// real de inspeccionar el contenido es acá, cuando el cliente confirma la sala con la key ya en el
+// bucket (`/create-room-from-upload`, `/room/:id/change-video-from-upload`) — por eso se valida en
+// estas dos rutas, aunque también se reusen para "elegir un video ya validado antes" (el costo extra
+// es leer unos pocos KB, no el archivo entero, así que no vale la pena distinguir los dos casos).
+// Si no pasa la validación, se borra de la biblioteca (disco o R2) — no tiene sentido dejarlo
+// disponible para reusar en otra sala si ya se sabe que no es un video real.
+async function readExistingVideoHead(filename) {
+  if (r2.isR2Enabled()) return r2.getObjectHead(filename, fileValidation.SNIFF_BYTES);
+  const fd = fs.openSync(path.join(UPLOAD_DIR, filename), 'r');
+  try {
+    const buffer = Buffer.alloc(fileValidation.SNIFF_BYTES);
+    const bytesRead = fs.readSync(fd, buffer, 0, fileValidation.SNIFF_BYTES, 0);
+    return buffer.slice(0, bytesRead);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+async function deleteExistingVideo(filename) {
+  if (r2.isR2Enabled()) return r2.deleteObject(filename);
+  fs.unlinkSync(path.join(UPLOAD_DIR, filename));
+}
+
+// Devuelve `{ valid: true }` o `{ valid: false, reason }`. Los errores de infraestructura (R2/disco
+// inalcanzable) se propagan (throw) en vez de devolverse como "inválido" — eso lo maneja cada caller
+// como el error 502 que ya usan para el resto de los fallos de R2, no como un 400 de contenido.
+async function rejectIfInvalidExistingVideo(filename) {
+  const head = await readExistingVideoHead(filename);
+  const result = await fileValidation.isValidVideoBuffer(head);
+  if (!result.valid) {
+    try {
+      await deleteExistingVideo(filename);
+    } catch (err) {
+      console.error('Error borrando de la biblioteca un archivo que no pasó la validación:', err.message);
+    }
+  }
+  return result;
 }
 
 // Conversión mínima SRT -> WebVTT: agrega cabecera y cambia el separador decimal de coma a punto en los timestamps.
@@ -1058,7 +1221,7 @@ app.post('/api/uploads/presign', requireUploadAuth, checkStorageLimits, async (r
   }
 });
 
-app.post('/create-room', requireUploadAuth, checkStorageLimits, upload.single('video'), async (req, res) => {
+app.post('/create-room', requireUploadAuth, checkStorageLimits, upload.single('video'), rejectIfInvalidVideo, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No llegó ningún video' });
   const roomId = makeRoomId();
   // Si quien crea la sala tiene una sesión iniciada (Fase 2bis), la sala queda "con dueño" desde el
@@ -1093,6 +1256,11 @@ app.post('/create-room-from-upload', requireUploadAuth, async (req, res) => {
   try {
     const { filename, password } = req.body || {};
     if (!(await isValidUploadReference(filename))) return res.status(400).json({ error: 'Ese archivo no existe' });
+    // Fase 2.5 del plan de producción: necesario sobre todo para el camino de subida directa a R2 por
+    // URL prefirmada (ver rejectIfInvalidExistingVideo más arriba) — acá es la primera vez que el
+    // server llega a mirar el contenido real de un archivo subido por ese camino.
+    const validation = await rejectIfInvalidExistingVideo(filename);
+    if (!validation.valid) return res.status(400).json({ error: `El video no pasó la validación de contenido: ${validation.reason}` });
     const roomId = makeRoomId();
     // Mismo criterio que /create-room: si hay sesión iniciada, la sala queda "con dueño" (ver
     // isRoomOwner()); si no, sigue el esquema anónimo de hostToken de siempre.
@@ -1107,7 +1275,7 @@ app.post('/create-room-from-upload', requireUploadAuth, async (req, res) => {
   }
 });
 
-app.post('/room/:id/change-video', requireUploadAuth, checkStorageLimits, upload.single('video'), async (req, res) => {
+app.post('/room/:id/change-video', requireUploadAuth, checkStorageLimits, upload.single('video'), rejectIfInvalidVideo, async (req, res) => {
   const room = rooms[req.params.id];
   if (!room) return res.status(404).json({ error: 'Sala no existe' });
   // Fase 2bis, "migración del rol de host": si la sala tiene dueño (room.ownerUserId), solo la sesión
@@ -1137,6 +1305,10 @@ app.post('/room/:id/change-video-from-upload', async (req, res) => {
   }
   try {
     if (!(await isValidUploadReference(filename))) return res.status(400).json({ error: 'Ese archivo no existe' });
+    // Fase 2.5 del plan de producción: mismo criterio que /create-room-from-upload (ver
+    // rejectIfInvalidExistingVideo más arriba).
+    const validation = await rejectIfInvalidExistingVideo(filename);
+    if (!validation.valid) return res.status(400).json({ error: `El video no pasó la validación de contenido: ${validation.reason}` });
   } catch (err) {
     console.error('Error validando cinta de biblioteca (R2):', err.message);
     return res.status(502).json({ error: 'No se pudo consultar Cloudflare R2 (revisa credenciales/conexión).' });
@@ -1165,6 +1337,17 @@ app.post('/room/:id/upload-subtitle', subtitleUpload.single('subtitle'), (req, r
   if (!['.srt', '.vtt'].includes(ext)) return res.status(400).json({ error: 'Solo se aceptan archivos .srt o .vtt' });
 
   let text = req.file.buffer.toString('utf8');
+
+  // Fase 2.5 del plan de producción: hasta acá solo se validaba la extensión del nombre de archivo —
+  // cualquier binario (o un video real) renombrado a ".srt"/".vtt" se aceptaba igual. Los subtítulos
+  // no tienen una firma binaria (son texto plano), así que la validación acá es de ESTRUCTURA: que
+  // tenga al menos un bloque de timestamp con la forma esperada, y que no tenga pinta de binario (ver
+  // lib/fileValidation.js para el detalle del criterio).
+  const validation = fileValidation.isValidSubtitleContent(text, ext);
+  if (!validation.valid) {
+    return res.status(400).json({ error: `El archivo no tiene una estructura de subtítulo válida: ${validation.reason}` });
+  }
+
   text = ext === '.srt' ? srtToVtt(text) : (text.trim().startsWith('WEBVTT') ? text : 'WEBVTT\n\n' + text);
 
   const filename = crypto.randomBytes(4).toString('hex') + '.vtt';
@@ -1348,6 +1531,14 @@ app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     const msg = err.code === 'LIMIT_FILE_SIZE' ? 'El archivo supera el límite permitido (8GB).' : err.message;
     return res.status(400).json({ error: msg });
+  }
+  // Fase 2.5 del plan de producción: un archivo que no pasó la validación por magic bytes durante el
+  // streaming a R2 (ver r2VideoStorage._handleFile) llega acá como cualquier otro error de subida —
+  // sin este chequeo, se reportaba como si fuera un fallo de R2/infraestructura (502), en vez de "el
+  // archivo que mandaste no es un video válido" (400, el mismo código que ya usan las otras dos rutas
+  // de esta fase, rejectIfInvalidVideo y rejectIfInvalidExistingVideo).
+  if (err.isVideoValidationError) {
+    return res.status(400).json({ error: err.message });
   }
   console.error('Error subiendo video:', err.message);
   const msg = r2.isR2Enabled()
