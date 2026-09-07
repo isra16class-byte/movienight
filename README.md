@@ -293,6 +293,21 @@ lo note y lo reinicie a mano. Qué conviene depende de dónde lo hospedes:
 El servidor expone además `GET /health` (alias `GET /healthz`): devuelve `200` si todo
 responde bien (incluyendo Redis y R2, si están configurados) o `503` con el detalle si algo
 falla — útil como healthcheck para el hosting/orquestador que elijas, o para un monitor externo.
+El detalle también muestra si Sentry está configurado; como no tiene un ping barato que no cree un
+evento, su ausencia nunca degrada el healthcheck.
+
+## Reporte de errores (Sentry)
+
+Para recibir excepciones de producción en el proyecto de Sentry ya creado, agregá su DSN al `.env`:
+
+```
+SENTRY_DSN=https://xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx@o000000.ingest.us.sentry.io/0000000
+```
+
+Es opcional: sin `SENTRY_DSN`, MovieNight arranca y funciona igual, sin intentar contactar Sentry.
+Solo se reportan errores; no se habilitan Logs, Tracing ni Profiling. Antes de enviar un evento se
+eliminan cookies y headers de autenticación, y se redactan contraseñas, `hostToken`, tokens y campos
+de sesión.
 
 ## Estructura del proyecto
 

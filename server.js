@@ -72,6 +72,12 @@ const fileValidation = require('./lib/fileValidation');
 // `console.log`/`console.error` de texto libre que usaba el server hasta acá. Ver lib/logger.js para
 // el detalle de por qué pino, el criterio de redacción de campos sensibles, y LOG_LEVEL/LOG_PRETTY.
 const logger = require('./lib/logger');
+const sentry = require('./lib/sentry');
+
+// SENTRY_DSN se lee después de loadDotEnv() (arriba), igual que DATABASE_URL/RESEND_API_KEY. Si no
+// está configurado, esto no hace nada y el resto del servidor conserva exactamente el mismo modo de
+// funcionamiento local que antes.
+sentry.init();
 
 // --- Manejo de errores no capturados (Fase 1.2 del plan de producción) ---------------------------
 // Sin esto, un error que se escapa de cualquier lugar del código (una excepción sincrónica que nadie
@@ -85,8 +91,10 @@ const logger = require('./lib/logger');
 // Esto SÍ significa que, sin la Fase 1.3 (proceso supervisado, ej. PM2) todavía implementada, el
 // servidor se queda caído hasta que alguien lo reinicie a mano — es la razón por la que el plan de
 // producción ordena 1.2 y 1.3 juntas dentro de la misma fase.
-process.on('uncaughtException', (err) => {
+process.on('uncaughtException', async (err) => {
   logger.fatal({ err }, 'Excepción no capturada — el proceso va a cerrarse');
+  sentry.captureException(err, { tags: { source: 'uncaughtException' } });
+  await sentry.flush();
   process.exit(1);
 });
 
@@ -97,6 +105,7 @@ process.on('uncaughtException', (err) => {
 // pueden ser puntuales de una sola operación (ej. una subida a R2 que falló para un solo usuario).
 process.on('unhandledRejection', (reason) => {
   logger.error({ err: reason }, 'Promesa rechazada sin manejar (revisar si falta un try/catch o un .catch)');
+  sentry.captureException(reason, { tags: { source: 'unhandledRejection' } });
 });
 
 const app = express();
@@ -347,6 +356,12 @@ const generalApiLimiter = rateLimit({
 });
 app.use(generalApiLimiter);
 
+// Reporta errores HTTP ya contenidos por los handlers de cada ruta. No adjuntamos req manualmente:
+// las integraciones del SDK lo asocian cuando corresponde y beforeSend() redacta datos sensibles.
+function reportHttpError(err, req, route) {
+  sentry.captureException(err, { tags: { source: 'http', route } });
+}
+
 // --- Contraseña de biblioteca (V9) --------------------------------------------------------------
 // Antes, /api/uploads (listar) y DELETE /api/uploads/:filename (borrar) no pedían nada: cualquiera
 // que tuviera la URL base del server —por ejemplo, alguien a quien le reenviaron el link de UNA sala—
@@ -385,6 +400,7 @@ async function requireLibraryAuth(req, res, next) {
     next();
   } catch (err) {
     logger.error({ err }, 'Error verificando la contraseña de biblioteca');
+    reportHttpError(err, req, 'requireLibraryAuth');
     res.status(500).json({ error: 'Error interno verificando la contraseña.' });
   }
 }
@@ -481,6 +497,7 @@ async function requireUploadAuth(req, res, next) {
     return res.status(401).json({ error: 'Contraseña incorrecta.', attemptsLeft });
   } catch (err) {
     logger.error({ err }, 'Error verificando la contraseña de subida');
+    reportHttpError(err, req, 'requireUploadAuth');
     res.status(500).json({ error: 'Error interno verificando la contraseña.' });
   }
 }
@@ -581,6 +598,7 @@ app.post('/auth/register', requireDbEnabled, async (req, res) => {
       return res.status(409).json({ error: 'Ya existe una cuenta con ese email.' });
     }
     logger.error({ err }, 'Error registrando usuario');
+    reportHttpError(err, req, '/auth/register');
     res.status(500).json({ error: 'No se pudo completar el registro. Intentá de nuevo en un momento.' });
   }
 });
@@ -630,6 +648,7 @@ app.post('/auth/login', requireDbEnabled, async (req, res) => {
     req.session.regenerate((err) => {
       if (err) {
         logger.error({ err }, 'Error creando la sesión tras login');
+        reportHttpError(err, req, '/auth/login');
         return res.status(500).json({ error: 'No se pudo iniciar sesión. Intentá de nuevo en un momento.' });
       }
       req.session.userId = user.id;
@@ -640,6 +659,7 @@ app.post('/auth/login', requireDbEnabled, async (req, res) => {
       req.session.save((saveErr) => {
         if (saveErr) {
           logger.error({ err: saveErr }, 'Error guardando la sesión tras login');
+          reportHttpError(saveErr, req, '/auth/login');
           return res.status(500).json({ error: 'No se pudo iniciar sesión. Intentá de nuevo en un momento.' });
         }
         res.json({ id: user.id, email: user.email });
@@ -647,6 +667,7 @@ app.post('/auth/login', requireDbEnabled, async (req, res) => {
     });
   } catch (err) {
     logger.error({ err }, 'Error en login');
+    reportHttpError(err, req, '/auth/login');
     res.status(500).json({ error: 'No se pudo iniciar sesión. Intentá de nuevo en un momento.' });
   }
 });
@@ -660,6 +681,7 @@ app.post('/auth/logout', (req, res) => {
   req.session.destroy((err) => {
     if (err) {
       logger.error({ err }, 'Error cerrando la sesión');
+      reportHttpError(err, req, '/auth/logout');
       return res.status(500).json({ error: 'No se pudo cerrar la sesión. Intentá de nuevo en un momento.' });
     }
     res.clearCookie('movienight.sid');
@@ -712,11 +734,13 @@ app.post('/auth/forgot-password', requireDbEnabled, async (req, res) => {
         // genérico) — pero sí queda bien visible en los logs del server, porque acá el fallo es real
         // (Resend caído, API key mal puesta, etc.) y nadie más se va a enterar si no se loguea.
         logger.error({ err }, 'Error mandando el email de reseteo de contraseña');
+        reportHttpError(err, req, '/auth/forgot-password');
       }
     }
     res.json(genericResponse);
   } catch (err) {
     logger.error({ err }, 'Error en forgot-password');
+    reportHttpError(err, req, '/auth/forgot-password');
     // Mismo mensaje genérico incluso ante un error interno: no hay forma de distinguirlo desde afuera
     // de "no encontré ese email", y no tiene sentido filtrar detalle de un error de base de datos acá.
     res.json(genericResponse);
@@ -745,6 +769,7 @@ app.post('/auth/reset-password', requireDbEnabled, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     logger.error({ err }, 'Error en reset-password');
+    reportHttpError(err, req, '/auth/reset-password');
     res.status(500).json({ error: 'No se pudo cambiar la contraseña. Intentá de nuevo en un momento.' });
   }
 });
@@ -1031,6 +1056,7 @@ async function rejectIfInvalidVideo(req, res, next) {
     next();
   } catch (err) {
     logger.error({ err }, 'Error validando video subido (modo disco)');
+    reportHttpError(err, req, 'rejectIfInvalidVideo');
     res.status(500).json({ error: 'No se pudo validar el video subido.' });
   }
 }
@@ -1216,6 +1242,7 @@ async function checkStorageLimits(req, res, next) {
     // Falla "abierta" a propósito: esto es un límite de costo, no de seguridad — un error listando la
     // biblioteca (ej. R2 momentáneamente lento) no debería bloquear una subida legítima.
     logger.error({ err }, 'Error chequeando límites de storage de la biblioteca (se deja pasar la subida)');
+    reportHttpError(err, req, 'checkStorageLimits');
     next();
   }
 }
@@ -1233,6 +1260,7 @@ app.post('/api/uploads/presign', requireUploadAuth, checkStorageLimits, async (r
     res.json({ key, uploadUrl, expiresIn: R2_PRESIGN_EXPIRES_SECONDS });
   } catch (err) {
     logger.error({ err }, 'Error generando URL prefirmada de R2');
+    reportHttpError(err, req, '/api/uploads/presign');
     res.status(502).json({ error: 'No se pudo preparar la subida directa a Cloudflare R2 (revisá credenciales/conexión).' });
   }
 });
@@ -1287,6 +1315,7 @@ app.post('/create-room-from-upload', requireUploadAuth, async (req, res) => {
     res.json({ roomId, hostToken: room.hostToken });
   } catch (err) {
     logger.error({ err }, 'Error creando sala desde biblioteca (R2)');
+    reportHttpError(err, req, '/create-room-from-upload');
     res.status(502).json({ error: 'No se pudo consultar Cloudflare R2 (revisa credenciales/conexión).' });
   }
 });
@@ -1327,6 +1356,7 @@ app.post('/room/:id/change-video-from-upload', async (req, res) => {
     if (!validation.valid) return res.status(400).json({ error: `El video no pasó la validación de contenido: ${validation.reason}` });
   } catch (err) {
     logger.error({ err, filename }, 'Error validando cinta de biblioteca (R2)');
+    reportHttpError(err, req, '/room/:id/change-video-from-upload');
     return res.status(502).json({ error: 'No se pudo consultar Cloudflare R2 (revisa credenciales/conexión).' });
   }
   room.videoFile = videoUrlForExistingFile(filename);
@@ -1463,6 +1493,7 @@ app.get(['/health', '/healthz'], async (req, res) => {
   // la pena hacerlo en cada consulta al healthcheck) — acá solo se reporta si está configurado o no,
   // igual que se hace con R2/Postgres cuando no aplican; nunca cuenta como una falla del healthcheck.
   checks.email = { enabled: mailer.isEnabled(), ok: true };
+  checks.sentry = sentry.health();
 
   res.status(healthy ? 200 : 503).json({
     status: healthy ? 'ok' : 'error',
@@ -1497,6 +1528,7 @@ app.get('/api/uploads', requireLibraryAuth, async (req, res) => {
       return res.json(list);
     } catch (err) {
       logger.error({ err }, 'Error listando la biblioteca en Cloudflare R2');
+      reportHttpError(err, req, '/api/uploads');
       return res.status(502).json({ error: 'No se pudo listar la biblioteca de Cloudflare R2 (revisa credenciales/conexión).' });
     }
   }
@@ -1519,6 +1551,7 @@ app.delete('/api/uploads/:filename', requireLibraryAuth, async (req, res) => {
     if (!(await isValidUploadReference(filename))) return res.status(400).json({ error: 'Ese archivo no existe' });
   } catch (err) {
     logger.error({ err, filename }, 'Error validando cinta antes de borrar (R2)');
+    reportHttpError(err, req, '/api/uploads/:filename');
     return res.status(502).json({ error: 'No se pudo consultar Cloudflare R2 (revisa credenciales/conexión).' });
   }
   if (r2.isR2Enabled()) {
@@ -1527,6 +1560,7 @@ app.delete('/api/uploads/:filename', requireLibraryAuth, async (req, res) => {
       return res.json({ ok: true });
     } catch (err) {
       logger.error({ err, filename }, 'Error borrando de Cloudflare R2');
+      reportHttpError(err, req, '/api/uploads/:filename');
       return res.status(502).json({ error: 'No se pudo borrar el archivo de Cloudflare R2.' });
     }
   }
@@ -1557,6 +1591,7 @@ app.use((err, req, res, next) => {
     return res.status(400).json({ error: err.message });
   }
   logger.error({ err }, 'Error subiendo video');
+  reportHttpError(err, req, 'upload middleware');
   const msg = r2.isR2Enabled()
     ? 'No se pudo subir el video a Cloudflare R2 (revisa credenciales/conexión en el .env).'
     : 'No se pudo guardar el video.';
@@ -1636,6 +1671,7 @@ function safeSocketHandler(eventName, handler) {
       // socket.id siempre está disponible; username puede no estarlo todavía si el error pasa antes
       // del join-room exitoso.
       logger.error({ err, event: eventName, socketId: this.id, username: this.username || null }, 'Error en handler de socket');
+      sentry.captureException(err, { tags: { source: 'socket', event: eventName } });
     };
     try {
       // Fase 2.1 del plan de producción: 'join-room' ahora verifica la contraseña con bcrypt

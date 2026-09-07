@@ -1,5 +1,19 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-07 — Fase 4: reporte de errores con Sentry
+
+- Nuevo `lib/sentry.js` sobre `@sentry/node`. `SENTRY_DSN` se toma desde el `.env` ya cargado por
+  `loadDotEnv()` y nunca se hardcodea. Sin DSN, Sentry no se inicializa y MovieNight sigue corriendo
+  sin ninguna dependencia externa adicional.
+- Captura centralizada de excepciones no manejadas, rutas HTTP y `safeSocketHandler`. Las integraciones
+  globales automáticas del SDK se desactivan para no duplicar los eventos que ya manejan los handlers de
+  `process`; en `uncaughtException` se espera brevemente el vaciado de la cola antes de salir.
+- Antes de enviar eventos se eliminan cookies y headers de autenticación, y se redactan contraseñas,
+  `hostToken`, tokens y datos de sesión en cualquier nivel. Sentry queda solo para Error Monitoring:
+  sin Logs, Tracing ni Profiling.
+- `/health` ahora expone `checks.sentry` como dependencia opcional. La ausencia del DSN se ve como
+  `{ enabled: false, ok: true }`, sin degradar el estado general.
+
 ## 2026-09-06 — Fase 4: logs estructurados (JSON) en vez de `console.log`/`console.error`
 
 - **Motivo**: hasta ahora todo el server logueaba con `console.log`/`console.error`

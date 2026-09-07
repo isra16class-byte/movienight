@@ -736,8 +736,10 @@ instancia alcanza por ahora. Queda documentada para cuando haga falta retomarla)
 - [ ] Logs estructurados (JSON) en vez de `console.log` — más fácil de indexar en
       cualquier servicio de logs (Datadog, Better Stack, CloudWatch, etc. según
       el hosting elegido).
-- [ ] Reporte de errores (ej. **Sentry**) para enterarse de excepciones en
-      producción sin depender de que alguien mire la consola del server a mano.
+- [x] Reporte de errores (**Sentry**) para enterarse de excepciones en
+      producción sin depender de que alguien mire la consola del server a mano. Opcional vía
+      `SENTRY_DSN`: sin configurarlo, el server sigue funcionando igual. Captura errores HTTP, de
+      Socket.io y globales sin duplicarlos, con redacción de secretos antes de enviar.
 - [ ] Métricas básicas: salas activas, usuarios conectados, uploads en curso,
       errores de R2 — aunque sea un endpoint simple `/metrics` para empezar,
       antes de pensar en Prometheus/Grafana.

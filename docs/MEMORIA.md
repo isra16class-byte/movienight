@@ -42,6 +42,7 @@ movienight/
   lib/mailer.js            # Envío de emails vía Resend, para recuperación de contraseña (Fase 2bis)
   lib/fileValidation.js    # Validación real de video (magic bytes) y subtítulos (estructura) — Fase 2.5
   lib/logger.js            # Logger estructurado (JSON) sobre pino, con redacción de campos sensibles — Fase 4
+  lib/sentry.js            # Reporte opcional de excepciones a Sentry, con redacción de secretos — Fase 4
   scripts/r2-cleanup-multipart.js
   public/
     index.html            # Crear sala / unirse por código; también login/registro/logout (Fase 2bis)
@@ -130,7 +131,7 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
-**Fase 4 (observabilidad) en curso — logs estructurados completo (2026-09-06)**:
+**Fase 4 (observabilidad) en curso — logs estructurados + reporte de errores (Sentry) completo (2026-09-07)**:
 nuevo `lib/logger.js` sobre **pino** (JSON por línea) que reemplaza los
 `console.log`/`console.error` de texto libre que usaba el server hasta acá —
 `server.js`, `lib/db.js`, `lib/roomStore.js` y `lib/mailer.js` ahora loguean
@@ -147,9 +148,13 @@ están pensados para leerse en una terminal, no para un sistema de logs.
 Probado: arranque completo con `DISABLE_REDIS=1` (JSON válido línea por
 línea, campos esperados), graceful shutdown vía `SIGTERM` con el mismo
 formato, y la redacción tapando correctamente contraseñas/tokens/cookies de
-prueba anidados. Detalle completo en `docs/CHANGELOG.md`. **Quedan
-pendientes los otros tres puntos de la Fase 4**: reporte de errores (Sentry,
-todavía sin evaluar cuenta/proveedor), métricas básicas (`/metrics`), y
+prueba anidados. Sentry se habilita solo con `SENTRY_DSN`; sin esa variable,
+el server no contacta servicios externos y funciona igual. Captura excepciones
+HTTP, de handlers de Socket.io y globales una sola vez, y antes de enviarlas
+elimina cookies/headers de autenticación y redacta contraseñas, `hostToken`,
+tokens y datos de sesión. Su estado opcional figura en `/health` como
+`checks.sentry`. Detalle completo en `docs/CHANGELOG.md`. **Quedan pendientes
+los dos puntos restantes de la Fase 4**: métricas básicas (`/metrics`) y
 alertas mínimas (probablemente vía Resend, ya integrado desde la Fase 2bis).
 
 **Fase 2.5 (validación real de archivos subidos) completa (2026-09-07)**:
