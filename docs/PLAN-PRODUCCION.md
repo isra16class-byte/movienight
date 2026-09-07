@@ -740,9 +740,15 @@ instancia alcanza por ahora. Queda documentada para cuando haga falta retomarla)
       producción sin depender de que alguien mire la consola del server a mano. Opcional vía
       `SENTRY_DSN`: sin configurarlo, el server sigue funcionando igual. Captura errores HTTP, de
       Socket.io y globales sin duplicarlos, con redacción de secretos antes de enviar.
-- [ ] Métricas básicas: salas activas, usuarios conectados, uploads en curso,
-      errores de R2 — aunque sea un endpoint simple `/metrics` para empezar,
-      antes de pensar en Prometheus/Grafana.
+- [x] Métricas básicas ✅ (completa el 2026-09-07): `GET /metrics` — salas
+      activas, usuarios conectados, uploads en curso, errores de R2 vistos
+      hasta ahora. `lib/metrics.js` (contadores en memoria, una sola
+      instancia según Fase 0) y `withR2ErrorTracking` en `lib/r2.js`. Se
+      empezó con un endpoint simple, tal como decía este ítem — no hace
+      falta Prometheus/Grafana todavía. Protegido opcionalmente con
+      `METRICS_TOKEN`, excluido del rate limiter general (mismo criterio
+      que `/health`). Detalle completo en `docs/MEMORIA.md` y
+      `docs/CHANGELOG.md`.
 - [ ] Alertas mínimas: si el healthcheck (1.5) falla repetidas veces, o si R2
       empieza a devolver errores, alguien se tiene que enterar (email, Slack,
       lo que sea) sin tener que estar mirando la consola.
@@ -834,10 +840,13 @@ Con las decisiones de Fase 0 ya tomadas, el orden recomendado queda así:
    real, presign → PUT directo → confirmación de sala), incluyendo el caso
    de un archivo inválido subido por ese camino (se rechaza y se borra del
    bucket correctamente).
-8. **Fase 3 queda pospuesta** (una instancia alcanza por ahora, según Fase 0) y
+8. **Fase 4 en curso** (observabilidad): logs estructurados ✅, Sentry ✅ y
+   métricas básicas ✅ (completa el 2026-09-07, ver `docs/MEMORIA.md`) ya
+   resueltos. Queda pendiente el último punto: alertas mínimas.
+9. **Fase 3 queda pospuesta** (una instancia alcanza por ahora, según Fase 0) y
    **Fase 6 de multi-tenancy queda descartada** — no vuelven a este orden salvo
    que cambie la necesidad real de escala. Lo que queda pendiente ahora es
-   **Fase 4** (observabilidad), **Fase 5** (tests/CI/deploy) y, dentro de Fase
+   **Fase 4** (alertas mínimas), **Fase 5** (tests/CI/deploy) y, dentro de Fase
    6, términos de uso/privacidad.
 
 ---

@@ -43,6 +43,7 @@ movienight/
   lib/fileValidation.js    # Validación real de video (magic bytes) y subtítulos (estructura) — Fase 2.5
   lib/logger.js            # Logger estructurado (JSON) sobre pino, con redacción de campos sensibles — Fase 4
   lib/sentry.js            # Reporte opcional de excepciones a Sentry, con redacción de secretos — Fase 4
+  lib/metrics.js           # Contadores en memoria para GET /metrics (uploads en curso, errores de R2) — Fase 4
   scripts/r2-cleanup-multipart.js
   public/
     index.html            # Crear sala / unirse por código; también login/registro/logout (Fase 2bis)
@@ -130,6 +131,35 @@ mover la barra de progreso — cualquier intento se revierte.
 - Cada cambio importante debería reflejarse acá (este archivo, `docs/MEMORIA.md`, si cambia algo esencial) y como entrada nueva en `docs/CHANGELOG.md` — no en los archivos de `docs/historico/`, que quedaron congelados como registro del estado anterior a esta reorganización.
 
 ## Por dónde seguir
+
+**Fase 4 (observabilidad) en curso — métricas básicas completas (2026-09-07)**: nuevo
+`lib/metrics.js` con contadores en memoria (una sola instancia, ver Fase 0 —
+no hace falta un backend compartido tipo Redis para esto). Nueva ruta
+`GET /metrics` que expone salas activas (`Object.keys(rooms).length`),
+usuarios conectados (`io.engine.clientsCount`), subidas de video en curso, y
+errores de R2 vistos desde que arrancó el proceso (cuántos y el último). El
+conteo de subidas en curso envuelve `upload.single('video')` (`trackVideoUpload`
+en `server.js`) — cubre los dos modos que pasan por el proceso (disco local y
+streaming a R2 vía `r2VideoStorage`); la subida directa a R2 por URL
+prefirmada (Fase 2.7) queda deliberadamente afuera de este contador, porque
+el server nunca ve esos bytes en ese camino. El conteo de errores de R2 vive
+en `lib/r2.js` (`withR2ErrorTracking`, envuelve cada función que habla de
+verdad con el bucket) y distingue el 404 de `objectExists` (resultado
+válido, "no existe") de una falla real de R2. Protegido opcionalmente con
+`METRICS_TOKEN` (header `x-metrics-token`) — sin la variable, el endpoint
+queda público, mismo criterio que otras variables opcionales del proyecto
+(`LIBRARY_PASSWORD`, `SENTRY_DSN`). Excluido del rate limiter general, igual
+que `/health`. Probado end-to-end en sandbox: `/metrics` sin token (público),
+con `METRICS_TOKEN` configurada (401 sin header o con uno incorrecto, 200 con
+el correcto), `uploads.inProgress` subiendo a 1 durante una subida real (con
+un video real generado con ffmpeg, agrandado con datos random para que la
+transferencia tardara lo suficiente para observarlo) y volviendo a 0 al
+terminar, y `r2.errorCount`/`r2.lastError` incrementando correctamente al
+configurar credenciales de R2 inválidas (mismo error que además hace fallar
+`/health`, confirmando que ambos caminos ven la misma falla real).
+**Queda pendiente el último punto de la Fase 4**: alertas mínimas
+(probablemente vía Resend, ya integrado desde la Fase 2bis) si el
+healthcheck falla repetidas veces o si R2 empieza a devolver errores.
 
 **Fase 4 (observabilidad) en curso — logs estructurados + reporte de errores (Sentry) completo (2026-09-07)**:
 nuevo `lib/logger.js` sobre **pino** (JSON por línea) que reemplaza los

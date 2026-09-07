@@ -309,6 +309,24 @@ Solo se reportan errores; no se habilitan Logs, Tracing ni Profiling. Antes de e
 eliminan cookies y headers de autenticación, y se redactan contraseñas, `hostToken`, tokens y campos
 de sesión.
 
+## Métricas básicas
+
+`GET /metrics` da un panorama rápido de qué está pasando dentro del proceso: salas activas, usuarios
+conectados (conexiones de Socket.io ahora mismo), subidas de video en curso, y cuántos errores de R2
+se vieron desde que arrancó el proceso (con el mensaje y la fecha del último). Es un primer paso
+simple, no un reemplazo de un sistema de métricas real (Prometheus/Grafana) si más adelante hace
+falta ver tendencias en el tiempo.
+
+Por defecto el endpoint es público. Para protegerlo, definí `METRICS_TOKEN` en el `.env` y mandá el
+mismo valor en el header `x-metrics-token` al consultarlo:
+
+```
+curl -H "x-metrics-token: tu-token" https://tu-dominio.com/metrics
+```
+
+Sin la variable definida, cualquiera puede consultarlo sin autenticarse — cómodo para desarrollo
+local o un grupo chico que confía en su propia red, pero conviene fijarla en un despliegue real.
+
 ## Estructura del proyecto
 
 ```
@@ -319,6 +337,7 @@ movienight/
   cloudflared-config.example.yml  # Plantilla para túnel con nombre / dominio fijo (opcional, ver README)
   lib/
     r2.js                 # Cloudflare R2 (opcional, ver sección arriba) — subir/listar/borrar videos en R2
+    metrics.js             # Contadores en memoria para GET /metrics (Fase 4 del plan de producción)
   public/
     index.html            # Página para crear sala
     room.html              # Página de la sala (reproductor, chat, controles)

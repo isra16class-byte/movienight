@@ -1,5 +1,35 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-07 — Fase 4: métricas básicas
+
+- Nuevo `lib/metrics.js`: contadores en memoria (`uploadsInProgress`, `r2ErrorCount`, `r2LastError`),
+  con `uploadStarted()`/`uploadFinished()`/`recordR2Error()`/`snapshot()`. En memoria a propósito —
+  la Fase 0 ya decidió que una sola instancia alcanza por ahora, no hace falta un backend compartido
+  tipo Redis para esto.
+- Nueva ruta `GET /metrics`: salas activas (`Object.keys(rooms).length`), usuarios conectados
+  (`io.engine.clientsCount`), subidas de video en curso y errores de R2 vistos desde que arrancó el
+  proceso (cantidad + último mensaje y fecha). Excluida del rate limiter general, mismo criterio que
+  `/health`.
+- Protección opcional con `METRICS_TOKEN` (header `x-metrics-token`): sin la variable, el endpoint
+  queda público; con ella, responde 401 sin el header o con uno incorrecto. Mismo criterio que otras
+  variables opcionales del proyecto (`LIBRARY_PASSWORD`, `SENTRY_DSN`).
+- `lib/r2.js`: nuevo wrapper `withR2ErrorTracking()` envolviendo cada función que habla de verdad con
+  el bucket (`uploadStream`, `getPresignedUploadUrl`, `listObjects`, `deleteObject`, `getObjectHead`,
+  `testConnection`, `listMultipartUploads`, `abortMultipartUpload`). `objectExists()` solo cuenta el
+  error cuando es una falla real de R2, no cuando el objeto simplemente no existe (404 válido).
+- `server.js`: nuevo `trackVideoUpload()` envolviendo `upload.single('video')` en `/create-room` y
+  `/room/:id/change-video`, para que `uploads.inProgress` refleje los dos modos que pasan por el
+  proceso (disco local y streaming a R2 vía `r2VideoStorage`). La subida directa a R2 por URL
+  prefirmada (Fase 2.7) queda deliberadamente afuera de este contador: el server nunca ve esos bytes
+  en ese camino.
+- **Probado end-to-end en sandbox**: `/metrics` sin `METRICS_TOKEN` configurada (público); con la
+  variable configurada, 401 sin header y con header incorrecto, 200 con el correcto.
+  `uploads.inProgress` confirmado en 1 durante una subida real (video real generado con `ffmpeg`,
+  agrandado con datos aleatorios para que la transferencia tardara lo suficiente para observarlo por
+  polling) y de vuelta en 0 al terminar (incluso en el camino de error, sala inexistente). El conteo
+  de errores de R2 confirmado configurando credenciales inválidas: `errorCount` subió a 1 con el
+  mensaje y la fecha correctos, mismo error que además hizo fallar `/health` al mismo tiempo.
+
 ## 2026-09-07 — Fase 4: reporte de errores con Sentry
 
 - Nuevo `lib/sentry.js` sobre `@sentry/node`. `SENTRY_DSN` se toma desde el `.env` ya cargado por

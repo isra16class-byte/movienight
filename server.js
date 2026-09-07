@@ -74,6 +74,12 @@ const fileValidation = require('./lib/fileValidation');
 const logger = require('./lib/logger');
 const sentry = require('./lib/sentry');
 
+// Métricas básicas en memoria (Fase 4 del plan de producción, "métricas básicas") — contadores que
+// expone `GET /metrics` más abajo (salas activas, usuarios conectados, subidas en curso, errores de
+// R2). Ver lib/metrics.js para el detalle de qué se cuenta y por qué es en memoria (una sola
+// instancia, Fase 0).
+const metrics = require('./lib/metrics');
+
 // SENTRY_DSN se lee después de loadDotEnv() (arriba), igual que DATABASE_URL/RESEND_API_KEY. Si no
 // está configurado, esto no hace nada y el resto del servidor conserva exactamente el mismo modo de
 // funcionamiento local que antes.
@@ -348,10 +354,10 @@ const generalApiLimiter = rateLimit({
   // mismo cliente no puede esquivar el límite rotando de dirección dentro del mismo bloque) — no
   // hacerlo con un keyGenerator custom es un error de validación al arrancar, no solo un warning.
   keyGenerator: (req) => ipKeyGenerator(clientIp(req)),
-  // El healthcheck (Fase 1.5) puede consultarse seguido por un orquestador/hosting — no tiene
-  // sentido que compita por el mismo cupo que el resto de la API ni que un chequeo automatizado
-  // termine bloqueado.
-  skip: (req) => req.path === '/health' || req.path === '/healthz',
+  // El healthcheck (Fase 1.5) y las métricas (Fase 4) pueden consultarse seguido por un
+  // orquestador/hosting o un monitor externo — no tiene sentido que compitan por el mismo cupo que
+  // el resto de la API ni que un chequeo automatizado termine bloqueado.
+  skip: (req) => req.path === '/health' || req.path === '/healthz' || req.path === '/metrics',
   message: { error: 'Demasiadas solicitudes desde esta IP. Esperá un momento y volvé a intentar.' }
 });
 app.use(generalApiLimiter);
@@ -382,6 +388,20 @@ const libraryPasswordWasGenerated = !process.env.LIBRARY_PASSWORD;
 // variable de entorno o se genera de nuevo al arrancar), así que a diferencia de room.passwordHash
 // no hace falta lógica de migración acá: siempre se calcula fresco con el esquema nuevo.
 let libraryPasswordHash = null;
+
+// --- Fase 4 del plan de producción: proteger /metrics opcionalmente -----------------------------
+// A diferencia de /health (que solo dice "sano sí/no"), /metrics expone conteos operativos (salas
+// activas, usuarios conectados) que preferimos no dejar 100% públicos por defecto en producción real
+// — mismo criterio "opcional, con escape hatch documentado" que ya usa el resto del proyecto
+// (LIBRARY_PASSWORD, SENTRY_DSN, etc.). Sin METRICS_TOKEN configurada, /metrics queda público (cómodo
+// para desarrollo local o para un grupo chico que confía en su propia red); si se configura, hace
+// falta mandarla en el header `x-metrics-token` para poder leerlo.
+const METRICS_TOKEN = process.env.METRICS_TOKEN || null;
+function requireMetricsAuth(req, res, next) {
+  if (!METRICS_TOKEN) return next();
+  if (req.get('x-metrics-token') === METRICS_TOKEN) return next();
+  res.status(401).json({ error: 'Falta o es inválido el header x-metrics-token.' });
+}
 
 // --- Fase 2bis, "la biblioteca deja de depender de una única LIBRARY_PASSWORD" (2026-09-06) ------
 // Con cuentas reales ya en pie, tener una sesión iniciada alcanza por sí solo para listar/borrar la
@@ -1016,6 +1036,23 @@ const r2VideoStorage = {
 const videoStorage = r2.isR2Enabled() ? r2VideoStorage : storage;
 const upload = multer({ storage: videoStorage, limits: { fileSize: 8 * 1024 * 1024 * 1024 } });
 
+// --- Fase 4 del plan de producción: contar subidas de video en curso para /metrics --------------
+// Envuelve `upload.single('video')` para que `metrics.uploadsInProgress` refleje los dos modos que
+// pasan por este proceso (disco local y streaming a R2 vía `r2VideoStorage._handleFile`) — la subida
+// directa a R2 por URL prefirmada (Fase 2.7) no pasa por acá porque el server nunca ve esos bytes, ver
+// lib/metrics.js. `metrics.uploadFinished()` se llama tanto si Multer termina bien como si termina en
+// error (archivo inválido, límite de tamaño, etc.) — lo que importa contar es "en curso", no "con éxito".
+function trackVideoUpload(multerMiddleware) {
+  return (req, res, next) => {
+    metrics.uploadStarted();
+    multerMiddleware(req, res, (err) => {
+      metrics.uploadFinished();
+      next(err);
+    });
+  };
+}
+const uploadVideoTracked = trackVideoUpload(upload.single('video'));
+
 // A partir del `req.file` que deja Multer (con cualquiera de los dos motores de arriba), arma la URL
 // que se guarda en `room.videoFile` y se manda tal cual al cliente (`room.html` hace
 // `player.src = videoFile` directo, ver 'room-data'/'video-changed') — por eso puede ser tanto una
@@ -1265,7 +1302,7 @@ app.post('/api/uploads/presign', requireUploadAuth, checkStorageLimits, async (r
   }
 });
 
-app.post('/create-room', requireUploadAuth, checkStorageLimits, upload.single('video'), rejectIfInvalidVideo, async (req, res) => {
+app.post('/create-room', requireUploadAuth, checkStorageLimits, uploadVideoTracked, rejectIfInvalidVideo, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No llegó ningún video' });
   const roomId = makeRoomId();
   // Si quien crea la sala tiene una sesión iniciada (Fase 2bis), la sala queda "con dueño" desde el
@@ -1320,7 +1357,7 @@ app.post('/create-room-from-upload', requireUploadAuth, async (req, res) => {
   }
 });
 
-app.post('/room/:id/change-video', requireUploadAuth, checkStorageLimits, upload.single('video'), rejectIfInvalidVideo, async (req, res) => {
+app.post('/room/:id/change-video', requireUploadAuth, checkStorageLimits, uploadVideoTracked, rejectIfInvalidVideo, async (req, res) => {
   const room = rooms[req.params.id];
   if (!room) return res.status(404).json({ error: 'Sala no existe' });
   // Fase 2bis, "migración del rol de host": si la sala tiene dueño (room.ownerUserId), solo la sesión
@@ -1499,6 +1536,37 @@ app.get(['/health', '/healthz'], async (req, res) => {
     status: healthy ? 'ok' : 'error',
     uptime: process.uptime(),
     checks
+  });
+});
+
+// --- Métricas básicas (Fase 4 del plan de producción, "métricas básicas") ------------------------
+// A diferencia de /health (¿está sano el proceso?), esto da un panorama operativo simple de qué está
+// pasando adentro: cuántas salas hay activas, cuánta gente conectada, si hay subidas de video en
+// curso, y si R2 viene fallando. Pensado como primer paso ("aunque sea un endpoint simple para
+// empezar"), no como reemplazo de un sistema de métricas real (Prometheus/Grafana) si más adelante
+// hace falta ver tendencias en el tiempo — para eso, `checks.sentry` (arriba) y este endpoint no
+// alcanzan, haría falta un backend de series de tiempo de verdad.
+app.get('/metrics', requireMetricsAuth, (req, res) => {
+  const snapshot = metrics.snapshot();
+  res.json({
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    rooms: {
+      active: Object.keys(rooms).length
+    },
+    // `io.engine.clientsCount` cuenta conexiones de Socket.io activas ahora mismo — no es lo mismo
+    // que "personas distintas" (alguien con dos pestañas cuenta dos veces), pero es el número que
+    // mejor refleja carga real del server en este momento, y es lo mismo que ya usa `sweepExpiredRooms`
+    // indirectamente al mirar `io.sockets.adapter.rooms`.
+    usersConnected: io.engine.clientsCount,
+    uploads: {
+      inProgress: snapshot.uploadsInProgress
+    },
+    r2: {
+      enabled: r2.isR2Enabled(),
+      errorCount: snapshot.r2ErrorCount,
+      lastError: snapshot.r2LastError
+    }
   });
 });
 
