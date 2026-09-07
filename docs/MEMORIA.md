@@ -156,6 +156,13 @@ tokens y datos de sesión. Su estado opcional figura en `/health` como
 `checks.sentry`. Detalle completo en `docs/CHANGELOG.md`. **Quedan pendientes
 los dos puntos restantes de la Fase 4**: métricas básicas (`/metrics`) y
 alertas mínimas (probablemente vía Resend, ya integrado desde la Fase 2bis).
+En la verificación end-to-end se encontró y corrigió un bug de compatibilidad
+con `@sentry/node` 10.73.0: se había pasado una función a `defaultIntegrations`,
+pero esa opción exige un array y el SDK fallaba con `defaultIntegrations.forEach
+is not a function`, dejando Sentry deshabilitado. El filtro se movió a
+`integrations`, que sí acepta callback. La misma auditoría agregó
+`libraryPassword` a la regex de redacción, porque esa clave puede llegar por
+query/body y no coincidía antes.
 
 **Fase 2.5 (validación real de archivos subidos) completa (2026-09-07)**:
 nuevo `lib/fileValidation.js` con `isValidVideoBuffer()` (magic bytes vía

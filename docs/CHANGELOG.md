@@ -13,6 +13,13 @@
   sin Logs, Tracing ni Profiling.
 - `/health` ahora expone `checks.sentry` como dependencia opcional. La ausencia del DSN se ve como
   `{ enabled: false, ok: true }`, sin degradar el estado general.
+- **Bug encontrado en la verificación end-to-end (2026-09-07):** con `@sentry/node` 10.73.0,
+  `defaultIntegrations` no acepta la función usada originalmente: el SDK intentaba ejecutar
+  `.forEach` sobre ella, inicializaba Sentry en falso y emitía `defaultIntegrations.forEach is not a
+  function`. La causa raíz fue usar el callback de `integrations` en la opción equivocada; el fix fue
+  mover allí el filtro de `OnUncaughtException`/`OnUnhandledRejection`. Además, la auditoría de
+  `beforeSend()` encontró que `libraryPassword` (query/body) no coincidía con la regex; se agregó
+  explícitamente para evitar enviar esa contraseña a Sentry.
 
 ## 2026-09-06 — Fase 4: logs estructurados (JSON) en vez de `console.log`/`console.error`
 
