@@ -224,13 +224,27 @@ tipo de error (motivo completo, con la comparación contra
 `lib/db.js::ping()`, en `docs/CHANGELOG.md` y en el comentario del propio
 `lib/adminAuth.js`).
 
-**Pendiente de investigar aparte, no bloquea el panel**: la misma
-verificación no pudo confirmar de forma concluyente (con Playwright, dos
-contextos de navegador) que el sync automático del reproductor llegue al
-invitado ni que el composer de chat quede visible al cambiar el estado del
-reproductor. No es necesariamente un bug nuevo ni está relacionado al panel
-de admin — antes de asumir que es real, conviene revisarlo con logs de
-consola/red del navegador.
+**Composer de chat al cambiar el estado del reproductor — descartado, no es
+un bug (2026-09-08)**: repetido con más instrumentación (`document.fullscreenElement`
+y la clase `is-fullscreen` chequeados antes/después de cada paso, incluido
+enviar un mensaje real): nunca se activó pantalla completa, composer
+visible todo el tiempo en ambas pestañas. La observación original fue
+probablemente una conexión stale de una prueba anterior, no un problema
+real.
+
+**Sync automático hacia el invitado — sigue sin confirmarse, pero por una
+limitación del harness de prueba, no de la app (2026-09-08)**: se instrumentó
+un listener directo sobre `#playPauseBtn` para contar clicks reales; tras
+`locator.click({force:true})` el contador dio 0 — el click de Playwright
+nunca llegó a disparar el botón porque esa pestaña quedó en segundo plano.
+Sin warnings de autoplay ni `unhandledrejection` en consola. Código
+revisado de punta a punta (`player.addEventListener('play'/'pause')` →
+`socket.emit('sync', ...)` en el cliente, `socket.on('sync', ...)` →
+`socket.to(currentRoom).emit('sync', data)` en el server) sin encontrar
+ningún bug. Verificación manual pendiente (dos ventanas reales de
+navegador, no dos pestañas) para cerrar esto del todo — no bloquea el
+resto del plan, el `heartbeat` cada ~4s ya actúa como red de seguridad ante
+la pérdida puntual de un evento.
 
 **Todavía no existe `public/admin.html` ni
 las rutas de dashboard/acciones sobre salas — el panel no es usable

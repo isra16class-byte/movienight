@@ -161,15 +161,35 @@
   **500** (con log) ante cualquier error al consultar el rol, sin excepción por
   tipo de error. `lib/adminAuth.js` queda con un comentario explicando esto, para que
   no se vuelva a proponer sin este contexto.
-- **Regresión de la app base — no confirmada, pendiente de investigar aparte**: la
-  misma verificación probó crear una sala con dos usuarios (Playwright, dos
-  contextos de navegador). Sala, viewers y carga de video funcionaron; **sync
-  automático del reproductor hacia el invitado y visibilidad del composer de chat al
-  cambiar el estado del reproductor no se pudieron confirmar de forma concluyente**
-  con el navegador. No es necesariamente un bug nuevo (podría ser timing de la
-  prueba automatizada) y no está relacionado al panel de admin, pero queda anotado
-  acá para no perderlo de vista — revisar con más detalle (logs de consola/red del
-  navegador) antes de asumir que es un problema real.
+- **Regresión de la app base — seguimiento (2026-09-08), composer descartado como
+  bug, sync sigue sin confirmarse**: la verificación original (Playwright, dos
+  contextos) no pudo confirmar de forma concluyente ni la visibilidad del composer
+  de chat ni el sync automático hacia el invitado. Se repitió la prueba con más
+  instrumentación:
+  - **Composer de chat: descartado, no es un bug.** `document.fullscreenElement` y
+    la clase `is-fullscreen` de `.screen-wrap` dieron `false` en ambas pestañas
+    antes y después de cada paso (incluido enviar un mensaje real desde el
+    composer) — nunca se activó pantalla completa, y el composer estuvo visible
+    todo el tiempo. La observación original fue probablemente un efecto colateral
+    de conexiones stale (`ERR_EMPTY_RESPONSE`) que quedaron de una prueba previa
+    interrumpida por un reinicio de Postgres/app, no un problema real de la app.
+  - **Sync: sigue inconcluso, pero por una limitación de la herramienta, no de la
+    app.** Se instrumentó un listener directo sobre `#playPauseBtn` para contar
+    clicks reales — tras `locator.click({force:true})` el contador dio **0**: el
+    click de Playwright nunca llegó a disparar el evento del botón porque esa
+    pestaña quedó en segundo plano (ni `bringToFront()` lo resolvió del todo). No
+    hubo ningún warning de autoplay ni `unhandledrejection` en consola (se
+    descarta la hipótesis previa de que la política de autoplay del navegador
+    fuera la causa). El invitado solo recibió los `heartbeat` de siempre. Revisado
+    el código de extremo a extremo (`player.addEventListener('play'/'pause')` →
+    `socket.emit('sync', ...)` en el cliente, `socket.on('sync', ...)` →
+    `socket.to(currentRoom).emit('sync', data)` en el server) sin encontrar
+    ningún bug — el bloqueo es que el harness de automatización no logra producir
+    un click real sobre una pestaña que no está al frente, no algo que dependa de
+    la app. **Verificación manual pendiente** (dos ventanas de navegador reales,
+    no dos pestañas de una sola) para cerrar esto del todo; no bloquea el resto
+    del plan — el `heartbeat` cada ~4s ya actúa como red de seguridad si un evento
+    puntual se perdiera por algún motivo de red.
 
 ## 2026-09-08 — Fase 5: `docker compose up` (Opción B) verificado en entorno real ✅ COMPLETA la Fase 5
 
