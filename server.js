@@ -92,6 +92,13 @@ const alerts = require('./lib/alerts');
 // vez al arrancar. Ver lib/settings.js para el detalle de la precedencia DB→env→default.
 const settings = require('./lib/settings');
 
+// Seguridad de las rutas /admin/* (paso 6 del plan, ver lib/adminAuth.js): middleware `requireAdmin`
+// (rol consultado a Postgres en cada request, no en la cookie de sesión) y `requireSameOrigin` (chequeo
+// de Origin/Referer para los POST del panel, sección 2.4 del plan). `db`/`logger` ya están definidos
+// arriba en este punto del archivo.
+const { makeRequireAdmin, requireSameOrigin } = require('./lib/adminAuth');
+const requireAdmin = makeRequireAdmin(db, logger);
+
 // SENTRY_DSN se lee después de loadDotEnv() (arriba), igual que DATABASE_URL/RESEND_API_KEY. Si no
 // está configurado, esto no hace nada y el resto del servidor conserva exactamente el mismo modo de
 // funcionamiento local que antes.
@@ -775,6 +782,63 @@ app.post('/auth/reset-password', requireDbEnabled, async (req, res) => {
     reportHttpError(err, req, '/auth/reset-password');
     res.status(500).json({ error: 'No se pudo cambiar la contraseña. Intentá de nuevo en un momento.' });
   }
+});
+
+// --- Panel de administración de parámetros (paso 6 de docs/PLAN-PANEL-ADMIN.md) -------------------
+// Solo las dos rutas de "settings" en este paso — el dashboard/acciones sobre salas (GET /admin/stats,
+// GET /admin/rooms, y las 4 rutas de cierre) son el paso 7, todavía no existen. Ver lib/adminAuth.js
+// para requireAdmin/requireSameOrigin, y lib/settings.js para getSetting/setSetting/listAll.
+//
+// GET no necesita requireSameOrigin (es de solo lectura, no hay nada que un CSRF pueda lograr con un
+// GET que el propio navegador de la víctima no pudiera ver igual con una request directa). El POST sí
+// lo lleva, porque cambia estado — ver sección 2.4 del plan.
+app.get('/admin/settings', requireAdmin, (req, res) => {
+  res.json({ settings: settings.listAll() });
+});
+
+app.post('/admin/settings', requireSameOrigin, requireAdmin, async (req, res) => {
+  const { key, value } = req.body || {};
+  if (typeof key !== 'string' || !key) {
+    return res.status(400).json({ error: 'Falta "key".' });
+  }
+  if (!settings.SETTINGS[key]) {
+    return res.status(400).json({ error: `"${key}" no es un parámetro administrable.` });
+  }
+
+  const previousValue = settings.getSetting(key);
+  try {
+    // `value` llega como lo que sea que mande el body (string del formulario del panel, lo más común;
+    // pero un cliente que arme el JSON a mano podría mandar un number) — se normaliza a string acá
+    // porque lib/settings.js::setSetting() espera siempre texto crudo, mismo contrato que usaría un
+    // <input> HTML. null/undefined se tratan como "campo vacío" (válido solo en settings nullable, ver
+    // lib/settings.js).
+    const rawInput = (value === null || value === undefined) ? '' : String(value);
+    await settings.setSetting(key, rawInput, req.adminUser.id);
+  } catch (err) {
+    // setSetting() tira un Error con un mensaje ya pensado para mostrarle a quien está usando el panel
+    // cuando la validación falla (fuera de rango, vacío en un setting no-nullable) — se devuelve tal
+    // cual en el 400, no se loguea como error real del server.
+    return res.status(400).json({ error: err.message });
+  }
+  const newValue = settings.getSetting(key);
+
+  try {
+    await db.insertAdminAction(
+      req.adminUser.id,
+      'setting_changed',
+      { key, from: previousValue, to: newValue },
+      clientIp(req),
+      req.get('user-agent')
+    );
+  } catch (err) {
+    // El cambio YA se guardó bien en app_settings — un fallo insertando la fila de auditoría no debería
+    // convertirse en un 500 que le haga pensar a quien usa el panel que el cambio no se aplicó. Se
+    // loguea aparte, la respuesta sigue siendo 200.
+    logger.error({ err }, 'No se pudo insertar la fila de auditoría de "setting_changed" (el cambio SÍ se guardó)');
+    reportHttpError(err, req, '/admin/settings (auditoría)');
+  }
+
+  res.json({ key, value: newValue, source: 'db' });
 });
 
 // Salas — objeto en memoria del proceso, igual que antes de la Fase 1.1, PERO ahora respaldado en

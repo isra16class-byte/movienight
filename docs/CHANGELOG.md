@@ -1,6 +1,6 @@
 # 📝 Changelog (activo) — MovieNight
 
-## 2026-09-08 — Panel de administración: EN CURSO (pasos 1-5 de 9, `docs/PLAN-PANEL-ADMIN.md`)
+## 2026-09-08 — Panel de administración: EN CURSO (pasos 1-6 de 9, `docs/PLAN-PANEL-ADMIN.md`)
 
 - **Motivo**: feature nueva (no es parte de `docs/PLAN-PRODUCCION.md`, que es sobre
   robustez/seguridad/infra) — un panel para administradores donde cambiar en caliente
@@ -68,13 +68,53 @@
   arranque real del server sin Redis/Postgres. Sin cambio de comportamiento
   observable: `sweepExpiredRooms()` sigue emitiendo el mismo mensaje de TTL de
   siempre, solo que ahora vía `closeRoom()`.
+- **Paso 6 — rutas `/admin/settings` + `requireAdmin`**: nuevo `lib/adminAuth.js`
+  con dos piezas, separadas de `server.js` desde el arranque (a diferencia de
+  otras rutas del proyecto, extraídas recién en la Fase 5) para poder testearlas
+  aisladas desde el primer momento:
+  - `makeRequireAdmin(db, log)`: fábrica que arma el middleware `requireAdmin` con
+    `db`/`log` inyectables (mismo criterio que `lib/settings.js::init(db)`). El rol
+    se consulta a Postgres **en cada request** a `/admin/*` (no viaja en la cookie
+    de sesión) — así, revocar el rol de alguien tiene efecto inmediato en el
+    próximo request, sin esperar a que esa sesión expire. 404 sin `DATABASE_URL`
+    (mismo criterio que `requireDbEnabled`, no confirmar que la feature existe a
+    quien no tiene ni Postgres configurado), 401 sin sesión, 403 si la cuenta no es
+    admin o ya no existe.
+  - `isSameOrigin(req)`/`requireSameOrigin`: chequeo de `Origin`/`Referer` contra el
+    host propio (sección 2.4 del plan) para el POST — barato, no requiere tokens
+    CSRF nuevos. Deja pasar si no hay ninguno de los dos headers (no romper
+    clientes legítimos que no los mandan; `sameSite=lax` en la cookie de sesión ya
+    cubre el escenario típico).
+  - `server.js`: `GET /admin/settings` (`requireAdmin`) devuelve
+    `settings.listAll()` tal cual. `POST /admin/settings`
+    (`requireSameOrigin` + `requireAdmin`) valida y guarda con
+    `settings.setSetting()` — 400 con el mensaje que ya arma `lib/settings.js` si
+    la validación falla — e inserta una fila en `admin_actions_audit`
+    (`setting_changed`, `{ key, from, to }`) antes de responder 200. Si esa
+    inserción de auditoría falla, el cambio (que ya se guardó bien) sigue
+    devolviendo 200 — el fallo de auditoría se loguea aparte, no tira abajo un
+    cambio que sí se aplicó.
+  - 13 tests nuevos en `test/adminAuth.test.js`: los 4 códigos de respuesta de
+    `requireAdmin` (404/401/403/200-next, más 500 si Postgres tira) con un
+    `db`/`log` de mentira, y `isSameOrigin`/`requireSameOrigin` con Origin
+    coincidente/no coincidente, sin ninguno de los dos headers, usando Referer
+    como respaldo, y con un Origin de formato inválido.
+- **Verificado en sandbox (paso 6)**: sintaxis OK en los 3 archivos tocados
+  (`server.js`, `lib/adminAuth.js`, `test/adminAuth.test.js`), 67/67 tests (los 54
+  anteriores + los 13 nuevos de `adminAuth.test.js`), lint limpio. Arranque real
+  del server sin Redis/Postgres confirmando que `GET`/`POST /admin/settings` dan
+  404 (mismo comportamiento que el resto de `/auth/*` sin `DATABASE_URL`) y que el
+  resto de la app sigue funcionando (`GET /` sigue en 200). **No verificado
+  todavía end-to-end con un admin real** (200 en ambas rutas, 400 fuera de rango,
+  403 con sesión no-admin) — este sandbox no tiene Postgres disponible; queda
+  pendiente de confirmar en un entorno con `docker compose up` (o Postgres real),
+  mismo criterio que las fases anteriores que dependen de Postgres.
 - **Pendiente** (ver `docs/PLAN-PANEL-ADMIN.md` sección 8 para el detalle de cada
-  uno): paso 6 (rutas `/admin/settings` + `requireAdmin`), paso 7 (rutas de
-  dashboard/acciones sobre salas + auditoría — ahora sí pueden reusar
+  uno): paso 7 (rutas de dashboard/acciones sobre salas + auditoría — reusan
   `closeRoom()` para "cerrar una sala puntual", "cerrar inactivas" y "cerrar
   TODAS"), paso 8 (`public/admin.html`), paso 9 (prueba end-to-end completa).
-  **Todavía no existe ninguna ruta `/admin/*` ni `public/admin.html`** — el panel
-  no es usable todavía.
+  **Todavía no existe `public/admin.html` ni las rutas de dashboard/acciones sobre
+  salas** — el panel no es usable todavía.
 
 ## 2026-09-08 — Fase 5: `docker compose up` (Opción B) verificado en entorno real ✅ COMPLETA la Fase 5
 

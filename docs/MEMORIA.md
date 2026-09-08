@@ -144,7 +144,7 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
-**Panel de administración — EN CURSO, pasos 1-5 de 9 (2026-09-08, rama
+**Panel de administración — EN CURSO, pasos 1-6 de 9 (2026-09-08, rama
 `plan-produccion`)**: feature nueva, no forma parte de `docs/PLAN-PRODUCCION.md`.
 Diseño completo y confirmado en `docs/PLAN-PANEL-ADMIN.md` (las 6 preguntas de la
 sección 9 están resueltas) — si retomás esto en otra sesión, **leé ese documento
@@ -154,28 +154,44 @@ Completado: migración (`role` en `users`, tablas `app_settings` y
 parámetros con precedencia DB→env→default, cache en memoria, 11 tests), el
 refactor "constante → función" en los 8 puntos que los usan
 (`lib/roomStore.js`, `server.js`, `lib/alerts.js`,
-`scripts/library-orphan-report.js`), y `lib/roomLifecycle.js::closeRoom(io,
+`scripts/library-orphan-report.js`), `lib/roomLifecycle.js::closeRoom(io,
 rooms, roomStore, roomId, reason)` — extraída del bloque que antes vivía
 inline dentro de `sweepExpiredRooms()` en `server.js` (avisar por `room-error`,
 desconectar cada socket de la sala, borrar de `rooms` en memoria y de
 `roomStore`/Redis), con `reason` como parámetro para que el mensaje en pantalla
 diga la causa real según quién dispare el cierre (TTL vencido hoy;
-admin/"cerrar todas" cuando lleguen los pasos 6-7). `sweepExpiredRooms()` ahora
-llama a esta función por cada sala expirada en vez de tener su propia copia de
-la lógica — sin cambio de comportamiento observable, confirmado con 6 tests
-nuevos (`test/roomLifecycle.test.js`, mismo patrón de `io`/`rooms`/`roomStore`
-de mentira que ya usa `lib/hostAuth.js::setHost`) y arranque real del server.
-Bug real encontrado y corregido en el camino (paso 3): el default de
-`ROOM_TTL_HOURS` en el catálogo tenía que ser 24 (el de siempre), no `null`
-como proponía el plan originalmente — con `null` una instalación nueva habría
-pasado a tener salas que nunca expiran por default. Detalle completo, incluida
-la verificación de cada paso (sintaxis, 54/54 tests, lint, arranque real), en
-`docs/CHANGELOG.md`. **Todavía no existe ninguna ruta `/admin/*` ni
-`public/admin.html` — el panel no es usable todavía.** Sigue: paso 6 (rutas de
-settings + `requireAdmin`), paso 7 (rutas de dashboard/acciones + auditoría,
-que ahora sí pueden reusar `closeRoom()` para "cerrar una sala puntual",
-"cerrar inactivas" y "cerrar TODAS"), paso 8 (`public/admin.html`), paso 9
-(prueba end-to-end).
+admin/"cerrar todas" desde el paso 7), y ahora **`lib/adminAuth.js`** +
+las dos primeras rutas `/admin/*`: `makeRequireAdmin(db, log)` (fábrica —
+`db`/`log` inyectables para poder testear sin Postgres real) arma el
+middleware `requireAdmin`, que consulta el rol a Postgres **en cada
+request** (no viaja en la cookie de sesión, así revocar un admin tiene
+efecto inmediato) y responde 404 sin `DATABASE_URL` (mismo criterio que
+`requireDbEnabled`, para no confirmar que la feature existe), 401 sin
+sesión, 403 si la cuenta no es admin. `isSameOrigin`/`requireSameOrigin`
+chequean `Origin`/`Referer` contra el host propio (sección 2.4 del plan,
+defensa barata contra CSRF en el POST) — dejan pasar si no hay ninguno de
+los dos headers, para no romper clientes legítimos que no los mandan.
+`GET /admin/settings` (`requireAdmin`) devuelve `settings.listAll()` tal
+cual. `POST /admin/settings` (`requireSameOrigin` + `requireAdmin`) valida
+y guarda con `settings.setSetting()` (400 si la validación falla, con el
+mensaje que ya arma `lib/settings.js`), e inserta una fila en
+`admin_actions_audit` (`setting_changed`, con `from`/`to`) — si esa
+inserción de auditoría falla, el cambio ya guardado sigue devolviendo 200
+(el fallo de auditoría se loguea aparte, no tira abajo un cambio que sí se
+aplicó). 13 tests nuevos en `test/adminAuth.test.js` (los 4 códigos de
+respuesta de `requireAdmin` con un `db`/`log` de mentira, más
+`isSameOrigin`/`requireSameOrigin` con distintas combinaciones de
+Origin/Referer). Verificado en sandbox sin Postgres: ambas rutas dan 404 y
+el resto de la app sigue funcionando (`GET /` sigue en 200) — el flujo
+completo con un admin real (200 en ambas, 400 fuera de rango, 403 con
+sesión no-admin) queda pendiente de confirmar en un entorno con Postgres de
+verdad (`docker compose up`), no lo hay en este sandbox. Detalle completo,
+incluida la verificación de cada paso (sintaxis, 67/67 tests, lint, arranque
+real), en `docs/CHANGELOG.md`. **Todavía no existe `public/admin.html` ni
+las rutas de dashboard/acciones sobre salas — el panel no es usable
+todavía.** Sigue: paso 7 (rutas de dashboard/acciones + auditoría, que
+reusan `closeRoom()` para "cerrar una sala puntual", "cerrar inactivas" y
+"cerrar TODAS"), paso 8 (`public/admin.html`), paso 9 (prueba end-to-end).
 
 **Fase 5 — `docker compose up` (Opción B) verificado en entorno real ✅ ya no queda
 ningún ítem pendiente en toda la Fase 5 (2026-09-08)**: única verificación que faltaba
