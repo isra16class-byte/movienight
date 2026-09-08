@@ -23,8 +23,17 @@ ENV NODE_ENV=production
 
 # Usuario sin privilegios (la imagen base ya trae "node", uid 1000) — el proceso no
 # corre como root dentro del contenedor.
-COPY --from=deps /app/node_modules ./node_modules
+#
+# Orden importante: el código del repo (COPY . .) va ANTES que el node_modules limpio
+# de la etapa "deps". Si por lo que sea (.dockerignore mal aplicado, node_modules local
+# ya armado antes del build, etc.) el node_modules del propio checkout se cuela en el
+# contexto, este orden asegura que la copia limpia de "deps" -SIEMPRE- gane al final,
+# en vez de que un COPY . . posterior la pise con devDependencies incluidas. No
+# reemplaza tener un .dockerignore correcto (que además reduce cuánto contexto viaja al
+# daemon y acelera el build) — es una segunda red de seguridad, barata, para que un
+# .dockerignore roto no termine metiendo devDependencies en la imagen de producción.
 COPY . .
+COPY --from=deps /app/node_modules ./node_modules
 
 # public/uploads/ es donde vive el video en modo disco local (sin R2 configurado, ver
 # README). server.js lo crea solo si falta, pero se prepara acá con los permisos
