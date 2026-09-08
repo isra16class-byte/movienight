@@ -142,6 +142,20 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Fase 5 — fix real en el Dockerfile, encontrado en verificación en entorno real
+(2026-09-08)**: probando el `Dockerfile` de la entrada de abajo contra Docker de verdad
+(Windows, Docker Desktop) apareció un bug real: la imagen final tenía las
+`devDependencies` adentro (`eslint` y compañía, 163 paquetes en vez de los de producción
+solamente) — el multi-stage build no cumplía su propósito. Causa: el orden de los `COPY`
+en la etapa `runtime` (`node_modules` limpio copiado ANTES que `COPY . .`, así que si el
+`node_modules` local con `devDependencies` se colaba en el contexto, el `COPY . .`
+posterior lo pisaba). Fix: invertir el orden. Segundo hallazgo al reconstruir: el
+`.dockerignore` en sí SÍ excluye `node_modules` correctamente (el contexto bajó de 315MB a
+7.67kB una vez resuelto lo anterior — no era la causa), pero el `chown -R /app` seguía
+tardando ~110s por los miles de archivos chiquitos que trae `@aws-sdk/client-s3`; se
+resolvió con `--chown=node:node` en cada `COPY` en vez de un `chown -R` aparte. Detalle
+completo, con los comandos de diagnóstico usados, en `docs/CHANGELOG.md`.
+
 **Fase 5 — documentar y automatizar el despliegue ✅ COMPLETA DEL TODO la Fase 5
 (2026-09-08)**: último punto pendiente de la fase (y de todo el plan de producción, salvo
 términos de uso/privacidad en Fase 6). Tres caminos de deploy documentados en el README
@@ -172,12 +186,15 @@ cuando la persona hace el push real a `main`, nunca antes. Con las tres opciones
 workflow, un solo comando) — el objetivo original del ítem del plan.
 **Verificado en sandbox**: lint y los 37 tests en verde contra el código real, sintaxis de
 `docker-compose.yml` validada como YAML y de `scripts/deploy.sh` con `bash -n`.
-**Pendiente de verificación real**: el sandbox no tiene acceso de red a Docker Hub, así
-que no se pudo correr `docker build`/`docker compose up` de punta a punta contra un daemon
-de Docker real — queda pendiente probarlo así antes de confiar el camino A o B a un
-despliegue real, mismo criterio de "verificación independiente en entorno real" que ya se
-usó para cerrar otras fases (ver más abajo, Fase 2bis y Fase 4). Detalle completo en
-`docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`.
+**Verificado en entorno real (Windows, Docker Desktop, 2026-09-08)**: `docker build` de
+punta a punta contra un daemon real — encontró y corrigió dos bugs reales del
+`Dockerfile` (devDependencies coladas en la imagen por el orden de los `COPY`, y un
+`chown -R` innecesariamente lento), ver la entrada de arriba y `docs/CHANGELOG.md` para
+el detalle completo. **Pendiente todavía**: `docker compose up` (Opción B) no se probó
+en el entorno real, solo `docker build` directo (Opción A) — vale la pena confirmarlo
+antes de dar la Opción B por probada de punta a punta, mismo criterio de "verificación
+independiente en entorno real" que ya se usó para cerrar otras fases (Fase 2bis y
+Fase 4).
 
 **Fase 5 — validar variables de entorno al arrancar ✅ COMPLETA la Fase 5 (2026-09-07)**: último
 punto pendiente de la fase. Nuevo `lib/envValidation.js`, que corre al arrancar (antes de conectar a

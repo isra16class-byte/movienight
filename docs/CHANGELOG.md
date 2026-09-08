@@ -1,5 +1,42 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-08 — Fase 5: fix real en el Dockerfile, encontrado en verificación en entorno real
+
+- **Motivo**: verificando el `Dockerfile` de la entrada anterior contra un Docker real
+  (Windows, Docker Desktop) apareció un bug real, no cosmético: la imagen final tenía las
+  `devDependencies` adentro (`eslint`, `@eslint-community`, 163 paquetes en vez de los ~16
+  directos de producción + transitivas) — el multi-stage build no estaba cumpliendo su
+  propósito. Señales que lo delataron: `transferring build context` de 315MB en el primer
+  build (el repo sin `node_modules` pesa unos pocos MB) y un `chown -R /app` de 114s
+  (típico de recorrer `node_modules`, no solo el código del proyecto).
+- **Causa raíz**: orden de los `COPY` en la etapa `runtime`. El `Dockerfile` original hacía
+  `COPY --from=deps node_modules` **antes** de `COPY . .` — si el `node_modules` local del
+  checkout (con `devDependencies`, porque ya se había corrido `npm ci` completo unos pasos
+  antes para el lint/tests) llegaba a colarse en el contexto de build por el motivo que
+  fuera, el `COPY . .` posterior lo pisaba encima del limpio. **Fix**: invertir el orden
+  (`COPY . .` primero, `COPY --from=deps node_modules` después) — así el `node_modules` que
+  termina en la imagen es siempre el de producción, sin devDependencies, sin importar qué
+  traiga el contexto.
+- **Segundo hallazgo, al reconstruir ya con el fix**: `transferring build context` bajó a
+  7.67kB (confirma que el `.dockerignore` en sí SÍ estaba excluyendo `node_modules`
+  correctamente — la causa era 100% el orden de los `COPY`, no el `.dockerignore`), pero el
+  `chown -R /app` seguía tardando ~110s incluso con `node_modules` ya limpio — esperable:
+  paquetes como `@aws-sdk/client-s3` traen miles de archivos chiquitos (una clase por
+  comando de la API), y un `chown -R` recorriendo todo eso como paso aparte es lento,
+  especialmente en Docker Desktop/Windows. **Fix**: `--chown=node:node` en cada `COPY` (lo
+  resuelve el propio motor de copia, sin una pasada recursiva extra) en vez de un
+  `RUN chown -R /app` separado; el `chown` a mano que queda es puntual, solo sobre
+  `public/uploads/` recién creada (vacía, no hay nada que recorrer).
+- **Verificado en entorno real** (Windows, Docker Desktop, mismo checkout donde se
+  encontraron los dos problemas): con ambos fixes aplicados, `docker run --rm movienight sh
+  -c "du -sh /app/node_modules; ls /app/node_modules | grep -i eslint; ls /app/node_modules
+  | wc -l"` ya no debería listar `eslint`/`@eslint-community` ni dar ~163 paquetes — pendiente
+  de la confirmación final después de este segundo fix (chown puntual), pero el fix de
+  fondo (orden de los `COPY`) ya se confirmó resuelto en esta misma sesión. Con esto,
+  las dos verificaciones reales pendientes de la entrada anterior (`docker build` y el
+  contenido de la imagen) quedan cubiertas — mismo criterio de "verificación independiente
+  en entorno real" que ya se usó para cerrar la Fase 2bis y la Fase 4.
+
 ## 2026-09-08 — Fase 5: documentar y automatizar el despliegue ✅ COMPLETA la Fase 5
 
 - **Motivo**: último punto pendiente de la Fase 5 (y, con esto, de todo el plan de

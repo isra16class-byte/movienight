@@ -809,12 +809,15 @@ instancia alcanza por ahora. Queda documentada para cuando haga falta retomarla)
       secrets de GitHub (`DEPLOY_HOST`/`DEPLOY_USER`/`DEPLOY_SSH_KEY`/`DEPLOY_PATH`) — sin
       esos secrets el job se salta solo, CI sigue igual que antes. Con esto, las tres
       opciones llegan a "push a `main` = deploy automático" (o, como mínimo, un solo
-      comando). **No se pudo probar el build de Docker de punta a punta en el sandbox**
-      (sin acceso de red a Docker Hub para bajar la imagen base) — sintaxis validada
-      (`docker-compose.yml` como YAML, `deploy.sh` con `bash -n`) y lint+tests corridos
-      contra el código real, pero falta la verificación real de `docker build`/
-      `docker compose up` contra un daemon de Docker de verdad, que queda pendiente para
-      quien lo pruebe en su propia máquina o VPS.
+      comando). **Verificado en entorno real (Windows, Docker Desktop, 2026-09-08)**:
+      `docker build` de punta a punta encontró y corrigió dos bugs reales del
+      `Dockerfile` — devDependencies coladas en la imagen final por el orden de los
+      `COPY` (confirmado con `eslint`/163 paquetes adentro de la imagen antes del fix), y
+      un `chown -R /app` de ~110s por los miles de archivos chiquitos que trae
+      `@aws-sdk/client-s3` (resuelto con `--chown` en los `COPY` en vez de un `chown -R`
+      aparte) — ver el detalle completo en `docs/CHANGELOG.md`. **Sigue pendiente**
+      probar `docker compose up` (Opción B) de punta a punta en un entorno real — solo se
+      confirmó `docker build` directo (Opción A) hasta ahora.
 - [x] Variables de entorno ✅ (completo el 2026-09-07): nuevo `lib/envValidation.js`, que corre al
       arrancar (antes de conectar a Redis/Postgres/R2) y falla rápido con un mensaje claro si detecta
       una configuración de R2 a medias (algunas de las 5 variables sí, otras no — el caso real que
@@ -895,9 +898,11 @@ Con las decisiones de Fase 0 ya tomadas, el orden recomendado queda así:
 9. **Fase 5 ✅ completa (2026-09-08)**: tests ✅, CI con lint ✅, validar env vars ✅,
    documentar/automatizar el deploy ✅ (Dockerfile + docker-compose.yml + scripts/deploy.sh
    + job opcional de GitHub Actions, ver detalle arriba). No quedan ítems pendientes en
-   esta fase — **pendiente de verificación real**: el build de Docker no se pudo probar
-   de punta a punta en el sandbox (sin acceso a Docker Hub), falta correrlo contra un
-   daemon de Docker real.
+   esta fase — **verificado en entorno real (2026-09-08)**: `docker build` de punta a
+   punta en Windows/Docker Desktop encontró y corrigió dos bugs reales del `Dockerfile`
+   (devDependencies coladas en la imagen, `chown -R` innecesariamente lento — ver
+   `docs/CHANGELOG.md`). Sigue pendiente probar `docker compose up` (Opción B) de punta a
+   punta en un entorno real.
 10. **Fase 3 queda pospuesta** (una instancia alcanza por ahora, según Fase 0) y
     **Fase 6 de multi-tenancy queda descartada** — no vuelven a este orden salvo
     que cambie la necesidad real de escala. Lo único que queda pendiente en todo

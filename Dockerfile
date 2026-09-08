@@ -22,7 +22,12 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 # Usuario sin privilegios (la imagen base ya trae "node", uid 1000) — el proceso no
-# corre como root dentro del contenedor.
+# corre como root dentro del contenedor. Se le pasa "--chown" a cada COPY (lo resuelve
+# el propio motor de copia) en vez de un "RUN chown -R /app" separado después: sobre
+# node_modules de producción (paquetes como @aws-sdk/client-s3 traen miles de archivos
+# chiquitos) un chown -R recursivo aparte es notablemente más lento — confirmado en la
+# práctica: ~110s con el chown -R separado en Docker Desktop/Windows, ver
+# docs/CHANGELOG.md para el detalle de dónde se detectó.
 #
 # Orden importante: el código del repo (COPY . .) va ANTES que el node_modules limpio
 # de la etapa "deps". Si por lo que sea (.dockerignore mal aplicado, node_modules local
@@ -32,15 +37,17 @@ ENV NODE_ENV=production
 # reemplaza tener un .dockerignore correcto (que además reduce cuánto contexto viaja al
 # daemon y acelera el build) — es una segunda red de seguridad, barata, para que un
 # .dockerignore roto no termine metiendo devDependencies en la imagen de producción.
-COPY . .
-COPY --from=deps /app/node_modules ./node_modules
+COPY --chown=node:node . .
+COPY --chown=node:node --from=deps /app/node_modules ./node_modules
 
 # public/uploads/ es donde vive el video en modo disco local (sin R2 configurado, ver
 # README). server.js lo crea solo si falta, pero se prepara acá con los permisos
 # correctos para el usuario "node" — y queda declarado como volumen para que, si el
 # hosting lo pisa con un volumen real, los videos sobrevivan a que se recree el
 # contenedor (en modo R2 esta carpeta no se usa para nada, así que no molesta tenerla).
-RUN mkdir -p public/uploads && chown -R node:node /app
+# chown puntual (no -R): la carpeta recién creada está vacía, no hace falta recorrer
+# nada — evita el mismo costo que tenía el chown -R de todo /app.
+RUN mkdir -p public/uploads && chown node:node public/uploads
 VOLUME ["/app/public/uploads"]
 
 USER node
