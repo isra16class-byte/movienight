@@ -1,0 +1,23 @@
+node_modules
+npm-debug.log
+
+# Nunca meter secretos ni el archivo real de config del túnel en la imagen — solo se
+# versionan (y solo deberían viajar) las plantillas .example.
+.env
+cloudflared-config.yml
+
+# Videos/subtítulos ya subidos en modo disco local: no son parte del código, y en modo
+# Docker esta carpeta se monta como volumen (ver Dockerfile) — incluirlos en el build
+# context solo infla la imagen y puede filtrar contenido de una sala real a un registry.
+public/uploads/*
+!public/uploads/.gitkeep
+
+.git
+.github
+docs
+test
+*.md
+.eslintrc*
+eslint.config.js
+.vscode
+.idea

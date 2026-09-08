@@ -1,0 +1,72 @@
+# Fase 5 del plan de producción: despliegue con un solo comando para quien elija un VPS
+# con Docker (ver README, sección "Despliegue a producción"). Completamente opcional —
+# no hace falta esto para correr MovieNight, es una alternativa a PM2 + Node directo
+# (ver ecosystem.config.js) para quien prefiera todo containerizado.
+#
+# Bundlea Redis y Postgres acá mismo por simplicidad de un VPS chico. Si preferís un
+# Redis/Postgres administrado (Railway, Upstash, Neon, RDS, etc.) no uses este archivo:
+# corré solo el contenedor "app" (o el Dockerfile directo) y apuntá REDIS_URL/DATABASE_URL
+# a esos servicios externos en tu .env.
+#
+# Uso:
+#   cp .env.example .env   # completar los valores, ver README
+#   docker compose up -d --build
+#   docker compose logs -f app
+
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file:
+      - .env
+    environment:
+      # Los nombres de servicio de Compose (redis/postgres) resuelven por DNS interno de
+      # Docker — no hace falta localhost/127.0.0.1 acá adentro. Se pueden sobrescribir
+      # desde .env si se apunta a Redis/Postgres externos en vez de los de este archivo.
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-movienight}:${POSTGRES_PASSWORD:-movienight}@postgres:5432/${POSTGRES_DB:-movienight}}
+    volumes:
+      # Solo hace falta si NO configuraste Cloudflare R2 (modo disco local) — con R2
+      # configurado el video nunca toca este contenedor, y este volumen queda vacío.
+      - uploads:/app/public/uploads
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      # Default "movienight/movienight" solo para que `docker compose up` ande sin tocar
+      # nada — para un despliegue real, definí POSTGRES_PASSWORD (y de paso DATABASE_URL,
+      # que la usa arriba) en tu .env con una contraseña de verdad.
+      POSTGRES_USER: ${POSTGRES_USER:-movienight}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-movienight}
+      POSTGRES_DB: ${POSTGRES_DB:-movienight}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-movienight}"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  uploads:
+  redis-data:
+  postgres-data:

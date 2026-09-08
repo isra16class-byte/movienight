@@ -788,11 +788,33 @@ instancia alcanza por ahora. Queda documentada para cuando haga falta retomarla)
       errores reales de código (dead code, un escape de regex innecesario
       repetido en dos archivos, un catch y un mock sin el prefijo `_` que ya
       usaba el proyecto). Detalle en `docs/MEMORIA.md` y `docs/CHANGELOG.md`.
-- [ ] Documentar y automatizar el despliegue — hoy el flujo es manual
-      (`git format-patch` → `git am` → `git push`, ver `docs/historico/MEMORIA.md` sección 11).
-      Para producción conviene un pipeline: push a `main` → deploy automático
-      (o al menos un solo comando), para que desplegar no dependa de recordar
-      los pasos.
+- [x] Documentar y automatizar el despliegue ✅ (completo el 2026-09-08): tres caminos
+      soportados, documentados en el README ("Despliegue a producción"), ninguno asumido
+      como el único porque el hosting sigue sin decidirse (Fase 0). **(A) Railway / Render
+      / Fly.io**: nuevo `Dockerfile` de producción (`node:22-alpine`, sin dependencias
+      nativas que compilar, usuario sin privilegios, `HEALTHCHECK` contra `GET /health`) —
+      con eso, push a `main` ya es deploy automático porque esas plataformas construyen y
+      redespliegan solas desde el `Dockerfile` del repo. **(B) VPS con Docker**: nuevo
+      `docker-compose.yml` que bundlea la app + Redis + Postgres para un VPS chico (o solo
+      la app si se prefiere Redis/Postgres administrados aparte); un comando
+      (`docker compose up -d --build`) para levantar y para redesplegar. **(C) VPS sin
+      Docker**: nuevo `scripts/deploy.sh` (`npm run deploy`) que junta en un solo comando
+      lo que antes eran pasos sueltos a mano — frena si hay cambios sin commitear en el
+      servidor, trae el último commit, `npm ci`, corre lint+tests contra el código recién
+      traído (mismo criterio de "fallar rápido" que ya usa el proyecto para
+      Redis/Postgres/R2 al arrancar, acá aplicado al propio despliegue) y recién ahí
+      reinicia con PM2 (`pm2 reload`, sin downtime). Además, nuevo job opcional
+      `deploy-vps` en `.github/workflows/ci.yml`: corre `scripts/deploy.sh` por SSH en el
+      servidor después de que pasen lint+tests, pero solo si están configurados los
+      secrets de GitHub (`DEPLOY_HOST`/`DEPLOY_USER`/`DEPLOY_SSH_KEY`/`DEPLOY_PATH`) — sin
+      esos secrets el job se salta solo, CI sigue igual que antes. Con esto, las tres
+      opciones llegan a "push a `main` = deploy automático" (o, como mínimo, un solo
+      comando). **No se pudo probar el build de Docker de punta a punta en el sandbox**
+      (sin acceso de red a Docker Hub para bajar la imagen base) — sintaxis validada
+      (`docker-compose.yml` como YAML, `deploy.sh` con `bash -n`) y lint+tests corridos
+      contra el código real, pero falta la verificación real de `docker build`/
+      `docker compose up` contra un daemon de Docker de verdad, que queda pendiente para
+      quien lo pruebe en su propia máquina o VPS.
 - [x] Variables de entorno ✅ (completo el 2026-09-07): nuevo `lib/envValidation.js`, que corre al
       arrancar (antes de conectar a Redis/Postgres/R2) y falla rápido con un mensaje claro si detecta
       una configuración de R2 a medias (algunas de las 5 variables sí, otras no — el caso real que
@@ -870,12 +892,16 @@ Con las decisiones de Fase 0 ya tomadas, el orden recomendado queda así:
 8. **Fase 4 ✅ completa** (observabilidad): logs estructurados ✅, Sentry ✅,
    métricas básicas ✅ y alertas mínimas ✅ (completa el 2026-09-07, ver
    `docs/MEMORIA.md`). No quedan ítems pendientes en esta fase.
-9. **Fase 3 queda pospuesta** (una instancia alcanza por ahora, según Fase 0) y
-   **Fase 6 de multi-tenancy queda descartada** — no vuelven a este orden salvo
-   que cambie la necesidad real de escala. Lo que queda pendiente ahora es
-   terminar la **Fase 5** (tests ✅, CI con lint ✅, validar env vars ✅ — solo
-   falta documentar/automatizar el deploy) y, dentro de Fase 6, términos de
-   uso/privacidad.
+9. **Fase 5 ✅ completa (2026-09-08)**: tests ✅, CI con lint ✅, validar env vars ✅,
+   documentar/automatizar el deploy ✅ (Dockerfile + docker-compose.yml + scripts/deploy.sh
+   + job opcional de GitHub Actions, ver detalle arriba). No quedan ítems pendientes en
+   esta fase — **pendiente de verificación real**: el build de Docker no se pudo probar
+   de punta a punta en el sandbox (sin acceso a Docker Hub), falta correrlo contra un
+   daemon de Docker real.
+10. **Fase 3 queda pospuesta** (una instancia alcanza por ahora, según Fase 0) y
+    **Fase 6 de multi-tenancy queda descartada** — no vuelven a este orden salvo
+    que cambie la necesidad real de escala. Lo único que queda pendiente en todo
+    el plan es, dentro de Fase 6, términos de uso/privacidad.
 
 ---
 

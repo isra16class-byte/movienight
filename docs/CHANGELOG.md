@@ -1,5 +1,71 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-08 — Fase 5: documentar y automatizar el despliegue ✅ COMPLETA la Fase 5
+
+- **Motivo**: último punto pendiente de la Fase 5 (y, con esto, de todo el plan de
+  producción salvo términos de uso/privacidad en Fase 6). Hasta ahora el flujo era 100%
+  manual — traer un patch con `git am`, `npm install` si hacía falta, reiniciar a mano — y
+  el plan pedía un pipeline (push a `main` → deploy automático, o al menos un solo
+  comando). El hosting sigue sin decidirse (Fase 0), así que se documentan y automatizan
+  **tres** caminos en paralelo, sin imponer ninguno.
+- **`Dockerfile` nuevo** (imagen de producción, `node:22-alpine`): multi-stage para no
+  cargar `devDependencies` en la imagen final; sin dependencias nativas que compilar
+  (`bcryptjs` es JS puro, no `bcrypt`; `pg` usa su driver JS por default sin `pg-native`)
+  así que alcanza Alpine liviano. Corre como el usuario `node` sin privilegios (no root).
+  `HEALTHCHECK` contra `GET /health` con el módulo `http` nativo (sin sumar `curl` a la
+  imagen solo para esto). `public/uploads/` declarado como `VOLUME` para que, en modo
+  disco local (sin R2), los videos sobrevivan a que se recree el contenedor.
+- **`.dockerignore` nuevo**: excluye `.env`/`cloudflared-config.yml` (secretos reales,
+  nunca deben terminar en una imagen), `public/uploads/*` (contenido de sala real, no
+  código — y en Docker esa carpeta se monta como volumen, no se hornea en el build), y lo
+  que no hace falta en runtime (`.git`, `docs/`, `test/`, `.md`).
+- **`docker-compose.yml` nuevo**: para VPS con Docker (Opción B del README) — bundlea la
+  app + Redis 7 + Postgres 16, con `healthcheck` propios y `depends_on: condition:
+  service_healthy` para que la app no arranque antes de que Redis/Postgres respondan de
+  verdad (no solo que el contenedor exista). Contraseña de Postgres con default
+  `movienight/movienight` solo para que `docker compose up` funcione sin tocar nada — con
+  un comentario explícito de cambiarla (`POSTGRES_PASSWORD` en `.env`) para un despliegue
+  real. Pensado también para quien prefiera Redis/Postgres administrados aparte: alcanza
+  con no usar los servicios `redis`/`postgres` de este archivo y apuntar `REDIS_URL`/
+  `DATABASE_URL` del `.env` a los externos.
+- **`scripts/deploy.sh` nuevo** (`npm run deploy`, script nuevo en `package.json`): para
+  VPS sin Docker (Opción C, el camino de siempre del proyecto — Node + PM2). Junta en un
+  comando lo que antes eran pasos sueltos a mano: falla temprano si falta `pm2`/`npm` o si
+  no se corre parado en la raíz del checkout; frena si hay cambios sin commitear en el
+  servidor (para no pisar algo tocado ahí por error); `git fetch` + `git reset --hard
+  origin/<rama activa>` (no asume que la rama sea `main`); `npm ci` (completo, con
+  `devDependencies`, para poder correr lint/tests a continuación); **corre lint y tests
+  contra el código recién traído** — mismo criterio de "fallar rápido" que ya usa el
+  proyecto para Redis/Postgres/R2 al arrancar, acá aplicado al propio despliegue: si algo
+  no pasa, no se reinicia el proceso en vivo; recién si todo pasó, `pm2 reload
+  ecosystem.config.js --update-env` (sin downtime si hay más de una instancia) con
+  fallback a `pm2 restart` si `reload` no aplica.
+- **`.github/workflows/ci.yml`**: nuevo job `deploy-vps`, `needs: test`, que corre
+  `scripts/deploy.sh` por SSH en el servidor (`webfactory/ssh-agent` + `ssh` directo) — pero
+  **solo** en push a `main` y **solo si** el secret `DEPLOY_HOST` está configurado en el
+  repo (`if: ... && secrets.DEPLOY_HOST != ''`); sin ese secret, el job se salta solo y el
+  resto de CI (el job `test` ya existente) sigue exactamente igual que antes. Requiere
+  además `DEPLOY_USER`, `DEPLOY_SSH_KEY` (clave privada sin passphrase) y `DEPLOY_PATH`
+  como secrets. Como el asistente de IA con el que se trabaja este repo no hace push
+  directo (ver `docs/MEMORIA.md`, "Cómo se trabaja en este repo"), este job solo puede
+  dispararse cuando la persona hace el push real a `main`.
+- **README**: la sección "Proceso supervisado" se reemplaza por "Despliegue a
+  producción", con las tres opciones documentadas paso a paso (A: Railway/Render/Fly.io
+  vía `Dockerfile`, B: VPS con Docker vía `docker-compose.yml`, C: VPS sin Docker vía PM2 +
+  `scripts/deploy.sh`, con el workflow de GitHub Actions opcional como sub-sección de C).
+  También se actualiza "Estructura del proyecto" con los archivos nuevos.
+- **Verificado en sandbox**: lint (`npm run lint`) y los 37 tests existentes
+  (`npm test`) en verde contra el código real (sin cambios de comportamiento en
+  `server.js`/`lib/*`, todo lo nuevo es infraestructura de deploy); `docker-compose.yml`
+  validado como YAML válido; `scripts/deploy.sh` validado con `bash -n` (sintaxis, sin
+  ejecutarlo de verdad — necesita un servidor real con PM2 y un checkout de git).
+  **No verificado**: el sandbox no tiene acceso de red a Docker Hub (fuera de la lista de
+  dominios permitidos), así que no se pudo correr `docker build` ni `docker compose up`
+  contra un daemon de Docker real — queda pendiente esa verificación en un entorno real
+  antes de confiar el Dockerfile/docker-compose a un despliegue de producción real (mismo
+  criterio de "verificación independiente en entorno real" que ya se usó para cerrar la
+  Fase 2bis y la Fase 4).
+
 ## 2026-09-07 — Fase 5: validar variables de entorno al arrancar
 
 - **Motivo**: último punto pendiente de la Fase 5 — el plan pedía fallar rápido con un mensaje claro

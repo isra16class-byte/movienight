@@ -259,42 +259,116 @@ ALLOWED_ORIGINS=https://sala.tu-dominio.uk,https://tu-dominio.uk
 
 **Nota sobre la CSP y el HTML inline**: hoy `index.html`, `library.html`, `room.html` y `reset-password.html` tienen todo su JS y estilos inline (`<script>`/`style="..."`), así que la CSP necesita `'unsafe-inline'` para que esas páginas sigan funcionando — una política más estricta (basada en nonces) exigiría convertirlas en plantillas renderizadas por request en vez de archivos estáticos, un cambio de arquitectura más grande que queda anotado como posible mejora futura, no bloqueante.
 
-## Proceso supervisado (para no depender de una terminal abierta)
+## Despliegue a producción (Fase 5 del plan de producción)
 
 Correr `npm start` en una terminal funciona para probar, pero si esa terminal se cierra
 (o el proceso crashea por cualquier motivo) el servidor se queda caído hasta que alguien
-lo note y lo reinicie a mano. Qué conviene depende de dónde lo hospedes:
+lo note y lo reinicie a mano — y hasta ahora, llevar un cambio a producción era 100% manual
+(traer el patch, `npm install` si hacía falta, reiniciar a mano). Esta sección junta las
+tres formas soportadas de resolver ambas cosas; cuál conviene depende de dónde hospedes
+(la Fase 0 del plan de producción dejó ese punto **sin decidir a propósito**, así que el
+proyecto no asume ninguna en particular — elegí la que mejor te quede).
 
-- **VPS propio** (una máquina tuya, sin plataforma de hosting de por medio): usar
-  [PM2](https://pm2.keymetrics.io/). Ya viene configurado en `ecosystem.config.js`:
-  ```bash
-  npm install -g pm2      # una sola vez en el servidor
-  npm run pm2:start       # arranca movienight supervisado por PM2
-  npm run pm2:logs        # ver logs en vivo
-  npm run pm2:status      # ver si está corriendo
-  npm run pm2:restart     # reiniciar manualmente (ej. después de un deploy)
-  pm2 save && pm2 startup # (opcional, una sola vez) para que PM2 levante movienight solo
-                           # si se reinicia la máquina — `pm2 startup` imprime un comando
-                           # a copiar y correr, distinto según el sistema
-  ```
-  Si el proceso se cae, PM2 lo reinicia solo, con backoff exponencial (para no reintentar en
-  loop si el problema es persistente, ej. Redis caído) y un tope de reinicios seguidos antes
-  de rendirse y avisar — el detalle de esos números está comentado en `ecosystem.config.js`.
-  También trae `kill_timeout: 8000` — sin esto, PM2 mata el proceso con `SIGKILL` a los
-  ~1.6s por default tras un `pm2 stop`/`pm2 restart`, antes de que el servidor termine su
-  propio cierre prolijo (`SHUTDOWN_GRACE_MS`, 5s por default — ver sección de graceful
-  shutdown abajo), dejando la conexión a Redis sin cerrarse bien. Si cambiás
-  `SHUTDOWN_GRACE_MS` a un valor mayor a ~6-7s, subí `kill_timeout` en `ecosystem.config.js`
-  también (son dos configuraciones independientes, en procesos distintos).
-- **Railway / Render / Fly.io o similar**: no hace falta nada de lo de arriba. Estas
-  plataformas ya reinician el proceso solas si crashea, usando `npm start` como comando de
-  arranque — `ecosystem.config.js` no se usa en este caso.
+### Opción A — Railway / Render / Fly.io o similar (con `Dockerfile`)
 
-El servidor expone además `GET /health` (alias `GET /healthz`): devuelve `200` si todo
-responde bien (incluyendo Redis y R2, si están configurados) o `503` con el detalle si algo
-falla — útil como healthcheck para el hosting/orquestador que elijas, o para un monitor externo.
-El detalle también muestra si Sentry está configurado; como no tiene un ping barato que no cree un
-evento, su ausencia nunca degrada el healthcheck.
+La más simple si no querés administrar un servidor vos mismo. El repo ya trae un
+`Dockerfile` de producción (imagen `node:22-alpine`, sin dependencias nativas que
+compilar, corre como usuario sin privilegios, con `HEALTHCHECK` contra `GET /health`).
+
+1. Conectá el repo (rama `main`) a la plataforma elegida — todas soportan "construir
+   desde el `Dockerfile` del repo" out of the box, no hace falta configurar nada más de
+   build.
+2. Cargá las variables de entorno que necesites como secrets/variables de la plataforma
+   (ver `.env.example` para la lista completa — todas opcionales salvo que quieras esa
+   feature específica: `REDIS_URL`, `DATABASE_URL`, etc.). Si la plataforma ofrece Redis
+   o Postgres administrados, son la forma más simple de completar esas dos variables.
+3. Listo — **push a `main` = deploy automático**, la plataforma lo hace sola en cada
+   push (no hace falta ni el `deploy.sh` ni el workflow de GitHub Actions de las otras
+   dos opciones, son específicos del camino "VPS propio").
+
+`ecosystem.config.js` (PM2, ver Opción C) no se usa en este camino — estas plataformas ya
+reinician el proceso solas si crashea.
+
+### Opción B — VPS propio, con Docker (`docker-compose.yml`)
+
+Para quien prefiere no instalar Node/Redis/Postgres directo en el servidor. El
+`docker-compose.yml` del repo levanta la app **más** Redis y Postgres (bundleados, pensado
+para un VPS chico — si preferís un Redis/Postgres administrado aparte, correspondiente a
+tu `.env`, no hace falta usar los servicios `redis`/`postgres` de este archivo).
+
+```bash
+git clone https://github.com/isra16class-byte/movienight.git && cd movienight
+cp .env.example .env    # completar los valores que quieras (ver sección de arriba)
+docker compose up -d --build
+docker compose logs -f app
+```
+
+Para desplegar un cambio nuevo más adelante, un solo comando parado en el checkout del
+servidor: `git pull && docker compose up -d --build`.
+
+### Opción C — VPS propio, sin Docker (PM2 + `scripts/deploy.sh`)
+
+El camino de siempre del proyecto (Node directo + PM2), con el flujo de deploy ahora
+resuelto en un solo comando en vez de pasos sueltos a acordarse cada vez.
+
+**Una sola vez**, para dejar el proceso supervisado corriendo (así sobrevive a un crash o
+a que se cierre la terminal):
+
+```bash
+npm install -g pm2      # una sola vez en el servidor
+npm run pm2:start       # arranca movienight supervisado por PM2, con ecosystem.config.js
+pm2 save && pm2 startup # (opcional) para que PM2 levante movienight solo si se reinicia la máquina
+                         # — `pm2 startup` imprime un comando a copiar y correr, distinto según el sistema
+```
+
+Si el proceso se cae, PM2 lo reinicia solo, con backoff exponencial (para no reintentar en
+loop si el problema es persistente, ej. Redis caído) y un tope de reinicios seguidos antes
+de rendirse y avisar — el detalle de esos números está comentado en `ecosystem.config.js`.
+También trae `kill_timeout: 8000` — sin esto, PM2 mata el proceso con `SIGKILL` a los
+~1.6s por default tras un `pm2 stop`/`pm2 restart`, antes de que el servidor termine su
+propio cierre prolijo (`SHUTDOWN_GRACE_MS`, 5s por default — ver sección de graceful
+shutdown más abajo), dejando la conexión a Redis sin cerrarse bien. Si cambiás
+`SHUTDOWN_GRACE_MS` a un valor mayor a ~6-7s, subí `kill_timeout` en `ecosystem.config.js`
+también (son dos configuraciones independientes, en procesos distintos).
+
+**En cada deploy**, parado en el checkout del proyecto en el servidor:
+
+```bash
+npm run deploy    # equivale a: bash scripts/deploy.sh
+```
+
+`scripts/deploy.sh` hace, en orden, lo que antes había que acordarse a mano: frena si hay
+cambios sin commitear en el servidor (para no pisar algo tocado ahí por error), trae el
+último commit de la rama activa (`git fetch` + `git reset --hard origin/<rama>`), reinstala
+dependencias (`npm ci`), **corre lint y tests contra el código recién traído** (mismo
+criterio de "fallar rápido" que ya usa el proyecto para Redis/Postgres/R2 al arrancar — si
+algo no pasa, no reinicia el proceso en vivo) y recién ahí reinicia con
+`pm2 reload`/`restart`.
+
+Además, `npm run pm2:logs` / `npm run pm2:status` para ver logs y estado, y
+`npm run pm2:restart` para un reinicio manual sin pasar por `deploy.sh`.
+
+#### Deploy automático por push a `main` (opcional)
+
+Para que la Opción C también quede en "push a `main` = deploy automático" (como las
+Opciones A y B), `.github/workflows/ci.yml` trae un job `deploy-vps` que corre
+`scripts/deploy.sh` en tu servidor por SSH después de que pasen lint+tests — pero **solo
+si configurás los secrets** en GitHub (Settings → Secrets and variables → Actions):
+`DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY` (clave privada con acceso al servidor,
+sin passphrase) y `DEPLOY_PATH` (ruta absoluta al checkout en el servidor). Sin esos
+secrets configurados, el job se salta solo — CI sigue funcionando exactamente igual que
+antes, esto es 100% opcional. Como el asistente de IA con el que se trabaja este repo no
+hace push directo (ver `docs/MEMORIA.md`, "Cómo se trabaja en este repo"), este workflow
+recién dispara cuando **vos** hacés el push real a `main` con `git push` — nunca antes.
+
+### Healthcheck (común a las tres opciones)
+
+El servidor expone `GET /health` (alias `GET /healthz`): devuelve `200` si todo responde
+bien (incluyendo Redis y R2, si están configurados) o `503` con el detalle si algo falla —
+lo usa el `HEALTHCHECK` del `Dockerfile` en las Opciones A y B, y sirve igual como
+healthcheck manual o de un monitor externo en la Opción C. El detalle también muestra si
+Sentry está configurado; como no tiene un ping barato que no cree un evento, su ausencia
+nunca degrada el healthcheck.
 
 ## Reporte de errores (Sentry)
 
@@ -391,9 +465,14 @@ build step. `.github/workflows/ci.yml` corre ambos en cada push/PR.
 movienight/
   server.js              # Servidor Express + Socket.io
   package.json
-  ecosystem.config.js    # Configuración de PM2 para proceso supervisado (solo VPS propio, ver sección arriba)
+  Dockerfile              # Imagen de producción (Fase 5 del plan de producción, ver "Despliegue a producción")
+  docker-compose.yml      # App + Redis + Postgres bundleados, para VPS con Docker (Opción B de esa sección)
+  .dockerignore
+  ecosystem.config.js    # Configuración de PM2 para proceso supervisado (VPS propio sin Docker, Opción C)
   eslint.config.js        # Config de ESLint (Fase 5 del plan de producción, ver sección "Tests y lint")
   cloudflared-config.example.yml  # Plantilla para túnel con nombre / dominio fijo (opcional, ver README)
+  scripts/
+    deploy.sh              # Deploy en un comando para VPS sin Docker (Fase 5, ver "Despliegue a producción")
   lib/
     r2.js                 # Cloudflare R2 (opcional, ver sección arriba) — subir/listar/borrar videos en R2
     envValidation.js       # Validación de env vars al arrancar (Fase 5 del plan de producción)

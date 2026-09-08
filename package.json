@@ -8,6 +8,7 @@
     "test": "node --test",
     "lint": "eslint .",
     "tunnel": "cloudflared tunnel --config cloudflared-config.yml run",
+    "deploy": "bash scripts/deploy.sh",
     "r2:cleanup": "node scripts/r2-cleanup-multipart.js",
     "library:orphans": "node scripts/library-orphan-report.js",
     "pm2:start": "pm2 start ecosystem.config.js",

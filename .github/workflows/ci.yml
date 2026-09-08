@@ -29,3 +29,30 @@ jobs:
       - run: npm run lint
 
       - run: npm test
+
+  # Fase 5 del plan de producción ("documentar y automatizar el despliegue"): deploy
+  # automático a un VPS propio por SSH, SOLO en push a main y SOLO si el secret
+  # DEPLOY_HOST está configurado en el repo (Settings → Secrets and variables →
+  # Actions) — sin ese secret, este job se salta solo y el resto de CI sigue igual que
+  # antes. Pensado para el caso "VPS propio sin Docker" (ver README, sección
+  # "Despliegue a producción"); para Railway/Render/Fly.io no hace falta nada de esto,
+  # esas plataformas ya redespliegan solas al detectar el push (ver mismo README).
+  #
+  # No duplica lint/test acá: se apoya en que el job "test" de arriba ya corrió sobre
+  # el mismo commit (needs: test) y, además, scripts/deploy.sh los vuelve a correr
+  # DENTRO del servidor contra el código recién traído antes de reiniciar el proceso
+  # en vivo — sigue el mismo criterio de "fallar rápido" que ya usa el resto del
+  # proyecto (Redis/R2/Postgres al arrancar), acá aplicado al propio despliegue.
+  deploy-vps:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.DEPLOY_HOST != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Deploy por SSH (corre scripts/deploy.sh en el servidor)
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "cd '${{ secrets.DEPLOY_PATH }}' && ./scripts/deploy.sh"

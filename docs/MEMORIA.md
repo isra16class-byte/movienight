@@ -34,6 +34,9 @@ reacciones. Repo: `https://github.com/isra16class-byte/movienight`.
 ```
 movienight/
   server.js              # Todo el backend: rutas HTTP + lógica de sockets
+  Dockerfile                # Imagen de producción (Fase 5 del plan de producción, deploy)
+  docker-compose.yml        # App + Redis + Postgres bundleados, para VPS con Docker (Fase 5)
+  scripts/deploy.sh          # Deploy en un comando para VPS sin Docker, PM2 (Fase 5)
   lib/r2.js                # Cloudflare R2 (opcional): subir/listar/borrar videos, y URLs prefirmadas
                             # de subida directa desde el navegador (Fase 2.7 del plan de producción)
   lib/roomStore.js          # Persistencia de salas en Redis (Fase 1.1 del plan de producción)
@@ -138,6 +141,43 @@ mover la barra de progreso — cualquier intento se revierte.
 - Cada cambio importante debería reflejarse acá (este archivo, `docs/MEMORIA.md`, si cambia algo esencial) y como entrada nueva en `docs/CHANGELOG.md` — no en los archivos de `docs/historico/`, que quedaron congelados como registro del estado anterior a esta reorganización.
 
 ## Por dónde seguir
+
+**Fase 5 — documentar y automatizar el despliegue ✅ COMPLETA DEL TODO la Fase 5
+(2026-09-08)**: último punto pendiente de la fase (y de todo el plan de producción, salvo
+términos de uso/privacidad en Fase 6). Tres caminos de deploy documentados en el README
+("Despliegue a producción"), ninguno impuesto porque el hosting sigue sin decidirse
+(Fase 0): **(A) Railway/Render/Fly.io** vía el nuevo `Dockerfile` (imagen
+`node:22-alpine`, sin dependencias nativas — `bcryptjs` es JS puro, no `bcrypt` — usuario
+sin privilegios, `HEALTHCHECK` contra `GET /health`); con eso, push a `main` ya es deploy
+automático porque esas plataformas construyen solas desde el `Dockerfile` del repo, sin
+necesitar nada más de lo agregado acá. **(B) VPS con Docker** vía el nuevo
+`docker-compose.yml`, que bundlea la app + Redis + Postgres para un VPS chico (o solo la
+app, si se prefiere Redis/Postgres administrados aparte, apuntando `REDIS_URL`/
+`DATABASE_URL` del `.env` a esos servicios en vez de a los contenedores locales) —
+`docker compose up -d --build` para levantar, mismo comando para redesplegar. **(C) VPS
+sin Docker** (el camino de siempre, Node + PM2) vía el nuevo `scripts/deploy.sh`
+(`npm run deploy`), que reemplaza los pasos manuales sueltos por uno solo: frena si hay
+cambios sin commitear en el servidor, `git fetch` + `reset --hard` a `origin/<rama>`,
+`npm ci`, corre lint+tests contra el código recién traído (mismo criterio de "fallar
+rápido" que ya usa el proyecto para Redis/Postgres/R2 al arrancar, acá aplicado al propio
+despliegue — si algo no pasa, no reinicia el proceso en vivo) y recién ahí
+`pm2 reload`/`restart`. Además, nuevo job opcional `deploy-vps` en
+`.github/workflows/ci.yml`: corre `scripts/deploy.sh` por SSH en el servidor después de
+que pasen lint+tests, pero solo si están configurados los secrets de GitHub
+(`DEPLOY_HOST`/`DEPLOY_USER`/`DEPLOY_SSH_KEY`/`DEPLOY_PATH`) — sin esos secrets el job se
+salta solo y CI sigue exactamente igual que antes; como el asistente de IA no hace push
+directo (ver más abajo, "Cómo se trabaja en este repo"), este workflow recién dispara
+cuando la persona hace el push real a `main`, nunca antes. Con las tres opciones,
+"push a `main` = deploy automático" (o, como mínimo en la Opción C sin configurar el
+workflow, un solo comando) — el objetivo original del ítem del plan.
+**Verificado en sandbox**: lint y los 37 tests en verde contra el código real, sintaxis de
+`docker-compose.yml` validada como YAML y de `scripts/deploy.sh` con `bash -n`.
+**Pendiente de verificación real**: el sandbox no tiene acceso de red a Docker Hub, así
+que no se pudo correr `docker build`/`docker compose up` de punta a punta contra un daemon
+de Docker real — queda pendiente probarlo así antes de confiar el camino A o B a un
+despliegue real, mismo criterio de "verificación independiente en entorno real" que ya se
+usó para cerrar otras fases (ver más abajo, Fase 2bis y Fase 4). Detalle completo en
+`docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`.
 
 **Fase 5 — validar variables de entorno al arrancar ✅ COMPLETA la Fase 5 (2026-09-07)**: último
 punto pendiente de la fase. Nuevo `lib/envValidation.js`, que corre al arrancar (antes de conectar a
