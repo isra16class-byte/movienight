@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { closeRoom } = require('../lib/roomLifecycle');
+const { closeRoom, selectInactiveRoomIds, isValidCloseAllConfirmation } = require('../lib/roomLifecycle');
 
 // --- fakes -----------------------------------------------------------------------------------------
 // `io` de mentira: necesita `to(roomId).emit(...)` (broadcast) y `sockets.adapter.rooms.get(roomId)` +
@@ -108,4 +108,65 @@ test('closeRoom: borra la sala de roomStore (Redis)', async () => {
   await closeRoom(io, rooms, roomStore, 'room-1', 'motivo');
 
   assert.deepEqual(roomStore._deletedRoomIds, ['room-1']);
+});
+
+// --- selectInactiveRoomIds (paso 7 de docs/PLAN-PANEL-ADMIN.md) ------------------------------------
+// Lógica pura: no necesita io/roomStore de mentira, solo objetos `rooms` con viewers/emptySince.
+
+test('selectInactiveRoomIds: incluye una sala con 0 viewers vacía desde antes del margen', () => {
+  const now = 1_000_000;
+  const rooms = { 'room-1': { viewers: 0, emptySince: now - 20_000 } };
+  assert.deepEqual(selectInactiveRoomIds(rooms, now, 15_000), ['room-1']);
+});
+
+test('selectInactiveRoomIds: NO incluye una sala con 0 viewers pero vacía hace menos que el margen', () => {
+  const now = 1_000_000;
+  const rooms = { 'room-1': { viewers: 0, emptySince: now - 5_000 } };
+  assert.deepEqual(selectInactiveRoomIds(rooms, now, 15_000), []);
+});
+
+test('selectInactiveRoomIds: NO incluye una sala con viewers conectados, sin importar emptySince', () => {
+  const now = 1_000_000;
+  const rooms = { 'room-1': { viewers: 2, emptySince: null } };
+  assert.deepEqual(selectInactiveRoomIds(rooms, now, 15_000), []);
+});
+
+test('selectInactiveRoomIds: NO incluye una sala con 0 viewers pero emptySince null (nunca estuvo vacía, caso raro)', () => {
+  const now = 1_000_000;
+  const rooms = { 'room-1': { viewers: 0, emptySince: null } };
+  assert.deepEqual(selectInactiveRoomIds(rooms, now, 15_000), []);
+});
+
+test('selectInactiveRoomIds: mezcla de varias salas, devuelve solo las inactivas', () => {
+  const now = 1_000_000;
+  const rooms = {
+    'activa-con-gente': { viewers: 3, emptySince: null },
+    'vacia-hace-poco': { viewers: 0, emptySince: now - 1_000 },
+    'vacia-hace-rato': { viewers: 0, emptySince: now - 60_000 }
+  };
+  assert.deepEqual(selectInactiveRoomIds(rooms, now, 15_000), ['vacia-hace-rato']);
+});
+
+test('selectInactiveRoomIds: sin salas, devuelve []', () => {
+  assert.deepEqual(selectInactiveRoomIds({}, Date.now(), 15_000), []);
+});
+
+// --- isValidCloseAllConfirmation (paso 7, "Cerrar TODAS las salas") ---------------------------------
+
+test('isValidCloseAllConfirmation: acepta la frase exacta', () => {
+  assert.equal(isValidCloseAllConfirmation('CERRAR TODO'), true);
+});
+
+test('isValidCloseAllConfirmation: rechaza minúsculas, espacios de más, o cualquier variante', () => {
+  assert.equal(isValidCloseAllConfirmation('cerrar todo'), false);
+  assert.equal(isValidCloseAllConfirmation('CERRAR TODO '), false);
+  assert.equal(isValidCloseAllConfirmation(' CERRAR TODO'), false);
+  assert.equal(isValidCloseAllConfirmation('CERRAR TODAS LAS SALAS'), false);
+});
+
+test('isValidCloseAllConfirmation: rechaza vacío, undefined, null o tipos no-string', () => {
+  assert.equal(isValidCloseAllConfirmation(''), false);
+  assert.equal(isValidCloseAllConfirmation(undefined), false);
+  assert.equal(isValidCloseAllConfirmation(null), false);
+  assert.equal(isValidCloseAllConfirmation(123), false);
 });

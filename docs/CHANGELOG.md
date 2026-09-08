@@ -190,6 +190,81 @@
     no dos pestañas de una sola) para cerrar esto del todo; no bloquea el resto
     del plan — el `heartbeat` cada ~4s ya actúa como red de seguridad si un evento
     puntual se perdiera por algún motivo de red.
+- **Paso 7 — rutas de dashboard/acciones sobre salas (2026-09-08)**: cinco rutas
+  nuevas en `server.js`, todas detrás de `requireAdmin`; las que escriben, además
+  de `requireSameOrigin` e insertan una fila en `admin_actions_audit` antes de
+  responder 200 (mismo criterio que `POST /admin/settings` del paso 6 — con
+  acciones que afectan gente conectada ahora mismo, un historial completo deja
+  de ser opcional, sección 2.3 del plan):
+  - `GET /admin/stats`: los 4 contadores del dashboard (`activeRooms`,
+    `connectedUsers`, `uploadsInProgress`, `r2ErrorCount`) — reusa
+    `lib/metrics.js` (ya existía desde la Fase 4) para los dos últimos, y la
+    misma fuente que ya usa `GET /metrics` (`Object.keys(rooms).length`,
+    `io.engine.clientsCount`) para los dos primeros.
+  - `GET /admin/rooms`: una fila por sala en memoria (`rooms` sigue siendo la
+    fuente de verdad para lecturas síncronas) con `roomId`, `viewerCount`,
+    `owner` (email resuelto a Postgres por `ownerUserId`, o `'anónima'`),
+    `lastActivity`, `videoRef` (reusa `videoDisplayName()`, ya existente) y el
+    **host actual** (`{ name, userId }`, por `room.hostSocketId` — el nombre
+    sale de `room.userNames`, el `userId` del socket real de Socket.io). Ver
+    salas está en el nombre; a propósito nunca devuelve el chat de cada sala
+    (sección 9, pregunta 4 del plan: abre un problema de privacidad que no hace
+    falta resolver para este alcance).
+  - `POST /admin/rooms/sweep-now`: fuerza YA el barrido por TTL sin esperar el
+    próximo ciclo del `setInterval`. `sweepExpiredRooms()` (ya existía) ahora
+    **devuelve** `{ closedCount, roomIds }` en vez de ser fire-and-forget —
+    cambio mecánico, sin diferencia de comportamiento para los dos call sites
+    de siempre (barrido inicial y periódico), que solo pasaron a loguear con el
+    valor devuelto en vez de recalcularlo aparte.
+  - `POST /admin/rooms/:id/close`: cierra una sala puntual (404 si no existe),
+    vía `closeRoom()` ya existente (paso 5).
+  - `POST /admin/rooms/close-inactive`: cierra las que tienen **0 viewers
+    conectados desde hace al menos `RECONNECT_GRACE_MS`** (el mismo margen de
+    15s que ya usaba el proyecto para no floodear el chat con reconexiones
+    cortas — sección 9, pregunta 5 del plan). Nuevo campo `room.emptySince` en
+    el objeto de cada sala (`server.js::makeRoom()` y
+    `lib/roomStore.js::hydrateRoom()`): `null` mientras haya al menos un
+    viewer, timestamp de cuándo quedó en 0 si no hay ninguno — se estampa desde
+    el handler de `'disconnect'` (a 0) y se limpia desde `join-room` (al primer
+    viewer). Nunca se persiste en Redis, mismo criterio que
+    `hostSocketId`/`userNames`: depende de conexiones de socket en vivo que no
+    sobreviven a un reinicio del proceso, y no tiene sentido que lo hagan (una
+    sala recién repoblada arranca en 0 viewers de todos modos). El selector en
+    sí, `selectInactiveRoomIds(rooms, now, marginMs)`, es lógica pura en
+    `lib/roomLifecycle.js` — separado de la ruta para poder testearlo sin
+    Socket.io real.
+  - `POST /admin/rooms/close-all`: el botón nuclear — cierra TODAS las salas,
+    incluidas las que tienen gente mirando ahora mismo. Exige
+    `{ confirm: "CERRAR TODO" }` en el body, validado con
+    `isValidCloseAllConfirmation()`/`CLOSE_ALL_CONFIRMATION_PHRASE` (nuevas en
+    `lib/roomLifecycle.js`, comparación exacta sin trim ni normalización) — 400
+    si no coincide. El backend vuelve a validar esto por su cuenta (sección
+    1.3 del plan: no confiar en que el front la haya pedido; defensa en
+    profundidad si alguien golpea el endpoint directo).
+  - 9 tests nuevos en `test/roomLifecycle.test.js`: `selectInactiveRoomIds`
+    (sala vacía hace más/menos que el margen, con viewers, con `emptySince`
+    null, mezcla de varias salas, sin salas) e `isValidCloseAllConfirmation`
+    (frase exacta, variantes de mayúsculas/espacios/texto distinto, vacío,
+    `undefined`, `null`, un número).
+- **Verificado en sandbox (paso 7)**: sintaxis OK en los 3 archivos tocados
+  (`server.js`, `lib/roomLifecycle.js`, `lib/roomStore.js`) más
+  `test/roomLifecycle.test.js`, 76/76 tests (los 67 anteriores + los 9 nuevos),
+  lint limpio, arranque real del server sin Redis/Postgres. Las 6
+  rutas nuevas dan 404 sin `DATABASE_URL` (mismo criterio que el resto de
+  `/admin/*` desde el paso 6), incluida `POST /admin/rooms/close-all` sin body
+  (confirma que `requireAdmin` corre antes que la validación de `confirm`, no
+  al revés) y `POST /admin/rooms/:id/close` con un id inexistente. El resto de
+  la app sigue funcionando (`GET /`, `GET /metrics`, `GET /health` en 200).
+  **No verificado todavía end-to-end con un admin real y salas de verdad**
+  (cerrar una sala puntual con gente adentro, confirmar que "cerrar inactivas"
+  no toca las que tienen viewers, que "cerrar todas" sí kickea a todos) — este
+  sandbox no tiene Postgres ni Socket.io con clientes reales; queda para el
+  paso 9 (prueba end-to-end completa), mismo criterio que las fases anteriores
+  que dependen de un entorno real (`docker compose up`).
+- **Pendiente**: paso 8 (`public/admin.html` — settings + dashboard + los 3
+  botones de acción global), paso 9 (prueba end-to-end completa). **Todavía no
+  existe `public/admin.html`** — el panel sigue sin ser usable desde el
+  navegador, aunque ya tiene todas las rutas que necesita.
 
 ## 2026-09-08 — Fase 5: `docker compose up` (Opción B) verificado en entorno real ✅ COMPLETA la Fase 5
 

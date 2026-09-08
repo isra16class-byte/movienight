@@ -144,7 +144,7 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
-**Panel de administración — EN CURSO, pasos 1-6 de 9 (2026-09-08, rama
+**Panel de administración — EN CURSO, pasos 1-7 de 9 (2026-09-08, rama
 `plan-produccion`)**: feature nueva, no forma parte de `docs/PLAN-PRODUCCION.md`.
 Diseño completo y confirmado en `docs/PLAN-PANEL-ADMIN.md` (las 6 preguntas de la
 sección 9 están resueltas) — si retomás esto en otra sesión, **leé ese documento
@@ -160,8 +160,8 @@ inline dentro de `sweepExpiredRooms()` en `server.js` (avisar por `room-error`,
 desconectar cada socket de la sala, borrar de `rooms` en memoria y de
 `roomStore`/Redis), con `reason` como parámetro para que el mensaje en pantalla
 diga la causa real según quién dispare el cierre (TTL vencido hoy;
-admin/"cerrar todas" desde el paso 7), y ahora **`lib/adminAuth.js`** +
-las dos primeras rutas `/admin/*`: `makeRequireAdmin(db, log)` (fábrica —
+admin/"cerrar todas" desde el paso 7), y **`lib/adminAuth.js`** +
+las dos primeras rutas `/admin/*` (paso 6): `makeRequireAdmin(db, log)` (fábrica —
 `db`/`log` inyectables para poder testear sin Postgres real) arma el
 middleware `requireAdmin`, que consulta el rol a Postgres **en cada
 request** (no viaja en la cookie de sesión, así revocar un admin tiene
@@ -188,6 +188,32 @@ sesión no-admin) queda pendiente de confirmar en un entorno con Postgres de
 verdad (`docker compose up`), no lo hay en este sandbox. Detalle completo,
 incluida la verificación de cada paso (sintaxis, 67/67 tests, lint, arranque
 real), en `docs/CHANGELOG.md`.
+
+**Paso 7 — rutas de dashboard/acciones sobre salas ✅ (2026-09-08)**: cinco
+rutas nuevas, todas detrás de `requireAdmin` (las que escriben, además
+`requireSameOrigin` + fila en `admin_actions_audit`): `GET /admin/stats` (los
+4 contadores del dashboard, reusando `lib/metrics.js` y la misma fuente que ya
+usa `GET /metrics`), `GET /admin/rooms` (una fila por sala en memoria, con
+owner resuelto a email, `videoRef` vía `videoDisplayName()` ya existente, y el
+**host actual** por `room.hostSocketId`), `POST /admin/rooms/sweep-now`
+(fuerza el barrido por TTL a demanda — `sweepExpiredRooms()` ahora devuelve
+`{ closedCount, roomIds }` en vez de ser fire-and-forget, cambio mecánico sin
+diferencia de comportamiento), `POST /admin/rooms/:id/close` (cierra una sala
+puntual, 404 si no existe), `POST /admin/rooms/close-inactive` (cierra las que
+tienen 0 viewers desde hace al menos `RECONNECT_GRACE_MS` — nuevo campo
+`room.emptySince`, nunca persistido en Redis, mismo criterio que
+`hostSocketId`/`userNames`; el selector `selectInactiveRoomIds()` es lógica
+pura en `lib/roomLifecycle.js`) y `POST /admin/rooms/close-all` (el botón
+nuclear, exige `{ confirm: "CERRAR TODO" }` validado también en el backend con
+`isValidCloseAllConfirmation()`, 400 si no coincide). 9 tests nuevos en
+`test/roomLifecycle.test.js`. Verificado en sandbox: sintaxis OK, 76/76 tests,
+lint limpio, arranque real sin Redis/Postgres confirmando que las 5 rutas dan
+404 (mismo criterio que el resto de `/admin/*`) y que el resto de la app sigue
+funcionando. **No verificado todavía end-to-end con un admin real y salas de
+verdad** (cerrar una sala puntual con gente adentro, que "cerrar inactivas" no
+toque las que tienen viewers, que "cerrar todas" sí kickee a todos) — queda
+para el paso 9, este sandbox no tiene Postgres ni clientes de Socket.io
+reales. Detalle completo en `docs/CHANGELOG.md`.
 
 **Bug real encontrado en entorno real (Docker Compose, 2026-09-08)**: al
 probar el paso 6 con `docker compose up` de verdad (Redis + Postgres reales,
@@ -246,11 +272,10 @@ navegador, no dos pestañas) para cerrar esto del todo — no bloquea el
 resto del plan, el `heartbeat` cada ~4s ya actúa como red de seguridad ante
 la pérdida puntual de un evento.
 
-**Todavía no existe `public/admin.html` ni
-las rutas de dashboard/acciones sobre salas — el panel no es usable
-todavía.** Sigue: paso 7 (rutas de dashboard/acciones + auditoría, que
-reusan `closeRoom()` para "cerrar una sala puntual", "cerrar inactivas" y
-"cerrar TODAS"), paso 8 (`public/admin.html`), paso 9 (prueba end-to-end).
+**Todavía no existe `public/admin.html` — el panel sigue sin ser usable desde
+el navegador, aunque ya tiene todas las rutas que necesita (paso 7,
+completo).** Sigue: paso 8 (`public/admin.html`: settings + dashboard + los 3
+botones de acción global), paso 9 (prueba end-to-end completa).
 
 **Fase 5 — `docker compose up` (Opción B) verificado en entorno real ✅ ya no queda
 ningún ítem pendiente en toda la Fase 5 (2026-09-08)**: única verificación que faltaba

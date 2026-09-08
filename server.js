@@ -99,6 +99,12 @@ const settings = require('./lib/settings');
 const { makeRequireAdmin, requireSameOrigin } = require('./lib/adminAuth');
 const requireAdmin = makeRequireAdmin(db, logger);
 
+// closeRoom() (paso 5 de docs/PLAN-PANEL-ADMIN.md) — mismo motivo que setHost() en lib/hostAuth.js:
+// poder testearla aislada de Socket.io, y reusarla tanto desde el barrido por TTL (sweepExpiredRooms,
+// más abajo) como desde las rutas de acciones del panel de administración (paso 7: cerrar una sala
+// puntual, cerrar inactivas, cerrar todas).
+const { closeRoom, selectInactiveRoomIds, isValidCloseAllConfirmation } = require('./lib/roomLifecycle');
+
 // SENTRY_DSN se lee después de loadDotEnv() (arriba), igual que DATABASE_URL/RESEND_API_KEY. Si no
 // está configurado, esto no hace nada y el resto del servidor conserva exactamente el mismo modo de
 // funcionamiento local que antes.
@@ -841,6 +847,154 @@ app.post('/admin/settings', requireSameOrigin, requireAdmin, async (req, res) =>
   res.json({ key, value: newValue, source: 'db' });
 });
 
+// --- Panel de administración: dashboard y acciones sobre salas (paso 7 de docs/PLAN-PANEL-ADMIN.md,
+// secciones 1.3 y 5.1) ------------------------------------------------------------------------------
+// Todas requieren requireAdmin; las 4 que escriben (sweep-now / :id/close / close-inactive /
+// close-all) además requireSameOrigin (igual criterio que POST /admin/settings, sección 2.4 del plan)
+// e insertan una fila en admin_actions_audit antes de responder 200 (sección 2.3 del plan: con
+// acciones que afectan gente conectada AHORA, un historial de "qué se hizo y cuándo" deja de ser
+// opcional).
+
+// GET /admin/stats: los 4 contadores de docs/PLAN-PANEL-ADMIN.md sección 5.1. Reusa lib/metrics.js
+// (ya existe desde la Fase 4, alimenta GET /metrics) para uploadsInProgress/r2ErrorCount — no hace
+// falta inventar contadores nuevos, solo exponerlos también acá para el dashboard del panel.
+// activeRooms/connectedUsers salen de la misma fuente que ya usa GET /metrics (Object.keys(rooms) e
+// io.engine.clientsCount respectivamente).
+app.get('/admin/stats', requireAdmin, (req, res) => {
+  const snapshot = metrics.snapshot();
+  res.json({
+    activeRooms: Object.keys(rooms).length,
+    connectedUsers: io.engine.clientsCount,
+    uploadsInProgress: snapshot.uploadsInProgress,
+    r2ErrorCount: snapshot.r2ErrorCount
+  });
+});
+
+// GET /admin/rooms: una fila por sala en memoria (`rooms` ya es la fuente de verdad para lecturas
+// síncronas en todo el proyecto, no hace falta ir a Redis para esto). Incluye el host actual
+// (sección 9, pregunta 4 del plan) — nombre desde room.userNames (socketId -> nombre) y userId desde
+// el socket real de Socket.io (socket.userId se setea en join-room), ambos por room.hostSocketId.
+// El dueño (owner) se resuelve a email consultando Postgres solo para los ownerUserId distintos que
+// aparezcan (no hay un método de "traer varios por id" en lib/db.js, pero el número de salas activas
+// nunca es grande — no vale la pena sumar un método nuevo solo para esto todavía).
+app.get('/admin/rooms', requireAdmin, async (req, res) => {
+  try {
+    const roomIds = Object.keys(rooms);
+    const ownerIds = [...new Set(roomIds.map((id) => rooms[id].ownerUserId).filter(Boolean))];
+    const ownerEmailById = new Map();
+    await Promise.all(ownerIds.map(async (ownerId) => {
+      const user = await db.findUserById(ownerId);
+      if (user) ownerEmailById.set(ownerId, user.email);
+    }));
+
+    const roomsOut = roomIds.map((roomId) => {
+      const room = rooms[roomId];
+      const hostSocket = room.hostSocketId ? io.sockets.sockets.get(room.hostSocketId) : null;
+      return {
+        roomId,
+        viewerCount: room.viewers,
+        owner: room.ownerUserId ? (ownerEmailById.get(room.ownerUserId) || 'cuenta borrada') : 'anónima',
+        lastActivity: room.lastActivity ? new Date(room.lastActivity).toISOString() : null,
+        videoRef: videoDisplayName(room.videoFile),
+        host: room.hostSocketId ? {
+          name: room.userNames.get(room.hostSocketId) || null,
+          userId: (hostSocket && hostSocket.userId) || null
+        } : null
+      };
+    });
+    res.json({ rooms: roomsOut });
+  } catch (err) {
+    logger.error({ err }, 'Error en GET /admin/rooms');
+    reportHttpError(err, req, '/admin/rooms');
+    res.status(500).json({ error: 'No se pudo obtener la lista de salas.' });
+  }
+});
+
+// Inserta una fila en admin_actions_audit sin que un fallo de auditoría convierta una acción que SÍ
+// se ejecutó en un 500 — mismo criterio que ya usa POST /admin/settings más arriba (el cambio real ya
+// pasó; el fallo de auditoría se loguea aparte, nunca se le esconde al admin detrás de un error).
+async function auditAdminAction(req, action, detail) {
+  try {
+    await db.insertAdminAction(req.adminUser.id, action, detail, clientIp(req), req.get('user-agent'));
+  } catch (err) {
+    logger.error({ err, action }, `No se pudo insertar la fila de auditoría de "${action}" (la acción SÍ se ejecutó)`);
+    reportHttpError(err, req, `/admin/rooms (auditoría: ${action})`);
+  }
+}
+
+// POST /admin/rooms/sweep-now: fuerza YA el barrido de salas vencidas por TTL, sin esperar el próximo
+// ciclo del interval (ROOM_SWEEP_INTERVAL_MS). Reusa 100% sweepExpiredRooms() (más abajo) — mismo
+// criterio de "no duplicar la lógica de cierre" que ya usa closeRoom() en sí.
+app.post('/admin/rooms/sweep-now', requireSameOrigin, requireAdmin, async (req, res) => {
+  try {
+    const { closedCount, roomIds } = await sweepExpiredRooms();
+    await auditAdminAction(req, 'sweep_forced', { count: closedCount, roomIds });
+    res.json({ closed: closedCount, roomIds });
+  } catch (err) {
+    logger.error({ err }, 'Error en POST /admin/rooms/sweep-now');
+    reportHttpError(err, req, '/admin/rooms/sweep-now');
+    res.status(500).json({ error: 'No se pudo forzar el barrido de salas.' });
+  }
+});
+
+// POST /admin/rooms/:id/close: cierra una sala puntual (botón individual en "Ver salas activas").
+app.post('/admin/rooms/:id/close', requireSameOrigin, requireAdmin, async (req, res) => {
+  const roomId = req.params.id;
+  if (!rooms[roomId]) return res.status(404).json({ error: 'La sala no existe.' });
+  try {
+    await closeRoom(io, rooms, roomStore, roomId, 'Un administrador cerró esta sala.');
+    await auditAdminAction(req, 'room_closed', { roomId });
+    res.json({ closed: true });
+  } catch (err) {
+    logger.error({ err, roomId }, 'Error en POST /admin/rooms/:id/close');
+    reportHttpError(err, req, '/admin/rooms/:id/close');
+    res.status(500).json({ error: 'No se pudo cerrar la sala.' });
+  }
+});
+
+// POST /admin/rooms/close-inactive: cierra las que tienen 0 viewers conectados desde hace al menos
+// RECONNECT_GRACE_MS (mismo margen que ya usa el proyecto para no floodear el chat con reconexiones
+// cortas, ver room.emptySince en makeRoom()/el handler de 'disconnect' más abajo), aunque todavía no
+// lleguen a las 24hs de TTL. selectInactiveRoomIds() es lógica pura (lib/roomLifecycle.js) — separada
+// de esta ruta para poder testearla sin Socket.io real.
+app.post('/admin/rooms/close-inactive', requireSameOrigin, requireAdmin, async (req, res) => {
+  try {
+    const inactiveIds = selectInactiveRoomIds(rooms, Date.now(), RECONNECT_GRACE_MS);
+    for (const roomId of inactiveIds) {
+      await closeRoom(io, rooms, roomStore, roomId, 'Un administrador cerró esta sala por inactividad (sin espectadores).');
+    }
+    await auditAdminAction(req, 'rooms_closed_inactive', { count: inactiveIds.length, roomIds: inactiveIds });
+    res.json({ closed: inactiveIds.length, roomIds: inactiveIds });
+  } catch (err) {
+    logger.error({ err }, 'Error en POST /admin/rooms/close-inactive');
+    reportHttpError(err, req, '/admin/rooms/close-inactive');
+    res.status(500).json({ error: 'No se pudieron cerrar las salas inactivas.' });
+  }
+});
+
+// POST /admin/rooms/close-all: el botón nuclear — cierra TODAS las salas, incluidas las que tienen
+// gente mirando ahora mismo. El backend vuelve a validar la palabra de confirmación (sección 1.3 del
+// plan: no confiar en que el front la haya pedido) con la misma constante que usaría public/admin.html
+// (paso 8) — isValidCloseAllConfirmation()/CLOSE_ALL_CONFIRMATION_PHRASE en lib/roomLifecycle.js.
+app.post('/admin/rooms/close-all', requireSameOrigin, requireAdmin, async (req, res) => {
+  const { confirm } = req.body || {};
+  if (!isValidCloseAllConfirmation(confirm)) {
+    return res.status(400).json({ error: `Escribí exactamente "CERRAR TODO" para confirmar.` });
+  }
+  try {
+    const roomIds = Object.keys(rooms);
+    for (const roomId of roomIds) {
+      await closeRoom(io, rooms, roomStore, roomId, 'Un administrador cerró todas las salas (modo mantenimiento).');
+    }
+    await auditAdminAction(req, 'rooms_closed_all', { count: roomIds.length, roomIds });
+    res.json({ closed: roomIds.length, roomIds });
+  } catch (err) {
+    logger.error({ err }, 'Error en POST /admin/rooms/close-all');
+    reportHttpError(err, req, '/admin/rooms/close-all');
+    res.status(500).json({ error: 'No se pudieron cerrar todas las salas.' });
+  }
+});
+
 // Salas — objeto en memoria del proceso, igual que antes de la Fase 1.1, PERO ahora respaldado en
 // Redis (lib/roomStore.js): cada mutación relevante llama a roomStore.saveRoom(roomId, room) para
 // que sobreviva a un reinicio del proceso, y al arrancar el server se repuebla desde ahí (ver
@@ -1221,6 +1375,15 @@ async function makeRoom(videoFile, password, ownerUserId = null) {
     videoFile,
     subtitleFile: null,
     viewers: 0,
+    // emptySince (paso 7 del panel de administración): timestamp desde el que la sala tiene 0
+    // viewers conectados — null cuando hay al menos uno. Nunca se persiste en Redis (mismo criterio
+    // que hostSocketId/userNames: no sobrevive ni tiene sentido que sobreviva a un reinicio del
+    // proceso, ver lib/roomStore.js::hydrateRoom). Lo usa "cerrar salas inactivas"
+    // (POST /admin/rooms/close-inactive) para no cerrar de sorpresa una sala que se quedó sin gente
+    // hace un segundo — reusa el mismo margen (RECONNECT_GRACE_MS) que ya existe para no floodear el
+    // chat con reconexiones cortas. Se inicializa "ahora" porque toda sala nueva arranca sin nadie
+    // adentro (el creador recién se une después, vía join-room).
+    emptySince: Date.now(),
     hostToken: crypto.randomBytes(16).toString('hex'),
     hostSocketId: null, // socket.id del host actual (única fuente de verdad; ver setHost más abajo)
     ownerUserId: ownerUserId || null,
@@ -1816,6 +1979,9 @@ io.on('connection', (socket) => {
 
     room.userNames.set(socket.id, socket.username);
     room.viewers++;
+    // Deja de estar "vacía" en cuanto se une el primer viewer (paso 7 del panel de administración,
+    // ver el comentario en makeRoom() sobre emptySince) — a partir de acá room.viewers pasa a ser >0.
+    if (room.viewers === 1) room.emptySince = null;
 
     const wasMuted = room.mutedUserIds.has(socket.userId);
 
@@ -1995,6 +2161,10 @@ io.on('connection', (socket) => {
     if (!room) return;
 
     room.viewers = Math.max(0, room.viewers - 1);
+    // Estampa desde cuándo quedó vacía (paso 7 del panel de administración, ver makeRoom()) — el
+    // guard `=== null` evita que un segundo 'disconnect' con la sala ya en 0 (no debería pasar en la
+    // práctica, cada socket se desconecta una sola vez, pero por las dudas) le pise el timestamp real.
+    if (room.viewers === 0 && room.emptySince === null) room.emptySince = Date.now();
     room.userNames.delete(socket.id);
     room.bufferingSockets.delete(socket.id);
     io.to(currentRoom).emit('viewer-count', room.viewers);
@@ -2054,29 +2224,33 @@ const PORT = process.env.PORT || 3000;
 // el video queda en la biblioteca compartida para reutilizarse en otra sala.
 const ROOM_SWEEP_INTERVAL_MS = parseInt(process.env.ROOM_SWEEP_INTERVAL_MS, 10) || 30 * 60 * 1000; // cada 30 min
 
-// closeRoom() extraída a lib/roomLifecycle.js (paso 5 de docs/PLAN-PANEL-ADMIN.md) — mismo motivo que
-// setHost() en lib/hostAuth.js: poder testearla aislada de Socket.io, y reusarla desde las acciones
-// operativas del panel de administración (paso 7), no solo desde este barrido por TTL.
-const { closeRoom } = require('./lib/roomLifecycle');
-
+// Devuelve { closedCount, roomIds } (antes no devolvía nada, era fire-and-forget desde el interval) —
+// paso 7 del panel de administración: el botón "Limpiar salas" (POST /admin/rooms/sweep-now) dispara
+// esto mismo a demanda y necesita poder informar cuántas/cuáles salas cerró, para la respuesta HTTP y
+// la fila de auditoría. Sin cambio de comportamiento para los dos call sites que ya existían (el
+// barrido inicial y el periódico, más abajo) — simplemente ahora también usan el valor devuelto en el
+// log, en vez de recalcular `expiredIds.length` aparte.
 async function sweepExpiredRooms() {
   const ttlSeconds = roomStore.getRoomTtlSeconds();
-  if (ttlSeconds === null) return; // "nunca expira" (elegido desde el panel): no hay nada que barrer
+  if (ttlSeconds === null) return { closedCount: 0, roomIds: [] }; // "nunca expira": no hay nada que barrer
   const ttlMs = ttlSeconds * 1000;
   const now = Date.now();
   const expiredIds = Object.keys(rooms).filter((id) => now - (rooms[id].lastActivity || 0) > ttlMs);
-  if (expiredIds.length === 0) return;
+  if (expiredIds.length === 0) return { closedCount: 0, roomIds: [] };
 
+  const closedIds = [];
   for (const roomId of expiredIds) {
     try {
       // Avisa y desconecta a quien siga adentro (raro tras 24hs+ sin actividad, pero por las dudas —
       // no tendría sentido dejar a alguien "viendo" una sala que ya se borró de `rooms`).
       await closeRoom(io, rooms, roomStore, roomId, `Esta sala expiró por inactividad (sin uso durante ${ttlSeconds / 3600}hs) y se cerró.`);
+      closedIds.push(roomId);
     } catch (err) {
       logger.error({ err, roomId }, 'Error expirando sala (Fase 2.6)');
     }
   }
-  logger.info({ count: expiredIds.length, roomIds: expiredIds }, 'Barrido de salas inactivas (Fase 2.6): cerradas por 24hs+ sin actividad. El video de cada una sigue disponible en la biblioteca.');
+  logger.info({ count: closedIds.length, roomIds: closedIds }, 'Barrido de salas inactivas (Fase 2.6): cerradas por 24hs+ sin actividad. El video de cada una sigue disponible en la biblioteca.');
+  return { closedCount: closedIds.length, roomIds: closedIds };
 }
 
 // --- Limpieza automática de subidas multipart abandonadas en R2 (Fase 2.6 del plan de producción) -
