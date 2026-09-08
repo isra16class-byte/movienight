@@ -1,5 +1,55 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-08 — Panel de administración: EN CURSO (pasos 1-4 de 9, `docs/PLAN-PANEL-ADMIN.md`)
+
+- **Motivo**: feature nueva (no es parte de `docs/PLAN-PRODUCCION.md`, que es sobre
+  robustez/seguridad/infra) — un panel para administradores donde cambiar en caliente
+  8 parámetros de comportamiento (TTLs, límites, umbrales) sin editar `.env` ni
+  reiniciar el proceso, más algunas acciones operativas sobre las salas activas.
+  Diseño completo, revisado y confirmado en `docs/PLAN-PANEL-ADMIN.md` (las 6
+  preguntas abiertas de la sección 9 están resueltas). Se trabaja en la rama
+  `plan-produccion`, siguiendo el orden de implementación de la sección 8 de ese
+  documento.
+- **Paso 1 — migración**: columna `role` en `users` (`'user'|'admin'`, default
+  `'user'`), tabla `app_settings` (clave/valor con precedencia sobre `.env`) y tabla
+  `admin_actions_audit` (historial de acciones, con `ip`/`user_agent` — se sumó esto
+  sobre la propuesta original del plan, no estaba en el diseño inicial). Funciones de
+  acceso nuevas en `lib/db.js`.
+- **Paso 2 — `scripts/make-admin.js`**: promueve una cuenta ya existente a admin por
+  email. No crea cuentas nuevas — a propósito, para que "convertirse en admin" nunca
+  sea alcanzable desde el navegador.
+- **Paso 3 — `lib/settings.js`**: catálogo de los 8 parámetros administrables con sus
+  rangos, precedencia DB→env→default, cache en memoria. 10 tests (luego 11, ver el
+  bugfix de abajo).
+- **Paso 4 — refactor "constante → función"**: los 8 puntos que hasta ahora leían
+  `process.env` una sola vez al arrancar (`lib/roomStore.js`, `server.js`,
+  `lib/alerts.js`, `scripts/library-orphan-report.js`) ahora llaman a
+  `settings.getSetting()` en cada uso — sin esto, el panel (cuando exista) cambiaría
+  un valor que ningún código volvería a leer hasta el próximo reinicio.
+- **Bug real encontrado y corregido durante el paso 4**: el catálogo de
+  `lib/settings.js` tenía `default: null` para `ROOM_TTL_HOURS`, tomado literal de la
+  propuesta original del plan ("null = nunca expira, ya es un valor válido hoy") —
+  pero el comportamiento REAL del código, sin nada configurado, siempre fue 24hs
+  (fallback hardcodeado en `lib/roomStore.js` antes de este refactor), nunca "para
+  siempre". Con `default: null` tal cual proponía el plan, una instalación nueva
+  habría pasado a tener salas que **nunca expiran** por default — un cambio de
+  comportamiento real, no el refactor puramente mecánico que promete la sección 4.
+  Corregido a `default: 24` (el de siempre), con `nullable: true` para que "nunca
+  expira" siga siendo una elección explícita desde el panel (campo vacío), no lo que
+  pasa sin querer si nadie toca nada. Test nuevo que lo fija
+  (`test/settings.test.js`).
+- **Verificado en sandbox**: sintaxis OK en los 5 archivos tocados, 48/48 tests (11 en
+  `settings.test.js`), lint limpio, arranque real del server sin Redis/Postgres
+  confirmando el log nuevo de `settings.init()`. Sin cambio de comportamiento
+  observable con nada configurado desde el panel — ese llega recién en los pasos 6-7.
+- **Pendiente** (ver `docs/PLAN-PANEL-ADMIN.md` sección 8 para el detalle de cada
+  uno): paso 5 (extraer `closeRoom()` de `sweepExpiredRooms()`), paso 6 (rutas
+  `/admin/settings` + `requireAdmin`), paso 7 (rutas de dashboard/acciones sobre
+  salas + auditoría), paso 8 (`public/admin.html`), paso 9 (prueba end-to-end
+  completa). **Todavía no existe ninguna ruta `/admin/*` ni `public/admin.html`** —
+  el panel no es usable todavía, solo está la base de datos y la lógica de
+  parámetros.
+
 ## 2026-09-08 — Fase 5: `docker compose up` (Opción B) verificado en entorno real ✅ COMPLETA la Fase 5
 
 - **Motivo**: único ítem que quedaba pendiente de toda la Fase 5 — la entrada anterior

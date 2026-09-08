@@ -52,6 +52,8 @@ movienight/
   lib/sentry.js            # Reporte opcional de excepciones a Sentry, con redacción de secretos — Fase 4
   lib/metrics.js           # Contadores en memoria para GET /metrics (uploads en curso, errores de R2) — Fase 4
   lib/alerts.js            # Alertas mínimas por email si el healthcheck o R2 vienen fallando — Fase 4
+  lib/settings.js          # Catálogo de parámetros administrables (panel de admin, EN CURSO — ver "Por dónde seguir")
+  scripts/make-admin.js    # Promueve una cuenta existente a admin (panel de admin, EN CURSO)
   scripts/r2-cleanup-multipart.js
   test/                    # Tests unitarios (node:test) de la lógica extraída a lib/*.js — Fase 5
   .github/workflows/ci.yml # CI: corre npm test en cada push/PR — Fase 5
@@ -141,6 +143,27 @@ mover la barra de progreso — cualquier intento se revierte.
 - Cada cambio importante debería reflejarse acá (este archivo, `docs/MEMORIA.md`, si cambia algo esencial) y como entrada nueva en `docs/CHANGELOG.md` — no en los archivos de `docs/historico/`, que quedaron congelados como registro del estado anterior a esta reorganización.
 
 ## Por dónde seguir
+
+**Panel de administración — EN CURSO, pasos 1-4 de 9 (2026-09-08, rama
+`plan-produccion`)**: feature nueva, no forma parte de `docs/PLAN-PRODUCCION.md`.
+Diseño completo y confirmado en `docs/PLAN-PANEL-ADMIN.md` (las 6 preguntas de la
+sección 9 están resueltas) — si retomás esto en otra sesión, **leé ese documento
+primero**, tiene todo el diseño y el orden de implementación (sección 8).
+Completado: migración (`role` en `users`, tablas `app_settings` y
+`admin_actions_audit`), `scripts/make-admin.js`, `lib/settings.js` (catálogo de 8
+parámetros con precedencia DB→env→default, cache en memoria, 11 tests) y el
+refactor "constante → función" en los 8 puntos que los usan
+(`lib/roomStore.js`, `server.js`, `lib/alerts.js`,
+`scripts/library-orphan-report.js`). Bug real encontrado y corregido en el camino:
+el default de `ROOM_TTL_HOURS` en el catálogo tenía que ser 24 (el de siempre), no
+`null` como proponía el plan originalmente — con `null` una instalación nueva
+habría pasado a tener salas que nunca expiran por default. Detalle completo,
+incluida la verificación (sintaxis, 48/48 tests, lint, arranque real), en
+`docs/CHANGELOG.md`. **Todavía no existe ninguna ruta `/admin/*` ni
+`public/admin.html` — el panel no es usable todavía.** Sigue: paso 5 (extraer
+`closeRoom()` de `sweepExpiredRooms()`), paso 6 (rutas de settings +
+`requireAdmin`), paso 7 (rutas de dashboard/acciones + auditoría), paso 8
+(`public/admin.html`), paso 9 (prueba end-to-end).
 
 **Fase 5 — `docker compose up` (Opción B) verificado en entorno real ✅ ya no queda
 ningún ítem pendiente en toda la Fase 5 (2026-09-08)**: única verificación que faltaba
