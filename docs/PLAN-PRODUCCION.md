@@ -815,9 +815,18 @@ instancia alcanza por ahora. Queda documentada para cuando haga falta retomarla)
       `COPY` (confirmado con `eslint`/163 paquetes adentro de la imagen antes del fix), y
       un `chown -R /app` de ~110s por los miles de archivos chiquitos que trae
       `@aws-sdk/client-s3` (resuelto con `--chown` en los `COPY` en vez de un `chown -R`
-      aparte) — ver el detalle completo en `docs/CHANGELOG.md`. **Sigue pendiente**
-      probar `docker compose up` (Opción B) de punta a punta en un entorno real — solo se
-      confirmó `docker build` directo (Opción A) hasta ahora.
+      aparte) — ver el detalle completo en `docs/CHANGELOG.md`. **`docker compose up`
+      (Opción B) también verificado de punta a punta en entorno real (2026-09-08)**: los
+      tres contenedores levantan `healthy`, el estado sobrevive a un
+      `docker compose restart app`, y el flujo completo de cuenta + sala + video con R2
+      funciona. En el camino se descartó una falsa alarma (las carpetas
+      `@eslint`/`@eslint-community` que seguían apareciendo en `ls node_modules` son
+      directorios de scope vacíos, residuo cosmético de `npm ci --omit=dev` — `eslint`
+      en sí no está instalado) y se encontró un bug real pero de configuración del
+      usuario, no del proyecto: un `.env` con `R2_PUBLIC_URL` mal cortado (comentario
+      pegado sin salto de línea) rompía la URL del `<video src>`. Detalle completo en
+      `docs/CHANGELOG.md`. Con esto no queda ningún ítem pendiente de verificación en
+      la Fase 5.
 - [x] Variables de entorno ✅ (completo el 2026-09-07): nuevo `lib/envValidation.js`, que corre al
       arrancar (antes de conectar a Redis/Postgres/R2) y falla rápido con un mensaje claro si detecta
       una configuración de R2 a medias (algunas de las 5 variables sí, otras no — el caso real que
@@ -898,11 +907,15 @@ Con las decisiones de Fase 0 ya tomadas, el orden recomendado queda así:
 9. **Fase 5 ✅ completa (2026-09-08)**: tests ✅, CI con lint ✅, validar env vars ✅,
    documentar/automatizar el deploy ✅ (Dockerfile + docker-compose.yml + scripts/deploy.sh
    + job opcional de GitHub Actions, ver detalle arriba). No quedan ítems pendientes en
-   esta fase — **verificado en entorno real (2026-09-08)**: `docker build` de punta a
-   punta en Windows/Docker Desktop encontró y corrigió dos bugs reales del `Dockerfile`
-   (devDependencies coladas en la imagen, `chown -R` innecesariamente lento — ver
-   `docs/CHANGELOG.md`). Sigue pendiente probar `docker compose up` (Opción B) de punta a
-   punta en un entorno real.
+   esta fase — **verificado en entorno real (2026-09-08)**: `docker build` (Opción A) de
+   punta a punta en Windows/Docker Desktop encontró y corrigió dos bugs reales del
+   `Dockerfile` (devDependencies coladas en la imagen, `chown -R` innecesariamente lento),
+   y `docker compose up` (Opción B) confirmado también de punta a punta en el mismo
+   entorno (los tres contenedores sanos, estado persistente tras un restart de la app,
+   flujo completo de cuenta + sala + video con R2 funcionando) — ver `docs/CHANGELOG.md`
+   para el detalle completo de ambas verificaciones, incluyendo la falsa alarma de
+   `eslint` descartada y el bug de `.env` (`R2_PUBLIC_URL` mal cortado) encontrado en el
+   camino.
 10. **Fase 3 queda pospuesta** (una instancia alcanza por ahora, según Fase 0) y
     **Fase 6 de multi-tenancy queda descartada** — no vuelven a este orden salvo
     que cambie la necesidad real de escala. Lo único que queda pendiente en todo

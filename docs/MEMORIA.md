@@ -142,6 +142,21 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Fase 5 — `docker compose up` (Opción B) verificado en entorno real ✅ ya no queda
+ningún ítem pendiente en toda la Fase 5 (2026-09-08)**: única verificación que faltaba
+tras la entrada de abajo, que solo había probado `docker build` directo (Opción A). Con
+Windows/Docker Desktop: los tres contenedores (`app`/`redis`/`postgres`) levantan
+`healthy`, `docker compose restart app` conserva sesión y sala (confirma persistencia
+real en los volúmenes de Redis/Postgres), y el flujo completo de cuenta + sala + video
+con R2 funciona de punta a punta. En el camino: se descartó como falsa alarma que
+`eslint`/`@eslint-community` "siguieran instalados" (son carpetas de scope vacías,
+residuo cosmético de `npm ci --omit=dev`, confirmado con
+`find node_modules -mindepth 1 -maxdepth 1 -type d -empty` y que
+`node_modules/eslint` no existe); y se encontró un bug real pero en el `.env` del
+usuario, no en el proyecto — `R2_PUBLIC_URL` sin salto de línea antes del comentario
+siguiente rompía el `<video src>` armado por `lib/r2.js::getPublicUrl()` (el código en
+sí ya hacía lo correcto). Detalle completo en `docs/CHANGELOG.md`.
+
 **Fase 5 — fix real en el Dockerfile, encontrado en verificación en entorno real
 (2026-09-08)**: probando el `Dockerfile` de la entrada de abajo contra Docker de verdad
 (Windows, Docker Desktop) apareció un bug real: la imagen final tenía las

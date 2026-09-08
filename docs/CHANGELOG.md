@@ -1,5 +1,47 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-08 — Fase 5: `docker compose up` (Opción B) verificado en entorno real ✅ COMPLETA la Fase 5
+
+- **Motivo**: único ítem que quedaba pendiente de toda la Fase 5 — la entrada anterior
+  solo había verificado `docker build` directo (Opción A) en un entorno real; faltaba
+  probar `docker-compose.yml` (Opción B: app + Redis + Postgres bundleados) de punta a
+  punta.
+- **Primero, una falsa alarma descartada**: antes de esta prueba se sospechó que
+  `eslint`/`@eslint-community` seguían coloándose en la imagen (`ls node_modules | grep
+  -i eslint` los seguía listando incluso después del fix de la entrada anterior).
+  Investigado en sandbox y confirmado en el entorno real del usuario con
+  `find node_modules -mindepth 1 -maxdepth 1 -type d -empty`: son directorios de
+  "scope" (`@eslint`, `@eslint-community`, y de paso `@keyv`/`@cacheable`/`@humanfs`/
+  `@humanwhocodes`) que **quedan vacíos** como residuo cosmético de `npm ci --omit=dev`
+  al podar el paquete real que iba adentro — `node_modules/eslint` no existe
+  (`ls: node_modules/eslint: No such file or directory`). El fix de la entrada anterior
+  (orden de los `COPY`) sí funciona correctamente; no hacía falta ningún cambio
+  adicional al `Dockerfile`.
+- **`docker compose up -d --build` probado de punta a punta** (Windows, Docker Desktop):
+  los tres contenedores (`app`, `redis`, `postgres`) levantan y quedan `healthy`,
+  incluido el `HEALTHCHECK` del propio `Dockerfile` contra `GET /health` funcionando
+  dentro del contenedor `app`. Registro de cuenta (escribe en el Postgres del
+  contenedor), creación de sala (escribe en el Redis del contenedor), y
+  `docker compose restart app` con la sesión y la sala sobreviviendo — confirma que el
+  estado persiste en los volúmenes de Redis/Postgres aunque se recree el contenedor de
+  la app.
+- **Bug real encontrado, pero en la configuración del usuario, no en el proyecto**:
+  el video se subía bien a R2 pero no reproducía en la sala. Causa: en el `.env` del
+  usuario, `R2_PUBLIC_URL` no tenía salto de línea antes del comentario siguiente
+  (`R2_PUBLIC_URL=https://pub-xxx.r2.dev# R2_PRESIGN_EXPIRES_SECONDS=...`), así que el
+  comentario quedaba pegado al valor real de la variable. `lib/r2.js::getPublicUrl()`
+  arma el `<video src>` directo como `` `${R2_PUBLIC_URL}/${key}` ``, así que la URL que
+  llegaba al navegador quedaba rota. Confirmado revisando el código (no hacía falta
+  cambiar nada ahí, `getPublicUrl()` ya hace exactamente lo que debería con un valor
+  bien formado) — el fix fue solo corregir el `.env` del usuario (cada variable en su
+  propia línea). De paso se encontró y corrigió, en el mismo `.env`, un
+  `METRICS_TOKEN=METRICS_TOKEN=...` duplicado (el nombre de la variable colado dentro de
+  su propio valor). Ninguno de los dos es un bug del código del proyecto, pero vale la
+  pena dejarlo anotado como error común al editar `.env` a mano.
+- Con esto, las **dos** opciones de deploy con Docker (A: `docker build` directo, B:
+  `docker compose up`) quedan verificadas en un entorno real, cerrando el único ítem
+  pendiente de la Fase 5.
+
 ## 2026-09-08 — Fase 5: fix real en el Dockerfile, encontrado en verificación en entorno real
 
 - **Motivo**: verificando el `Dockerfile` de la entrada anterior contra un Docker real
