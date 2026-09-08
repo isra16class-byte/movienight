@@ -144,26 +144,38 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
-**Panel de administración — EN CURSO, pasos 1-4 de 9 (2026-09-08, rama
+**Panel de administración — EN CURSO, pasos 1-5 de 9 (2026-09-08, rama
 `plan-produccion`)**: feature nueva, no forma parte de `docs/PLAN-PRODUCCION.md`.
 Diseño completo y confirmado en `docs/PLAN-PANEL-ADMIN.md` (las 6 preguntas de la
 sección 9 están resueltas) — si retomás esto en otra sesión, **leé ese documento
 primero**, tiene todo el diseño y el orden de implementación (sección 8).
 Completado: migración (`role` en `users`, tablas `app_settings` y
 `admin_actions_audit`), `scripts/make-admin.js`, `lib/settings.js` (catálogo de 8
-parámetros con precedencia DB→env→default, cache en memoria, 11 tests) y el
+parámetros con precedencia DB→env→default, cache en memoria, 11 tests), el
 refactor "constante → función" en los 8 puntos que los usan
 (`lib/roomStore.js`, `server.js`, `lib/alerts.js`,
-`scripts/library-orphan-report.js`). Bug real encontrado y corregido en el camino:
-el default de `ROOM_TTL_HOURS` en el catálogo tenía que ser 24 (el de siempre), no
-`null` como proponía el plan originalmente — con `null` una instalación nueva
-habría pasado a tener salas que nunca expiran por default. Detalle completo,
-incluida la verificación (sintaxis, 48/48 tests, lint, arranque real), en
+`scripts/library-orphan-report.js`), y `lib/roomLifecycle.js::closeRoom(io,
+rooms, roomStore, roomId, reason)` — extraída del bloque que antes vivía
+inline dentro de `sweepExpiredRooms()` en `server.js` (avisar por `room-error`,
+desconectar cada socket de la sala, borrar de `rooms` en memoria y de
+`roomStore`/Redis), con `reason` como parámetro para que el mensaje en pantalla
+diga la causa real según quién dispare el cierre (TTL vencido hoy;
+admin/"cerrar todas" cuando lleguen los pasos 6-7). `sweepExpiredRooms()` ahora
+llama a esta función por cada sala expirada en vez de tener su propia copia de
+la lógica — sin cambio de comportamiento observable, confirmado con 6 tests
+nuevos (`test/roomLifecycle.test.js`, mismo patrón de `io`/`rooms`/`roomStore`
+de mentira que ya usa `lib/hostAuth.js::setHost`) y arranque real del server.
+Bug real encontrado y corregido en el camino (paso 3): el default de
+`ROOM_TTL_HOURS` en el catálogo tenía que ser 24 (el de siempre), no `null`
+como proponía el plan originalmente — con `null` una instalación nueva habría
+pasado a tener salas que nunca expiran por default. Detalle completo, incluida
+la verificación de cada paso (sintaxis, 54/54 tests, lint, arranque real), en
 `docs/CHANGELOG.md`. **Todavía no existe ninguna ruta `/admin/*` ni
-`public/admin.html` — el panel no es usable todavía.** Sigue: paso 5 (extraer
-`closeRoom()` de `sweepExpiredRooms()`), paso 6 (rutas de settings +
-`requireAdmin`), paso 7 (rutas de dashboard/acciones + auditoría), paso 8
-(`public/admin.html`), paso 9 (prueba end-to-end).
+`public/admin.html` — el panel no es usable todavía.** Sigue: paso 6 (rutas de
+settings + `requireAdmin`), paso 7 (rutas de dashboard/acciones + auditoría,
+que ahora sí pueden reusar `closeRoom()` para "cerrar una sala puntual",
+"cerrar inactivas" y "cerrar TODAS"), paso 8 (`public/admin.html`), paso 9
+(prueba end-to-end).
 
 **Fase 5 — `docker compose up` (Opción B) verificado en entorno real ✅ ya no queda
 ningún ítem pendiente en toda la Fase 5 (2026-09-08)**: única verificación que faltaba

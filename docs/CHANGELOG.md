@@ -1,6 +1,6 @@
 # 📝 Changelog (activo) — MovieNight
 
-## 2026-09-08 — Panel de administración: EN CURSO (pasos 1-4 de 9, `docs/PLAN-PANEL-ADMIN.md`)
+## 2026-09-08 — Panel de administración: EN CURSO (pasos 1-5 de 9, `docs/PLAN-PANEL-ADMIN.md`)
 
 - **Motivo**: feature nueva (no es parte de `docs/PLAN-PRODUCCION.md`, que es sobre
   robustez/seguridad/infra) — un panel para administradores donde cambiar en caliente
@@ -38,17 +38,43 @@
   expira" siga siendo una elección explícita desde el panel (campo vacío), no lo que
   pasa sin querer si nadie toca nada. Test nuevo que lo fija
   (`test/settings.test.js`).
-- **Verificado en sandbox**: sintaxis OK en los 5 archivos tocados, 48/48 tests (11 en
-  `settings.test.js`), lint limpio, arranque real del server sin Redis/Postgres
-  confirmando el log nuevo de `settings.init()`. Sin cambio de comportamiento
-  observable con nada configurado desde el panel — ese llega recién en los pasos 6-7.
+- **Verificado en sandbox (pasos 1-4)**: sintaxis OK en los 5 archivos tocados, 48/48
+  tests (11 en `settings.test.js`), lint limpio, arranque real del server sin
+  Redis/Postgres confirmando el log nuevo de `settings.init()`. Sin cambio de
+  comportamiento observable con nada configurado desde el panel — ese llega recién en
+  los pasos 6-7.
+- **Paso 5 — extraer `closeRoom()` de `sweepExpiredRooms()`**: nuevo
+  `lib/roomLifecycle.js::closeRoom(io, rooms, roomStore, roomId, reason)`, con el
+  mismo bloque que antes vivía inline dentro del loop de `sweepExpiredRooms()` en
+  `server.js` (avisar por el evento `room-error`, desconectar cada socket que
+  seguía en la sala, borrarla de `rooms` en memoria y de `roomStore`/Redis).
+  `io`/`rooms`/`roomStore` se reciben como parámetros — mismo criterio que ya usa
+  `lib/hostAuth.js::setHost` con `io` — para poder testear la función aislada de
+  Socket.io. `reason` es nuevo como parámetro explícito (antes estaba hardcodeado
+  al mensaje de "expiró por TTL"): lo necesitan los botones del panel (paso 7) para
+  que el mensaje en pantalla diga la causa real ("cerrada por un administrador",
+  "cerrada por inactividad", etc.), no un genérico. `sweepExpiredRooms()` ahora
+  llama a `closeRoom()` por cada sala expirada en vez de tener su propia copia de
+  la lógica — cambio mecánico, sin diferencia de comportamiento observable (mismo
+  criterio de la sección 4 del plan). 6 tests nuevos en `test/roomLifecycle.test.js`
+  (mismo patrón de `io`/`rooms`/`roomStore` de mentira que ya usa
+  `test/hostAuth.test.js`): el broadcast de `room-error` con el motivo recibido,
+  que desconecta y saca de la sala a cada socket que seguía adentro, que no rompe
+  si un socket del set ya se desconectó solo o si nadie estaba conectado, que
+  borra la sala de `rooms` (sin tocar otras) y que la borra de `roomStore`.
+- **Verificado en sandbox (paso 5)**: sintaxis OK en los 3 archivos tocados
+  (`server.js`, `lib/roomLifecycle.js`, `test/roomLifecycle.test.js`), 54/54 tests
+  (los 48 anteriores + los 6 nuevos de `roomLifecycle.test.js`), lint limpio,
+  arranque real del server sin Redis/Postgres. Sin cambio de comportamiento
+  observable: `sweepExpiredRooms()` sigue emitiendo el mismo mensaje de TTL de
+  siempre, solo que ahora vía `closeRoom()`.
 - **Pendiente** (ver `docs/PLAN-PANEL-ADMIN.md` sección 8 para el detalle de cada
-  uno): paso 5 (extraer `closeRoom()` de `sweepExpiredRooms()`), paso 6 (rutas
-  `/admin/settings` + `requireAdmin`), paso 7 (rutas de dashboard/acciones sobre
-  salas + auditoría), paso 8 (`public/admin.html`), paso 9 (prueba end-to-end
-  completa). **Todavía no existe ninguna ruta `/admin/*` ni `public/admin.html`** —
-  el panel no es usable todavía, solo está la base de datos y la lógica de
-  parámetros.
+  uno): paso 6 (rutas `/admin/settings` + `requireAdmin`), paso 7 (rutas de
+  dashboard/acciones sobre salas + auditoría — ahora sí pueden reusar
+  `closeRoom()` para "cerrar una sala puntual", "cerrar inactivas" y "cerrar
+  TODAS"), paso 8 (`public/admin.html`), paso 9 (prueba end-to-end completa).
+  **Todavía no existe ninguna ruta `/admin/*` ni `public/admin.html`** — el panel
+  no es usable todavía.
 
 ## 2026-09-08 — Fase 5: `docker compose up` (Opción B) verificado en entorno real ✅ COMPLETA la Fase 5
 

@@ -1990,6 +1990,11 @@ const PORT = process.env.PORT || 3000;
 // el video queda en la biblioteca compartida para reutilizarse en otra sala.
 const ROOM_SWEEP_INTERVAL_MS = parseInt(process.env.ROOM_SWEEP_INTERVAL_MS, 10) || 30 * 60 * 1000; // cada 30 min
 
+// closeRoom() extraída a lib/roomLifecycle.js (paso 5 de docs/PLAN-PANEL-ADMIN.md) — mismo motivo que
+// setHost() en lib/hostAuth.js: poder testearla aislada de Socket.io, y reusarla desde las acciones
+// operativas del panel de administración (paso 7), no solo desde este barrido por TTL.
+const { closeRoom } = require('./lib/roomLifecycle');
+
 async function sweepExpiredRooms() {
   const ttlSeconds = roomStore.getRoomTtlSeconds();
   if (ttlSeconds === null) return; // "nunca expira" (elegido desde el panel): no hay nada que barrer
@@ -2002,16 +2007,7 @@ async function sweepExpiredRooms() {
     try {
       // Avisa y desconecta a quien siga adentro (raro tras 24hs+ sin actividad, pero por las dudas —
       // no tendría sentido dejar a alguien "viendo" una sala que ya se borró de `rooms`).
-      io.to(roomId).emit('room-error', `Esta sala expiró por inactividad (sin uso durante ${ttlSeconds / 3600}hs) y se cerró.`);
-      const socketsInRoom = io.sockets.adapter.rooms.get(roomId);
-      if (socketsInRoom) {
-        for (const socketId of [...socketsInRoom]) {
-          const s = io.sockets.sockets.get(socketId);
-          if (s) { s.leave(roomId); s.disconnect(true); }
-        }
-      }
-      delete rooms[roomId];
-      await roomStore.deleteRoom(roomId);
+      await closeRoom(io, rooms, roomStore, roomId, `Esta sala expiró por inactividad (sin uso durante ${ttlSeconds / 3600}hs) y se cerró.`);
     } catch (err) {
       logger.error({ err, roomId }, 'Error expirando sala (Fase 2.6)');
     }
