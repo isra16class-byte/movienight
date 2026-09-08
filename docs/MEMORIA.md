@@ -206,6 +206,32 @@ bloque de Redis a después de `settings.init()`, con el mismo
 `roomStore.isEnabled()` como condición de siempre. Sin cambio de
 comportamiento observable más allá de arreglar el error espurio.
 
+**Paso 6 verificado end-to-end con Docker Compose real (2026-09-08)**: lo
+que quedaba pendiente arriba (flujo completo con un admin real) se confirmó
+con Redis+Postgres reales — los 4 códigos de `requireAdmin`, `POST
+/admin/settings` cambiando `MAX_LIBRARY_VIDEOS` en caliente y reflejándose
+en el siguiente `GET` sin reiniciar el proceso, 400 con valor fuera de
+rango/key inexistente, `requireSameOrigin` rechazando un `Origin` cruzado y
+dejando pasar sin headers, y auditoría registrando cada cambio válido (nada
+en los inválidos). Detalle completo en `docs/CHANGELOG.md`.
+
+**Decisión tomada durante esa verificación**: se evaluó y se descartó
+tratar un error de conectividad a Postgres en pleno request (Postgres
+caído con `DATABASE_URL` configurada) como 404 en `requireAdmin` — ese 404
+queda reservado para `DATABASE_URL` ausente. `requireAdmin` sigue
+devolviendo 500 ante cualquier error al consultar el rol, sin excepción por
+tipo de error (motivo completo, con la comparación contra
+`lib/db.js::ping()`, en `docs/CHANGELOG.md` y en el comentario del propio
+`lib/adminAuth.js`).
+
+**Pendiente de investigar aparte, no bloquea el panel**: la misma
+verificación no pudo confirmar de forma concluyente (con Playwright, dos
+contextos de navegador) que el sync automático del reproductor llegue al
+invitado ni que el composer de chat quede visible al cambiar el estado del
+reproductor. No es necesariamente un bug nuevo ni está relacionado al panel
+de admin — antes de asumir que es real, conviene revisarlo con logs de
+consola/red del navegador.
+
 **Todavía no existe `public/admin.html` ni
 las rutas de dashboard/acciones sobre salas — el panel no es usable
 todavía.** Sigue: paso 7 (rutas de dashboard/acciones + auditoría, que

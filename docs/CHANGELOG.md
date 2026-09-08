@@ -134,6 +134,42 @@
   limpio (no se pudo re-probar con Redis real en este sandbox — queda pendiente de
   confirmar que el log ya no aparece la próxima vez que se levante con
   `docker compose up`).
+- **Paso 6 verificado end-to-end con Docker Compose real (Redis + Postgres)
+  (2026-09-08)**: se confirmó lo que quedaba pendiente arriba. Arranque limpio, sin
+  el log espurio del bugfix anterior. `scripts/make-admin.js` promovió una cuenta de
+  prueba correctamente. Los 4 códigos de `requireAdmin` confirmados con un admin y
+  una cuenta no-admin reales (401 sin cookie, 403 con cuenta no-admin, 200 con
+  admin). `POST /admin/settings` cambia un valor real (`MAX_LIBRARY_VIDEOS`) y el
+  `GET` posterior lo refleja **sin reiniciar el proceso** (confirma que el refactor
+  del paso 4 sirve para lo que se pensó), 400 con un valor fuera de rango sin pisar
+  el valor bueno en DB, 400 con una key inexistente. `requireSameOrigin` rechaza un
+  `Origin` cruzado (403) y deja pasar sin `Origin`/`Referer` (200), como se diseñó.
+  Auditoría (`admin_actions_audit`) registra cada cambio válido con `from`/`to`, y
+  NO registra nada en los intentos inválidos (400) — correcto.
+- **Decisión tomada, no un bug pendiente**: durante esta verificación se probó (y se
+  descartó) tratar un error de conectividad a Postgres en pleno request
+  (`ECONNREFUSED`/`ENOTFOUND`/`ECONNRESET`, Postgres caído con `DATABASE_URL`
+  configurada) como 404 "no disponible" en `requireAdmin`, calcado del 404 que ya usa
+  ese middleware para `DATABASE_URL` ausente. Se decidió **no** adoptarlo: ese 404 es
+  específico de "la feature no está configurada acá", no de "está configurada pero
+  ahora mismo no responde" — el resto del proyecto trata ese segundo caso como una
+  falla real (`lib/db.js::ping()` devuelve `ok:false` con el mensaje de error, no lo
+  disfraza de "no habilitado"). Clasificar por `err.code` para decidir el status
+  tampoco es robusto: la lista de códigos nunca cubre todos los casos, y un bug real
+  que por accidente dispare uno de esos códigos terminaría mostrando "No disponible"
+  en vez de un 500 que alertara que algo se rompió. `requireAdmin` sigue devolviendo
+  **500** (con log) ante cualquier error al consultar el rol, sin excepción por
+  tipo de error. `lib/adminAuth.js` queda con un comentario explicando esto, para que
+  no se vuelva a proponer sin este contexto.
+- **Regresión de la app base — no confirmada, pendiente de investigar aparte**: la
+  misma verificación probó crear una sala con dos usuarios (Playwright, dos
+  contextos de navegador). Sala, viewers y carga de video funcionaron; **sync
+  automático del reproductor hacia el invitado y visibilidad del composer de chat al
+  cambiar el estado del reproductor no se pudieron confirmar de forma concluyente**
+  con el navegador. No es necesariamente un bug nuevo (podría ser timing de la
+  prueba automatizada) y no está relacionado al panel de admin, pero queda anotado
+  acá para no perderlo de vista — revisar con más detalle (logs de consola/red del
+  navegador) antes de asumir que es un problema real.
 
 ## 2026-09-08 — Fase 5: `docker compose up` (Opción B) verificado en entorno real ✅ COMPLETA la Fase 5
 
