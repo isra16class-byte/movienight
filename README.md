@@ -349,6 +349,28 @@ email por minuto mientras dure una caída real. Cuando el healthcheck vuelve a e
 haber alertado, manda un único email de "recuperado". Ver `.env.example` para el detalle de cada
 variable.
 
+## Validación de variables de entorno al arrancar (Fase 5 del plan de producción)
+
+`lib/envValidation.js` corre apenas arranca el proceso (antes de conectar a Redis/Postgres/R2) y
+detecta dos clases de error que hoy pasan en silencio:
+
+- **Configuración parcial de R2**: si configurás algunas de las 5 variables de R2
+  (`R2_ACCOUNT_ID`/`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`/`R2_BUCKET_NAME`/`R2_PUBLIC_URL`) pero
+  no todas, el server no arranca — antes, según cuál faltara, esto podía caer en modo disco local en
+  silencio, o fallar recién después de subir un video entero de varios GB (justo al armar el link
+  público).
+- **Variables numéricas inválidas**: `SHUTDOWN_GRACE_MS`, `ROOM_TTL_HOURS`, `MAX_LIBRARY_SIZE_GB`,
+  etc. — si el valor no es un número válido (ej. un typo), el server no arranca en vez de caer
+  callado al default de siempre.
+
+Además, avisa (sin frenar el arranque) si un flag booleano (`DISABLE_REDIS`,
+`SESSION_COOKIE_INSECURE`, `LOG_PRETTY`) tiene un valor distinto de `"1"` — todos esos flags se leen
+como "activado" solo con exactamente `"1"`, así que `SESSION_COOKIE_INSECURE=true` por ejemplo queda
+sin efecto, y el warning te avisa antes de que te sorprenda.
+
+Nada de esto es obligatorio: si no configurás ninguna variable, el server arranca igual que siempre
+(modo disco local, sin cuentas, sin Redis persistente si usás `DISABLE_REDIS=1`).
+
 ## Tests y lint
 
 Fase 5 del plan de producción ("Calidad de código y proceso"). Dos comandos, sin
@@ -374,6 +396,7 @@ movienight/
   cloudflared-config.example.yml  # Plantilla para túnel con nombre / dominio fijo (opcional, ver README)
   lib/
     r2.js                 # Cloudflare R2 (opcional, ver sección arriba) — subir/listar/borrar videos en R2
+    envValidation.js       # Validación de env vars al arrancar (Fase 5 del plan de producción)
     metrics.js             # Contadores en memoria para GET /metrics (Fase 4 del plan de producción)
     alerts.js              # Alertas mínimas por email (Fase 4 del plan de producción)
   public/

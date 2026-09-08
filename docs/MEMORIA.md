@@ -139,6 +139,22 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Fase 5 — validar variables de entorno al arrancar ✅ COMPLETA la Fase 5 (2026-09-07)**: último
+punto pendiente de la fase. Nuevo `lib/envValidation.js`, que corre al arrancar (antes de conectar a
+Redis/Postgres/R2) y falla rápido con un mensaje claro ante dos problemas que hoy pasaban en
+silencio: una configuración de R2 a medias (algunas de las 5 variables sí, otras no — el ejemplo real
+que motivaba este ítem del plan: sin `R2_PUBLIC_URL`, la subida de un video entero de varios GB
+funcionaba completa y recién fallaba al final, armando el link público) y una variable numérica con
+un valor que no parsea (el patrón `parseInt(x) || default` que ya usaba el proyecto cae callado al
+default sin avisar). También avisa, sin frenar el arranque, si un flag booleano (`DISABLE_REDIS`,
+`SESSION_COOKIE_INSECURE`, `LOG_PRETTY`) tiene un valor distinto de `"1"` — esos flags solo se
+activan con exactamente ese valor. Nada de esto es obligatorio: sin ninguna variable configurada, el
+server arranca exactamente igual que siempre. 10 tests nuevos y probado manualmente contra el server
+real: arranque normal con config válida, corte inmediato (exit 1, antes de abrir el puerto) con R2 a
+medias + una variable numérica inválida a la vez, y arranque normal con solo un warning cuando el
+problema es un flag booleano. **Con esto, la Fase 5 (Calidad de código y proceso) queda completa del
+todo** — no quedan ítems pendientes en esa fase. Detalle completo en `docs/CHANGELOG.md`.
+
 **Fase 5 — CI con lint (ESLint) (2026-09-07)**: segundo punto de la Fase 5 resuelto. Nuevo
 `eslint.config.js` (flat config) que cubre el código de servidor (`server.js`, `lib/`, `scripts/`,
 `test/`) — a propósito no cubre `public/`, donde el JS de cliente vive inline en los `.html` sin
@@ -151,8 +167,7 @@ correrlo por primera vez aparecieron 8 errores reales (no ruido del linter): cua
 archivos (`server.js` y `lib/r2.js`, ambos armando el nombre "seguro" de un archivo), un `catch`
 intencionalmente vacío sin el prefijo `_` que ya usa el resto del proyecto, y un argumento de mock
 sin usar en un test — los ocho corregidos sin cambiar comportamiento. Verificado con `npm run lint`
-limpio y los 27 tests existentes siguiendo en verde. Quedan los otros dos puntos de la Fase 5:
-documentar/automatizar el deploy, y validar variables de entorno al arrancar.
+limpio y los 27 tests existentes siguiendo en verde.
 
 **Fase 5 — tests unitarios (setHost, auth, modo dual disco/R2) + CI en GitHub
 Actions (2026-09-07)**: primer punto de la Fase 5 resuelto. Como `server.js`

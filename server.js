@@ -34,6 +34,13 @@ function loadDotEnv() {
 }
 loadDotEnv();
 
+// Validación de variables de entorno (Fase 5 del plan de producción, último punto pendiente de la
+// fase) — va ACÁ, después de loadDotEnv() (para ver también lo que venga del .env) pero ANTES de
+// cualquier require de un módulo que lea process.env.* en constantes de nivel de módulo (lib/r2.js
+// más abajo, lib/roomStore.js, etc.) — mismo motivo por el que lib/r2.js ya tenía que ir después de
+// loadDotEnv(). Ver lib/envValidation.js para el detalle de qué detecta y por qué.
+require('./lib/envValidation').validateOrExit(require('./lib/logger'));
+
 // `require('./lib/r2')` va DESPUÉS de loadDotEnv() a propósito (V17 — fix): lib/r2.js lee
 // process.env.R2_* en constantes de nivel de módulo, una sola vez, en el momento en que se hace
 // `require`. Si el require pasa antes de loadDotEnv() (como estaba desde la Fase 1), esas constantes

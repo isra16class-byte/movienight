@@ -1,5 +1,56 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-07 — Fase 5: validar variables de entorno al arrancar
+
+- **Motivo**: último punto pendiente de la Fase 5 — el plan pedía fallar rápido con un mensaje claro
+  si falta algo obligatorio, en vez de que el problema aparezca "a mitad de una subida de video como
+  puede pasar hoy con R2 mal configurado" (cita textual del plan). Ese caso concreto es real:
+  `isR2Enabled()` (`lib/r2.js`) solo exige 4 de las 5 variables de R2 — si falta `R2_PUBLIC_URL`, el
+  server arranca normal y la subida de un video de varios GB funciona entera, y recién al final,
+  armando el link público para guardar la referencia, `getPublicUrl()` tira su error. Todo ese tiempo
+  de subida quedaba desperdiciado por un problema que ya estaba ahí desde el arranque.
+- **`lib/envValidation.js` nuevo**, con `collectIssues(env)` (pura, testeable, no toca
+  `process.env` directo) y `validateOrExit(logger)` (la que se llama de verdad). Detecta:
+  - **Configuración parcial de un grupo de variables relacionadas**: por ahora, R2 (las 5 variables,
+    no solo las 4 que exige `isR2Enabled()` — acá el objetivo es otro, avisar de una configuración a
+    medias, no decidir si R2 "está activo"). Si ninguna está seteada, no es un error (modo disco
+    local); si están las 5, tampoco: el problema es el punto medio.
+  - **Variables numéricas con un valor inválido**: las 12 variables que hoy se leen con
+    `parseInt`/`parseFloat` en `server.js` y `lib/*.js` (`SESSION_MAX_AGE_MS`,
+    `R2_PRESIGN_EXPIRES_SECONDS`, `MAX_LIBRARY_VIDEOS`, `MAX_LIBRARY_SIZE_GB`,
+    `ROOM_SWEEP_INTERVAL_MS`, `MULTIPART_SWEEP_INTERVAL_MS`, `MULTIPART_ABANDON_DAYS`,
+    `ALERT_CHECK_INTERVAL_MS`, `SHUTDOWN_GRACE_MS`, `ALERT_HEALTH_FAILURE_THRESHOLD`,
+    `ALERT_COOLDOWN_MS`, `ROOM_TTL_HOURS`). El patrón que ya usaba el proyecto
+    (`parseInt(x, 10) || default`) cae callado al default si `x` no parsea — nadie se entera de que
+    su valor no se aplicó. Se usa un match de regex de punta a punta (no `Number.isFinite(parseInt(x))`
+    solo) porque `parseInt`/`parseFloat` son parsers laxos que ignoran basura al final
+    (`parseInt("24h", 10)` da `24` sin avisar que la "h" se descartó) — un caso que se encontró
+    escribiendo el primer test de este módulo y que el chequeo original no detectaba.
+  - **Flags booleanos con un valor raro** (`DISABLE_REDIS`, `SESSION_COOKIE_INSECURE`,
+    `LOG_PRETTY`): estos se leen con `=== '1'`, así que `SESSION_COOKIE_INSECURE=true` por ejemplo
+    queda sin efecto — esto solo genera un **warning** (no frena el arranque), porque no es
+    necesariamente un error real.
+- **`server.js`**: `require('./lib/envValidation').validateOrExit(...)` se agrega justo después de
+  `loadDotEnv()`, ANTES de requerir `lib/r2.js` y el resto de los módulos que leen `process.env.*` en
+  constantes de nivel de módulo — mismo motivo por el que `lib/r2.js` ya tenía que requerirse después
+  de `loadDotEnv()` (Node cachea el módulo, así que una constante leída antes de tiempo queda fijada
+  para siempre).
+- **10 tests nuevos** (`test/envValidation.test.js`): entorno vacío sin problemas, R2 completo sin
+  problemas, R2 con 4/5 y con solo 1/5 (el mensaje lista las que faltan en los dos casos), una
+  variable numérica entera inválida con el valor original en el mensaje, `ROOM_TTL_HOURS="0"` NO es
+  un error (0 es un valor real y válido, no ausencia de valor — mismo cuidado que ya tenía
+  `MULTIPART_ABANDON_DAYS` desde antes, ver la entrada de esa fase), un decimal válido con punto no
+  reporta nada, un flag booleano con valor raro da warning y no error, un flag en `"1"` no reporta
+  nada, y que varios problemas a la vez se acumulan todos juntos (no solo el primero).
+- **No agrega nada obligatorio**: sin ninguna variable configurada, el server sigue arrancando igual
+  que siempre — este módulo solo detecta configuraciones a medias o con una forma inválida en
+  variables que ya existían.
+- **Probado manualmente end-to-end**: `DISABLE_REDIS=1 node server.js` arranca normal (mismo log de
+  siempre); `R2_ACCOUNT_ID=x SHUTDOWN_GRACE_MS=abc node server.js` termina con código de salida `1`
+  ANTES de abrir el puerto, listando los dos problemas juntos; `SESSION_COOKIE_INSECURE=true node
+  server.js` arranca igual (con el warning logueado) en vez de frenar. Los 37 tests del proyecto
+  (27 de antes + 10 nuevos) en verde, y `npm run lint` limpio sobre el archivo nuevo.
+
 ## 2026-09-07 — Fase 5: CI con lint (ESLint)
 
 - **Motivo**: segundo punto de la Fase 5 ("Calidad de código y proceso") — el CI del punto anterior

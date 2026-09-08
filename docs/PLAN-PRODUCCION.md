@@ -793,9 +793,13 @@ instancia alcanza por ahora. Queda documentada para cuando haga falta retomarla)
       Para producción conviene un pipeline: push a `main` → deploy automático
       (o al menos un solo comando), para que desplegar no dependa de recordar
       los pasos.
-- [ ] Variables de entorno: validar al arrancar que estén todas las obligatorias
-      seteadas (fallar rápido con un mensaje claro, no a mitad de una subida de
-      video como puede pasar hoy con R2 mal configurado).
+- [x] Variables de entorno ✅ (completo el 2026-09-07): nuevo `lib/envValidation.js`, que corre al
+      arrancar (antes de conectar a Redis/Postgres/R2) y falla rápido con un mensaje claro si detecta
+      una configuración de R2 a medias (algunas de las 5 variables sí, otras no — el caso real que
+      motivó este ítem, ver detalle en `docs/MEMORIA.md`) o una variable numérica con un valor
+      inválido (hoy cae callada al default sin avisar). Avisa (sin frenar el arranque) si un flag
+      booleano tiene un valor distinto de `"1"` (typo común y silencioso). No exige que ninguna
+      variable esté seteada — todo sigue siendo opcional, mismo criterio que el resto del proyecto.
 
 ---
 
@@ -869,7 +873,9 @@ Con las decisiones de Fase 0 ya tomadas, el orden recomendado queda así:
 9. **Fase 3 queda pospuesta** (una instancia alcanza por ahora, según Fase 0) y
    **Fase 6 de multi-tenancy queda descartada** — no vuelven a este orden salvo
    que cambie la necesidad real de escala. Lo que queda pendiente ahora es
-   **Fase 5** (tests/CI/deploy) y, dentro de Fase 6, términos de uso/privacidad.
+   terminar la **Fase 5** (tests ✅, CI con lint ✅, validar env vars ✅ — solo
+   falta documentar/automatizar el deploy) y, dentro de Fase 6, términos de
+   uso/privacidad.
 
 ---
 
