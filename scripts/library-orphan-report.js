@@ -46,13 +46,10 @@ loadDotEnv();
 
 const r2 = require('../lib/r2');
 const roomStore = require('../lib/roomStore');
+const db = require('../lib/db');
+const settings = require('../lib/settings');
 
 const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.mov', '.webm', '.avi', '.m4v'];
-// parseFloat(...) || 30 tendría el mismo bug que se encontró probando en un entorno real (ver
-// docs/CHANGELOG.md): LIBRARY_ORPHAN_DAYS=0 es un valor explícito válido (útil para pruebas, "contar
-// todo sin importar la antigüedad"), pero `0` es falsy en JS y con `||` caía igual al default de 30.
-const parsedOrphanDays = parseFloat(process.env.LIBRARY_ORPHAN_DAYS);
-const LIBRARY_ORPHAN_DAYS = (Number.isFinite(parsedOrphanDays) && parsedOrphanDays >= 0) ? parsedOrphanDays : 30;
 const UPLOAD_DIR = path.join(__dirname, '..', 'public', 'uploads');
 
 // A partir de room.videoFile ('/uploads/archivo.mp4' o una URL completa de R2), extrae solo el
@@ -83,6 +80,17 @@ function formatSize(bytes) {
 
 async function main() {
   const shouldDelete = process.argv.includes('--delete');
+
+  // Igual que scripts/make-admin.js: si Postgres está configurado, se corren las migraciones acá
+  // también (idempotentes) por si este script se corre antes de que el server haya arrancado ni una
+  // sola vez con lib/settings.js — sin esto, settings.init() fallaría al intentar leer una tabla
+  // app_settings que todavía no existe.
+  if (db.isEnabled()) {
+    await db.testConnection();
+    await db.runMigrations();
+  }
+  await settings.init(db);
+  const libraryOrphanDays = settings.getSetting('LIBRARY_ORPHAN_DAYS');
 
   if (!roomStore.isEnabled()) {
     console.error('❌ DISABLE_REDIS=1 en este .env — sin Redis no hay forma confiable de saber qué videos están');
@@ -121,15 +129,15 @@ async function main() {
   }
 
   const now = Date.now();
-  const cutoffMs = LIBRARY_ORPHAN_DAYS * 24 * 60 * 60 * 1000;
+  const cutoffMs = libraryOrphanDays * 24 * 60 * 60 * 1000;
   const orphans = library.filter((o) => !activeKeys.has(o.filename) && (now - o.mtime) > cutoffMs);
 
   if (orphans.length === 0) {
-    console.log(`✅ No hay candidatos: todo lo que tiene más de ${LIBRARY_ORPHAN_DAYS} días está referenciado por alguna sala activa, o no llega a esa antigüedad todavía.`);
+    console.log(`✅ No hay candidatos: todo lo que tiene más de ${libraryOrphanDays} días está referenciado por alguna sala activa, o no llega a esa antigüedad todavía.`);
     return;
   }
 
-  console.log(`Encontrados ${orphans.length} video(s) sin ninguna sala activa usándolos, con más de ${LIBRARY_ORPHAN_DAYS} días de antigüedad:\n`);
+  console.log(`Encontrados ${orphans.length} video(s) sin ninguna sala activa usándolos, con más de ${libraryOrphanDays} días de antigüedad:\n`);
   for (const o of orphans) {
     const days = Math.floor((now - o.mtime) / (1000 * 60 * 60 * 24));
     console.log(`  - ${o.filename}  (${formatSize(o.size)}, subido ${formatDays(days)})`);

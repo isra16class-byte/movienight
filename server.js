@@ -87,6 +87,11 @@ const sentry = require('./lib/sentry');
 const metrics = require('./lib/metrics');
 const alerts = require('./lib/alerts');
 
+// Catálogo de parámetros administrables desde el panel (docs/PLAN-PANEL-ADMIN.md) — reemplaza, uno
+// por uno (ver cada call site más abajo), las constantes que hasta ahora leían `process.env` una sola
+// vez al arrancar. Ver lib/settings.js para el detalle de la precedencia DB→env→default.
+const settings = require('./lib/settings');
+
 // SENTRY_DSN se lee después de loadDotEnv() (arriba), igual que DATABASE_URL/RESEND_API_KEY. Si no
 // está configurado, esto no hace nada y el resto del servidor conserva exactamente el mismo modo de
 // funcionamiento local que antes.
@@ -1197,7 +1202,10 @@ async function makeRoom(videoFile, password, ownerUserId = null) {
 // real, o la LIBRARY_PASSWORD compartida con el mismo límite de intentos — pedir una URL prefirmada
 // tiene el mismo costo potencial (alguien podría generar URLs y llenar el bucket) que subir un archivo
 // directo, así que amerita el mismo control.
-const R2_PRESIGN_EXPIRES_SECONDS = parseInt(process.env.R2_PRESIGN_EXPIRES_SECONDS, 10) || 6 * 60 * 60; // 6h default: la subida real puede tardar bastante más que el default típico de una URL prefirmada si la conexión de quien sube es lenta (es un video de varios GB)
+// (default 6h: la subida real puede tardar bastante más que el default típico de una URL prefirmada
+// si la conexión de quien sube es lenta — es un video de varios GB; ver lib/settings.js para el
+// catálogo completo). Se lee en cada request (no más una constante de módulo, ver paso 4 del plan de
+// panel de administración) para que cambiarlo desde el panel aplique sin reiniciar el proceso.
 
 // --- Límite de storage de la biblioteca (Fase 2.6 del plan de producción) ------------------------
 // Sin esto, con cuentas reales ya en pie (Fase 2bis) cualquiera con cuenta puede seguir subiendo
@@ -1206,11 +1214,10 @@ const R2_PRESIGN_EXPIRES_SECONDS = parseInt(process.env.R2_PRESIGN_EXPIRES_SECON
 // Se chequean ANTES de aceptar una subida nueva (no en /create-room-from-upload ni
 // /room/:id/change-video-from-upload, que reusan un archivo YA en la biblioteca — no suman nada
 // nuevo, así que no tiene sentido bloquearlos acá).
-const MAX_LIBRARY_VIDEOS = parseInt(process.env.MAX_LIBRARY_VIDEOS, 10) || 0;
-const MAX_LIBRARY_SIZE_GB = parseFloat(process.env.MAX_LIBRARY_SIZE_GB) || 0;
-
 async function checkStorageLimits(req, res, next) {
-  if (!MAX_LIBRARY_VIDEOS && !MAX_LIBRARY_SIZE_GB) return next(); // sin límites configurados: no hace falta listar nada
+  const maxVideos = settings.getSetting('MAX_LIBRARY_VIDEOS');
+  const maxSizeGB = settings.getSetting('MAX_LIBRARY_SIZE_GB');
+  if (!maxVideos && !maxSizeGB) return next(); // sin límites configurados: no hace falta listar nada
   try {
     let videos;
     if (r2.isR2Enabled()) {
@@ -1219,13 +1226,13 @@ async function checkStorageLimits(req, res, next) {
       const files = fs.readdirSync(UPLOAD_DIR).filter(f => VIDEO_EXTENSIONS.includes(path.extname(f).toLowerCase()));
       videos = files.map(f => ({ size: fs.statSync(path.join(UPLOAD_DIR, f)).size }));
     }
-    if (MAX_LIBRARY_VIDEOS && videos.length >= MAX_LIBRARY_VIDEOS) {
-      return res.status(413).json({ error: `La biblioteca llegó al límite de ${MAX_LIBRARY_VIDEOS} video(s). Borrá alguno desde /library.html antes de subir uno nuevo.` });
+    if (maxVideos && videos.length >= maxVideos) {
+      return res.status(413).json({ error: `La biblioteca llegó al límite de ${maxVideos} video(s). Borrá alguno desde /library.html antes de subir uno nuevo.` });
     }
-    if (MAX_LIBRARY_SIZE_GB) {
+    if (maxSizeGB) {
       const totalGB = videos.reduce((sum, o) => sum + o.size, 0) / (1024 ** 3);
-      if (totalGB >= MAX_LIBRARY_SIZE_GB) {
-        return res.status(413).json({ error: `La biblioteca llegó al límite de almacenamiento (${MAX_LIBRARY_SIZE_GB}GB). Borrá algún video desde /library.html antes de subir uno nuevo.` });
+      if (totalGB >= maxSizeGB) {
+        return res.status(413).json({ error: `La biblioteca llegó al límite de almacenamiento (${maxSizeGB}GB). Borrá algún video desde /library.html antes de subir uno nuevo.` });
       }
     }
     next();
@@ -1247,8 +1254,9 @@ app.post('/api/uploads/presign', requireUploadAuth, checkStorageLimits, async (r
   }
   try {
     const key = r2.makeObjectKey(filename);
-    const uploadUrl = await r2.getPresignedUploadUrl(key, contentType, R2_PRESIGN_EXPIRES_SECONDS);
-    res.json({ key, uploadUrl, expiresIn: R2_PRESIGN_EXPIRES_SECONDS });
+    const presignExpiresSeconds = settings.getSetting('R2_PRESIGN_EXPIRES_SECONDS');
+    const uploadUrl = await r2.getPresignedUploadUrl(key, contentType, presignExpiresSeconds);
+    res.json({ key, uploadUrl, expiresIn: presignExpiresSeconds });
   } catch (err) {
     logger.error({ err }, 'Error generando URL prefirmada de R2');
     reportHttpError(err, req, '/api/uploads/presign');
@@ -1983,7 +1991,9 @@ const PORT = process.env.PORT || 3000;
 const ROOM_SWEEP_INTERVAL_MS = parseInt(process.env.ROOM_SWEEP_INTERVAL_MS, 10) || 30 * 60 * 1000; // cada 30 min
 
 async function sweepExpiredRooms() {
-  const ttlMs = roomStore.ROOM_TTL_SECONDS * 1000;
+  const ttlSeconds = roomStore.getRoomTtlSeconds();
+  if (ttlSeconds === null) return; // "nunca expira" (elegido desde el panel): no hay nada que barrer
+  const ttlMs = ttlSeconds * 1000;
   const now = Date.now();
   const expiredIds = Object.keys(rooms).filter((id) => now - (rooms[id].lastActivity || 0) > ttlMs);
   if (expiredIds.length === 0) return;
@@ -1992,7 +2002,7 @@ async function sweepExpiredRooms() {
     try {
       // Avisa y desconecta a quien siga adentro (raro tras 24hs+ sin actividad, pero por las dudas —
       // no tendría sentido dejar a alguien "viendo" una sala que ya se borró de `rooms`).
-      io.to(roomId).emit('room-error', 'Esta sala expiró por inactividad (sin uso durante 24hs) y se cerró.');
+      io.to(roomId).emit('room-error', `Esta sala expiró por inactividad (sin uso durante ${ttlSeconds / 3600}hs) y se cerró.`);
       const socketsInRoom = io.sockets.adapter.rooms.get(roomId);
       if (socketsInRoom) {
         for (const socketId of [...socketsInRoom]) {
@@ -2015,19 +2025,16 @@ async function sweepExpiredRooms() {
 // la regla de lifecycle por default de R2 (aborta a los 7 días) a propósito — configurable con
 // MULTIPART_ABANDON_DAYS por si 2 días resulta muy agresivo para conexiones de subida muy lentas.
 const MULTIPART_SWEEP_INTERVAL_MS = parseInt(process.env.MULTIPART_SWEEP_INTERVAL_MS, 10) || 24 * 60 * 60 * 1000; // cada 24hs
-// parseFloat(...) || 2 tendría un bug: si alguien pasa MULTIPART_ABANDON_DAYS=0 a propósito (ej. para
-// probar que el barrido cancele TODO lo que no esté completo, sin esperar nada), `0` es falsy en JS y
-// caería igual al default de 2 — Number.isFinite(...) evita esa trampa, tratando 0 como un valor
-// válido explícito (confirmado con una prueba real: LIBRARY_ORPHAN_DAYS=0 tenía este mismo bug, ver
-// docs/CHANGELOG.md).
-const parsedAbandonDays = parseFloat(process.env.MULTIPART_ABANDON_DAYS);
-const MULTIPART_ABANDON_DAYS = (Number.isFinite(parsedAbandonDays) && parsedAbandonDays >= 0) ? parsedAbandonDays : 2;
+// Antigüedad configurable vía lib/settings.js (default 2 días, ver el catálogo) — leída en cada
+// corrida de sweepAbandonedMultipartUploads(), no una sola vez al arrancar (paso 4 del plan de panel
+// de administración), para que cambiarla desde el panel aplique sin reiniciar el proceso.
 
 async function sweepAbandonedMultipartUploads() {
   if (!r2.isR2Enabled()) return;
   try {
     const uploads = await r2.listMultipartUploads();
-    const cutoff = Date.now() - MULTIPART_ABANDON_DAYS * 24 * 60 * 60 * 1000;
+    const abandonDays = settings.getSetting('MULTIPART_ABANDON_DAYS');
+    const cutoff = Date.now() - abandonDays * 24 * 60 * 60 * 1000;
     const stale = uploads.filter((u) => u.initiated < cutoff);
     for (const u of stale) {
       try {
@@ -2178,6 +2185,14 @@ async function startServer() {
       logger.info('RESEND_API_KEY no configurada — /auth/forgot-password loguea el link por consola en vez de mandar un email (solo sirve para desarrollo local).');
     }
   }
+
+  // lib/settings.js (docs/PLAN-PANEL-ADMIN.md): se inicializa siempre, haya o no Postgres configurado
+  // — sin Postgres simplemente queda con la cache vacía y todo cae a env→default (comportamiento
+  // idéntico al que tenía el server antes de este módulo). Tiene que llamarse ANTES de aceptar tráfico
+  // (mismo criterio que runMigrations() arriba): cualquier getSetting() antes de este punto tiraría
+  // "init() no se llamó todavía".
+  await settings.init();
+  logger.info(db.isEnabled() ? 'Parámetros administrables: cargados desde Postgres (donde haya, si no, env/default).' : 'Parámetros administrables: sin Postgres, usando env/default como siempre.');
 
   // Fase 2.6: independiente del bloque de Redis de arriba — corre siempre que R2 esté configurado
   // (la función misma no hace nada si no lo está). No hace falta un barrido inicial acá como el de

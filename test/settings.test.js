@@ -64,6 +64,13 @@ test('validate: rechaza fuera de rango y acepta dentro de rango', async () => {
   assert.equal(settings.validate('ALERT_HEALTH_FAILURE_THRESHOLD', NaN).ok, false);
 });
 
+test('ROOM_TTL_HOURS: sin nada configurado, el default sigue siendo 24hs (no "nunca expira")', async () => {
+  const disabledDb = { isEnabled: () => false };
+  await settings.init(disabledDb);
+  delete process.env.ROOM_TTL_HOURS;
+  assert.equal(settings.getSetting('ROOM_TTL_HOURS'), 24);
+});
+
 test('ROOM_TTL_HOURS: null es un valor válido ("nunca expira"), pero solo para este setting nullable', async () => {
   await settings.init(makeFakeDb());
   assert.deepEqual(settings.validate('ROOM_TTL_HOURS', null), { ok: true });
