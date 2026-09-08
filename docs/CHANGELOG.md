@@ -115,6 +115,25 @@
   TODAS"), paso 8 (`public/admin.html`), paso 9 (prueba end-to-end completa).
   **Todavía no existe `public/admin.html` ni las rutas de dashboard/acciones sobre
   salas** — el panel no es usable todavía.
+- **Bug real encontrado y corregido probando el paso 6 en Docker Compose real
+  (2026-09-08)**: `sweepExpiredRooms()` (el barrido inicial de salas expiradas al
+  arrancar) se disparaba dentro del bloque de Redis, **antes** de `await
+  settings.init()` — que corre más abajo, después de Postgres/migraciones. Efecto
+  colateral del refactor "constante → función" del paso 4: `roomStore.getRoomTtlSeconds()`
+  pasó a depender de `settings.getSetting()`, que tira si se llama antes de
+  `init()`. Con Redis real, cada arranque logueaba
+  `"lib/settings.js: init() no se llamó todavía"` en el barrido inicial — atrapado
+  por un `.catch()` (no bajaba el server), pero el barrido de verdad no corría. No
+  se detectó en el sandbox porque las pruebas ahí corren con `DISABLE_REDIS=1`
+  (ese bloque queda sin ejecutar en ese modo); recién se vio con
+  `docker compose up` real. **Corregido**: el llamado a `sweepExpiredRooms()` (y
+  su `setInterval`) se movió de dentro del bloque de Redis a después de
+  `settings.init()`, con el mismo `roomStore.isEnabled()` de siempre como
+  condición. Sin cambio de comportamiento observable más allá de arreglar el
+  error espurio en el log. Verificado en sandbox: sintaxis OK, 67/67 tests, lint
+  limpio (no se pudo re-probar con Redis real en este sandbox — queda pendiente de
+  confirmar que el log ya no aparece la próxima vez que se levante con
+  `docker compose up`).
 
 ## 2026-09-08 — Fase 5: `docker compose up` (Opción B) verificado en entorno real ✅ COMPLETA la Fase 5
 

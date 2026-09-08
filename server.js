@@ -2183,14 +2183,20 @@ async function startServer() {
       logger.error({ err }, 'Redis conectó pero no se pudieron recuperar las salas guardadas (se arranca sin ellas)');
     }
 
-    // Fase 2.6: un barrido inicial ACÁ (antes de aceptar tráfico), además del setInterval de abajo,
-    // por si el proceso estuvo caído más de ROOM_SWEEP_INTERVAL_MS y se recuperaron desde Redis salas
-    // que en realidad ya deberían haber expirado (su key en Redis podría no haber llegado a expirar
-    // sola si el TTL se refrescó justo antes de la caída — este barrido las limpia igual, en memoria).
-    sweepExpiredRooms().catch((err) => logger.error({ err }, 'Error en el barrido inicial de salas expiradas'));
-    roomSweepIntervalHandle = setInterval(() => {
-      sweepExpiredRooms().catch((err) => logger.error({ err }, 'Error en el barrido periódico de salas expiradas'));
-    }, ROOM_SWEEP_INTERVAL_MS);
+    // Fase 2.6: un barrido inicial (antes de aceptar tráfico), además del setInterval, por si el
+    // proceso estuvo caído más de ROOM_SWEEP_INTERVAL_MS y se recuperaron desde Redis salas que en
+    // realidad ya deberían haber expirado (su key en Redis podría no haber llegado a expirar sola si
+    // el TTL se refrescó justo antes de la caída — este barrido las limpia igual, en memoria).
+    //
+    // Bug real (paso 6 del plan de panel de admin, 2026-09-08): esto vivía ACÁ hasta ahora, pero
+    // sweepExpiredRooms() → roomStore.getRoomTtlSeconds() → settings.getSetting() (desde el refactor
+    // "constante → función" del paso 4) — y settings.init() todavía no se había llamado en este punto
+    // del arranque (corre más abajo, después de Postgres/migraciones). El resultado: cada arranque con
+    // Redis real tiraba "lib/settings.js: init() no se llamó todavía" en el barrido inicial (atrapado
+    // por el .catch() de abajo, así que no bajaba el server, pero tampoco corría el barrido). No se
+    // detectó en el sandbox porque las pruebas ahí corren con DISABLE_REDIS=1 (este bloque entero no se
+    // ejecuta en ese modo) — recién se vio con Docker Compose real (Redis + Postgres de verdad). El
+    // llamado se movió más abajo, después de `await settings.init()` — ver esa sección.
   } else {
     logger.warn(
       'DISABLE_REDIS=1: las salas viven SOLO en memoria, sin persistencia entre reinicios. Pensado ' +
@@ -2253,6 +2259,19 @@ async function startServer() {
   // "init() no se llamó todavía".
   await settings.init();
   logger.info(db.isEnabled() ? 'Parámetros administrables: cargados desde Postgres (donde haya, si no, env/default).' : 'Parámetros administrables: sin Postgres, usando env/default como siempre.');
+
+  // Fase 2.6, barrido de salas expiradas: se dispara ACÁ (no en el bloque de Redis de más arriba) a
+  // propósito, recién después de settings.init() — sweepExpiredRooms() → roomStore.getRoomTtlSeconds()
+  // → settings.getSetting() necesita que la cache de settings ya esté cargada (ver el bugfix
+  // documentado en el bloque de Redis de más arriba). roomStore.isEnabled() es la misma condición que
+  // ya decidía si este barrido corre o no antes del bugfix — sin cambio de comportamiento observable
+  // más allá de arreglar el error espurio en el log.
+  if (roomStore.isEnabled()) {
+    sweepExpiredRooms().catch((err) => logger.error({ err }, 'Error en el barrido inicial de salas expiradas'));
+    roomSweepIntervalHandle = setInterval(() => {
+      sweepExpiredRooms().catch((err) => logger.error({ err }, 'Error en el barrido periódico de salas expiradas'));
+    }, ROOM_SWEEP_INTERVAL_MS);
+  }
 
   // Fase 2.6: independiente del bloque de Redis de arriba — corre siempre que R2 esté configurado
   // (la función misma no hace nada si no lo está). No hace falta un barrido inicial acá como el de

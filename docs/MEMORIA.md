@@ -187,7 +187,26 @@ completo con un admin real (200 en ambas, 400 fuera de rango, 403 con
 sesión no-admin) queda pendiente de confirmar en un entorno con Postgres de
 verdad (`docker compose up`), no lo hay en este sandbox. Detalle completo,
 incluida la verificación de cada paso (sintaxis, 67/67 tests, lint, arranque
-real), en `docs/CHANGELOG.md`. **Todavía no existe `public/admin.html` ni
+real), en `docs/CHANGELOG.md`.
+
+**Bug real encontrado en entorno real (Docker Compose, 2026-09-08)**: al
+probar el paso 6 con `docker compose up` de verdad (Redis + Postgres reales,
+no el sandbox), el arranque tiraba `"lib/settings.js: init() no se llamó
+todavía"` en el barrido inicial de salas expiradas. Causa: `sweepExpiredRooms()`
+se disparaba dentro del bloque de Redis, **antes** de `await settings.init()`
+(que corre más abajo, después de Postgres/migraciones) — arrastrado sin querer
+del refactor "constante → función" del paso 4, que hizo que
+`roomStore.getRoomTtlSeconds()` pasara a depender de `settings.getSetting()`.
+No bajaba el server (el error queda atrapado en un `.catch()`), pero el
+barrido inicial no corría de verdad. No se detectó en el sandbox porque ahí
+las pruebas corren con `DISABLE_REDIS=1` (ese bloque entero queda sin
+ejecutar en ese modo) — recién se vio con Redis real. **Corregido**: el
+llamado a `sweepExpiredRooms()` (+ su `setInterval`) se movió de dentro del
+bloque de Redis a después de `settings.init()`, con el mismo
+`roomStore.isEnabled()` como condición de siempre. Sin cambio de
+comportamiento observable más allá de arreglar el error espurio.
+
+**Todavía no existe `public/admin.html` ni
 las rutas de dashboard/acciones sobre salas — el panel no es usable
 todavía.** Sigue: paso 7 (rutas de dashboard/acciones + auditoría, que
 reusan `closeRoom()` para "cerrar una sala puntual", "cerrar inactivas" y
