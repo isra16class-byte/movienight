@@ -780,8 +780,14 @@ instancia alcanza por ahora. Queda documentada para cuando haga falta retomarla)
     de seguridad).
   - Autenticación de sala/biblioteca (contraseñas, rate limiting).
   - El modo dual disco/R2 (`isValidUploadReference`, `displayNameFor`).
-- [ ] CI básico (GitHub Actions): correr los tests y un lint en cada cambio, antes
-      de fusionar.
+- [x] CI básico (GitHub Actions) ✅ (completo el 2026-09-07): `.github/workflows/ci.yml`
+      corre tests desde la entrada anterior; ahora suma `npm run lint` antes de
+      `npm test`. Nuevo `eslint.config.js` (flat config), acotado al código de
+      servidor (`server.js`, `lib/`, `scripts/`, `test/` — a propósito no cubre
+      `public/`, JS de cliente inline sin build step). Encontró y corrigió 8
+      errores reales de código (dead code, un escape de regex innecesario
+      repetido en dos archivos, un catch y un mock sin el prefijo `_` que ya
+      usaba el proyecto). Detalle en `docs/MEMORIA.md` y `docs/CHANGELOG.md`.
 - [ ] Documentar y automatizar el despliegue — hoy el flujo es manual
       (`git format-patch` → `git am` → `git push`, ver `docs/historico/MEMORIA.md` sección 11).
       Para producción conviene un pipeline: push a `main` → deploy automático

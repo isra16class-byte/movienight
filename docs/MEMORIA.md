@@ -139,6 +139,21 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Fase 5 — CI con lint (ESLint) (2026-09-07)**: segundo punto de la Fase 5 resuelto. Nuevo
+`eslint.config.js` (flat config) que cubre el código de servidor (`server.js`, `lib/`, `scripts/`,
+`test/`) — a propósito no cubre `public/`, donde el JS de cliente vive inline en los `.html` sin
+build step. Reglas: `@eslint/js` recommended + `no-unused-vars` con excepción para nombres que
+empiezan con `_` (mismo patrón que ya usaba el proyecto en callbacks). Nuevo script
+`"lint": "eslint ."` y nuevo step en `.github/workflows/ci.yml` (corre antes de `npm test`). Al
+correrlo por primera vez aparecieron 8 errores reales (no ruido del linter): cuatro constantes de
+`lib/passwordAuth.js` que quedaron destructuradas sin usar en `server.js` desde la extracción a
+`lib/` de la entrada anterior, el mismo escape innecesario de un guion en una regex repetido en dos
+archivos (`server.js` y `lib/r2.js`, ambos armando el nombre "seguro" de un archivo), un `catch`
+intencionalmente vacío sin el prefijo `_` que ya usa el resto del proyecto, y un argumento de mock
+sin usar en un test — los ocho corregidos sin cambiar comportamiento. Verificado con `npm run lint`
+limpio y los 27 tests existentes siguiendo en verde. Quedan los otros dos puntos de la Fase 5:
+documentar/automatizar el deploy, y validar variables de entorno al arrancar.
+
 **Fase 5 — tests unitarios (setHost, auth, modo dual disco/R2) + CI en GitHub
 Actions (2026-09-07)**: primer punto de la Fase 5 resuelto. Como `server.js`
 (2394 líneas) conecta a Redis/Postgres reales apenas se carga el módulo, no

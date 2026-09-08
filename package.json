@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
+    "lint": "eslint .",
     "tunnel": "cloudflared tunnel --config cloudflared-config.yml run",
     "r2:cleanup": "node scripts/r2-cleanup-multipart.js",
     "library:orphans": "node scripts/library-orphan-report.js",
@@ -34,6 +35,9 @@
     "socket.io": "^4.7.5"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.10.0",
+    "globals": "^17.12.0",
     "pino-pretty": "^13.1.3"
   }
 }

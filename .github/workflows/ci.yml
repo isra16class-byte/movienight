@@ -1,10 +1,12 @@
 name: CI
 
-# Fase 5 del plan de producción ("Calidad de código y proceso"): correr los tests en cada cambio,
-# antes de fusionar. A propósito simple — sin lint todavía (no hay una config de ESLint en el
-# proyecto), sin matriz de versiones de Node (el proyecto corre sobre una sola versión conocida, ver
-# package.json/README), y sin servicios de Redis/Postgres (los tests actuales son unitarios, sobre la
-# lógica extraída a lib/*.js, sin depender de infraestructura real — ver docs/PLAN-PRODUCCION.md).
+# Fase 5 del plan de producción ("Calidad de código y proceso"): correr lint + tests en cada cambio,
+# antes de fusionar. A propósito simple — sin matriz de versiones de Node (el proyecto corre sobre
+# una sola versión conocida, ver package.json/README), y sin servicios de Redis/Postgres (los tests
+# actuales son unitarios, sobre la lógica extraída a lib/*.js, sin depender de infraestructura real —
+# ver docs/PLAN-PRODUCCION.md). El lint (ESLint, ver eslint.config.js) cubre el código de servidor
+# (server.js, lib/, scripts/, test/) — deliberadamente no cubre public/, donde el JS de cliente vive
+# inline en los .html sin build step.
 on:
   push:
     branches: [main, plan-produccion]
@@ -23,5 +25,7 @@ jobs:
           cache: 'npm'
 
       - run: npm ci
+
+      - run: npm run lint
 
       - run: npm test

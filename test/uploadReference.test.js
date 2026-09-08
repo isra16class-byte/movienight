@@ -22,7 +22,7 @@ test('videoDisplayName: extrae el basename de una ruta y aplica displayNameFor',
 function fakeR2(enabled, { exists = false } = {}) {
   return {
     isR2Enabled: () => enabled,
-    objectExists: async (key) => exists,
+    objectExists: async (_key) => exists,
     getPublicUrl: (key) => `https://pub-fake.r2.dev/${key}`
   };
 }

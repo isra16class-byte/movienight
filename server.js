@@ -829,10 +829,6 @@ function makeRoomId() { return crypto.randomBytes(3).toString('hex'); }
 // La lógica en sí vive en lib/passwordAuth.js desde la Fase 5 (tests) — se movió ahí para poder
 // testearla aislada, sin depender de Redis/Postgres/Express. Comportamiento sin cambios.
 const {
-  BCRYPT_ROUNDS,
-  isBcryptHash,
-  isLegacySha256Hash,
-  legacySha256,
   hashPassword,
   verifyPassword
 } = require('./lib/passwordAuth');
@@ -842,7 +838,7 @@ const storage = multer.diskStorage({
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
     const base = path.basename(file.originalname, ext);
-    const safeBase = base.replace(/[^a-zA-Z0-9 _\-]/g, '').trim().slice(0, 80) || 'video';
+    const safeBase = base.replace(/[^a-zA-Z0-9 _-]/g, '').trim().slice(0, 80) || 'video';
     cb(null, crypto.randomBytes(4).toString('hex') + '__' + safeBase + ext);
   }
 });

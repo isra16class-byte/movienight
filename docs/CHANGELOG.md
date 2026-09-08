@@ -1,5 +1,42 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-07 — Fase 5: CI con lint (ESLint)
+
+- **Motivo**: segundo punto de la Fase 5 ("Calidad de código y proceso") — el CI del punto anterior
+  corría los tests pero no lint, porque no había una config de ESLint en el proyecto.
+- **`eslint.config.js`** (flat config, formato que exige ESLint 10): cubre el código de servidor
+  (`server.js`, `lib/**/*.js`, `scripts/**/*.js`, `test/**/*.js`, más el propio `eslint.config.js` y
+  `ecosystem.config.js`), con `sourceType: 'commonjs'` y los globals de Node
+  (paquete `globals`). A propósito **no cubre `public/`**: el JS de cliente vive inline dentro de los
+  `.html`, sin build step ni bundler — meterlo bajo lint implicaría separarlo a archivos `.js` propios
+  primero, un cambio de otro alcance. Reglas: `@eslint/js` `recommended` (los errores reales —
+  variables no declaradas, `case` que cae mal, etc.) más `no-unused-vars` con excepción para nombres
+  que empiezan con `_` (`argsIgnorePattern`/`varsIgnorePattern`/`caughtErrorsIgnorePattern`, mismo
+  patrón que el proyecto ya usaba en callbacks). Nada de reglas de estilo (comillas, punto y coma):
+  el proyecto no tenía una convención de estilo enforced hasta ahora, y sumarla acá hubiera sido un
+  diff enorme ajeno al objetivo de este cambio.
+- **Nuevas dependencias de desarrollo**: `eslint`, `@eslint/js`, `globals`.
+- **`package.json`**: nuevo script `"lint": "eslint ."`.
+- **`.github/workflows/ci.yml`**: nuevo step `npm run lint`, antes de `npm test`.
+- **8 errores reales encontrados y corregidos** al correr el lint por primera vez sobre el código
+  existente (ninguno era solo "ruido" del linter, los ocho eran casos genuinos):
+  - `server.js` destructuraba `BCRYPT_ROUNDS`, `isBcryptHash`, `isLegacySha256Hash` y `legacySha256`
+    de `lib/passwordAuth.js` sin usar ninguno de los cuatro — quedaron colgados ahí desde la
+    extracción a `lib/` de la entrada anterior (Fase 5, tests). Se sacaron del destructure; el
+    comportamiento no cambia (`hashPassword`/`verifyPassword`, que sí se usan, siguen igual).
+  - Una clase de caracteres con un guion escapado innecesariamente (`\-` al final de
+    `[^a-zA-Z0-9 _\-]`, donde no hace falta escapar) aparecía **dos veces** con el mismo patrón
+    exacto: en `server.js` (nombre de archivo en disco) y en `lib/r2.js` (`makeObjectKey`, nombre de
+    objeto en el bucket) — se corrigió en los dos lugares (`[^a-zA-Z0-9 _-]`), sin cambio de
+    comportamiento (la clase de caracteres significa lo mismo con o sin el escape de más).
+  - `lib/r2.js` (`getCspOrigins`) tenía un `catch (err)` que nunca usa `err` a propósito (ya
+    documentado en el comentario: una `R2_PUBLIC_URL` mal formada no debería reventar el arranque
+    del server) — se renombró a `catch (_err)`, mismo patrón `_` que ya usa el resto del proyecto.
+  - `test/uploadReference.test.js` tenía un mock (`objectExists: async (key) => exists`) que ignora
+    a propósito el argumento — se renombró a `_key`.
+- **Probado**: `npm run lint` sin errores sobre el estado final del código; `npm test` sigue en
+  verde (27/27) tras los cuatro cambios de código (los otros cuatro son solo config/docs).
+
 ## 2026-09-07 — Fase 5: tests unitarios (setHost, auth, modo dual disco/R2) + CI en GitHub Actions
 
 - **Motivo**: primer punto de la Fase 5 ("Calidad de código y proceso") — el plan pedía tests para lo

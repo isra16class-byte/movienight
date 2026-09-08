@@ -349,6 +349,20 @@ email por minuto mientras dure una caída real. Cuando el healthcheck vuelve a e
 haber alertado, manda un único email de "recuperado". Ver `.env.example` para el detalle de cada
 variable.
 
+## Tests y lint
+
+Fase 5 del plan de producción ("Calidad de código y proceso"). Dos comandos, sin
+infraestructura externa (Redis/Postgres) para correrlos:
+
+```bash
+npm test    # node --test — unitarios sobre la lógica extraída a lib/*.js
+npm run lint  # eslint . — ver eslint.config.js
+```
+
+El lint cubre el código de servidor (`server.js`, `lib/`, `scripts/`, `test/`) — a
+propósito no cubre `public/`, donde el JS de cliente vive inline en los `.html` sin
+build step. `.github/workflows/ci.yml` corre ambos en cada push/PR.
+
 ## Estructura del proyecto
 
 ```
@@ -356,6 +370,7 @@ movienight/
   server.js              # Servidor Express + Socket.io
   package.json
   ecosystem.config.js    # Configuración de PM2 para proceso supervisado (solo VPS propio, ver sección arriba)
+  eslint.config.js        # Config de ESLint (Fase 5 del plan de producción, ver sección "Tests y lint")
   cloudflared-config.example.yml  # Plantilla para túnel con nombre / dominio fijo (opcional, ver README)
   lib/
     r2.js                 # Cloudflare R2 (opcional, ver sección arriba) — subir/listar/borrar videos en R2
