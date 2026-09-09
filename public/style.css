@@ -1672,3 +1672,29 @@ video { width: 100%; height: 100%; display: block; background: black; }
   .admin-setting-row { flex-direction: column; align-items: stretch; }
   .admin-setting-controls { justify-content: flex-end; }
 }
+
+/* #adminBody es el que scrollea, no la tarjeta entera (bug real, encontrado probando en un
+   navegador real): .deck.deck-wide está pensado para que SOLO .tape-list absorba el espacio
+   sobrante (flex:1 + overflow-y:auto, ver el comentario junto a esa regla) — bueno para
+   library.html, que tiene una sola lista, pero admin.html apila dashboard + settings + salas +
+   zona de riesgo, mucho más alto que la tarjeta. Sin esto, todo lo que pasaba el alto de `.deck`
+   quedaba cortado por su `overflow: hidden`, sin ninguna forma de bajar — mismo criterio de "el
+   contenedor de más contenido es el que cede", solo que acá es #adminBody entero en vez de una
+   lista puntual. */
+#adminBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+#adminBody::-webkit-scrollbar { width: 8px; }
+#adminBody::-webkit-scrollbar-track { background: transparent; }
+#adminBody::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: var(--radius-md);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+#adminBody::-webkit-scrollbar-thumb:hover { background: var(--cyan); background-clip: padding-box; }
