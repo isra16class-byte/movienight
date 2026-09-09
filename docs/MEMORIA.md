@@ -144,7 +144,7 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
-**Panel de administración — EN CURSO, pasos 1-7 de 9 (2026-09-08, rama
+**Panel de administración — EN CURSO, pasos 1-7 de 9 (2026-09-09, rama
 `plan-produccion`)**: feature nueva, no forma parte de `docs/PLAN-PRODUCCION.md`.
 Diseño completo y confirmado en `docs/PLAN-PANEL-ADMIN.md` (las 6 preguntas de la
 sección 9 están resueltas) — si retomás esto en otra sesión, **leé ese documento
@@ -272,10 +272,20 @@ navegador, no dos pestañas) para cerrar esto del todo — no bloquea el
 resto del plan, el `heartbeat` cada ~4s ya actúa como red de seguridad ante
 la pérdida puntual de un evento.
 
+**Paso 7 verificado end-to-end con Docker Compose real y clientes de navegador
+(2026-09-09)**: Redis/Postgres reales, cuenta promovida a admin, las seis rutas
+de dashboard/acciones probadas con curl y una sala creada desde el navegador.
+Se confirmó que `close-inactive` no cierra salas con viewers, sí cierra una sala
+vacía después de `RECONNECT_GRACE_MS`, `close-all` valida la confirmación y
+expulsa sockets con el mensaje de mantenimiento, y el cierre puntual elimina la
+sala. La auditoría registró las acciones válidas con sus detalles y no registró
+el 400 de confirmación faltante. Detalle completo en `docs/CHANGELOG.md`.
+
 **Todavía no existe `public/admin.html` — el panel sigue sin ser usable desde
 el navegador, aunque ya tiene todas las rutas que necesita (paso 7,
-completo).** Sigue: paso 8 (`public/admin.html`: settings + dashboard + los 3
-botones de acción global), paso 9 (prueba end-to-end completa).
+completo y verificado end-to-end).** Sigue: paso 8 (`public/admin.html`:
+settings + dashboard + los 3 botones de acción global), y después el paso 9
+de prueba end-to-end completa del panel.
 
 **Fase 5 — `docker compose up` (Opción B) verificado en entorno real ✅ ya no queda
 ningún ítem pendiente en toda la Fase 5 (2026-09-08)**: única verificación que faltaba

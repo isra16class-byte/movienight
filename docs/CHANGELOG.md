@@ -261,6 +261,40 @@
   sandbox no tiene Postgres ni Socket.io con clientes reales; queda para el
   paso 9 (prueba end-to-end completa), mismo criterio que las fases anteriores
   que dependen de un entorno real (`docker compose up`).
+- **Paso 7 verificado end-to-end con Docker Compose real (2026-09-09)**: se
+  completó la prueba pendiente con Redis y Postgres reales y un cliente de
+  navegador real (Playwright):
+  - `docker compose up -d --build` levantó `app`, `redis` y `postgres` saludables.
+    El arranque mostró Redis conectado, migraciones de Postgres al día y
+    `settings.init()` cargado; no reapareció el error viejo de
+    `lib/settings.js: init() no se llamó todavía`.
+  - Se registró una cuenta de prueba, `scripts/make-admin.js` la promovió a
+    administradora y `POST /auth/login` guardó una cookie de sesión válida.
+  - `GET /admin/stats` devolvió contadores coherentes (`activeRooms: 3`,
+    `connectedUsers: 2`, `uploadsInProgress: 0`, `r2ErrorCount: 0`).
+    `GET /admin/rooms` mostró las salas recuperadas con viewers, dueño y host
+    actual; después de la limpieza quedó en `{ rooms: [] }`.
+  - `POST /admin/rooms/sweep-now` devolvió `{ closed: 0, roomIds: [] }`.
+    `POST /admin/rooms/close-all` sin body devolvió 400 y no alteró salas;
+    con `{ "confirm": "CERRAR TODO" }` devolvió 200 y cerró las tres salas
+    existentes. `POST /admin/rooms/close-inactive` sin salas devolvió cero y
+    `POST /admin/rooms/no-existe/close` devolvió 404.
+  - Desde el navegador se reutilizó `metrics-test.mp4` para crear una sala con
+    sesión iniciada. Con dos clientes conectados, `GET /admin/rooms` mostró
+    `viewerCount`, el email del dueño y el host actual; `close-inactive` no la
+    cerró. Al desconectar el único cliente restante y esperar 16 segundos
+    (más que `RECONNECT_GRACE_MS`), `close-inactive` devolvió `closed: 1` y la
+    sala desapareció del listado.
+  - Una sala nueva con un socket activo recibió por navegador el evento
+    `room-error` con el texto exacto `Un administrador cerró todas las salas
+    (modo mantenimiento).` al ejecutar `close-all`; la pestaña volvió a `/`.
+    Otra sala activa se cerró con `POST /admin/rooms/:id/close` usando su id
+    real (`1670e7`), devolvió 200 y desapareció del listado.
+  - La consulta directa a `admin_actions_audit` confirmó una fila por cada
+    acción válida (`sweep_forced`, `rooms_closed_all`, `rooms_closed_inactive` y
+    `room_closed`) con `count`/`roomIds` correctos. El intento inválido de
+    `close-all` no dejó ninguna fila. No se encontraron bugs en el código del
+    paso 7 durante esta verificación.
 - **Pendiente**: paso 8 (`public/admin.html` — settings + dashboard + los 3
   botones de acción global), paso 9 (prueba end-to-end completa). **Todavía no
   existe `public/admin.html`** — el panel sigue sin ser usable desde el
