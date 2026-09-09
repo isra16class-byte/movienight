@@ -1519,3 +1519,156 @@ video { width: 100%; height: 100%; display: block; background: black; }
   color: var(--cyan);
 }
 .mn-modal-btn.mn-modal-ok:hover { background: var(--cyan); color: #0c1620; }
+
+/* ===================================================================
+   Panel de administración (public/admin.html) — paso 8 de
+   docs/PLAN-PANEL-ADMIN.md. Reusa el vocabulario visual existente
+   (.tape-item, .deck-wide, --cyan/--pink/--sun) en vez de inventar un
+   lenguaje nuevo solo para esta pantalla.
+   =================================================================== */
+
+.admin-section-title {
+  font-family: var(--font-osd);
+  font-size: 18px;
+  letter-spacing: 0.04em;
+  color: var(--cyan);
+  margin: 26px 0 10px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 6px;
+}
+.admin-section-title:first-of-type { margin-top: 4px; }
+
+/* --- Dashboard: 4 contadores --- */
+.admin-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+.admin-stat-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  padding: 12px 10px;
+  text-align: center;
+}
+.admin-stat-value {
+  font-family: var(--font-osd);
+  font-size: 28px;
+  color: var(--cyan);
+  line-height: 1.1;
+}
+.admin-stat-label {
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* --- Settings: una fila por parámetro --- */
+.admin-setting-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  margin-bottom: 8px;
+}
+.admin-setting-info { flex: 1; min-width: 0; }
+.admin-setting-name {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+.admin-setting-desc {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.admin-setting-source {
+  display: inline-block;
+  font-family: var(--font-osd);
+  font-size: 11.5px;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  margin-top: 4px;
+}
+.admin-setting-source.is-db { color: var(--sun); border-color: var(--sun); }
+.admin-setting-controls { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.admin-setting-controls input {
+  width: 110px;
+  background: var(--bg-panel);
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  padding: 7px 9px;
+  font-family: var(--font-osd);
+  font-size: 15px;
+  text-align: right;
+}
+.admin-setting-controls input:focus { outline: none; border-color: var(--cyan); }
+.admin-setting-controls button {
+  border: 1.5px solid var(--cyan);
+  background: transparent;
+  color: var(--cyan);
+  padding: 7px 10px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-family: var(--font-osd);
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.admin-setting-controls button:hover { background: var(--cyan); color: #0c1620; }
+.admin-setting-controls button.admin-reset-btn { border-color: var(--line); color: var(--text-muted); }
+.admin-setting-controls button.admin-reset-btn:hover { background: var(--line); color: var(--text); }
+.admin-setting-controls button:disabled { opacity: 0.5; cursor: default; }
+
+/* --- Salas activas: reusa .tape-item, suma una columna de meta extra --- */
+.admin-room-item { align-items: flex-start; }
+.admin-room-host {
+  font-family: var(--font-osd);
+  font-size: 12.5px;
+  color: var(--sun);
+  margin-top: 3px;
+}
+.admin-room-item .tape-item-actions button.close-btn { border-color: var(--pink); color: var(--pink); }
+.admin-room-item .tape-item-actions button.close-btn:hover { background: var(--pink); color: #1a0310; }
+
+/* --- Zona de riesgo: los 3 botones de acción global --- */
+.admin-danger-zone {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1.5px dashed var(--pink);
+  border-radius: var(--radius-md);
+  background: var(--pink-dim);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.admin-danger-zone button {
+  border: 1.5px solid var(--text-muted);
+  background: transparent;
+  color: var(--text);
+  padding: 9px 14px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 13px;
+}
+.admin-danger-zone button:hover { border-color: var(--cyan); color: var(--cyan); }
+.admin-danger-zone button.nuclear { border-color: var(--pink); color: var(--pink); }
+.admin-danger-zone button.nuclear:hover { background: var(--pink); color: #1a0310; }
+
+@media (max-width: 620px) {
+  .admin-stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .admin-setting-row { flex-direction: column; align-items: stretch; }
+  .admin-setting-controls { justify-content: flex-end; }
+}

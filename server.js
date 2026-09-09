@@ -847,6 +847,38 @@ app.post('/admin/settings', requireSameOrigin, requireAdmin, async (req, res) =>
   res.json({ key, value: newValue, source: 'db' });
 });
 
+// DELETE /admin/settings/:key: "Restaurar default" (paso 8, sección 6 del plan — el botón por fila
+// del panel). Borra la fila de app_settings para esa key; la precedencia vuelve a caer sola en
+// env→default (settings.resetSetting() ya hace exactamente eso, ver lib/settings.js). Mismo criterio
+// de convención de método que ya usa el proyecto para "borrar algo" (DELETE /api/uploads/:filename).
+app.delete('/admin/settings/:key', requireSameOrigin, requireAdmin, async (req, res) => {
+  const { key } = req.params;
+  if (!settings.SETTINGS[key]) {
+    return res.status(400).json({ error: `"${key}" no es un parámetro administrable.` });
+  }
+
+  const previousValue = settings.getSetting(key);
+  await settings.resetSetting(key);
+  const newValue = settings.getSetting(key);
+
+  try {
+    await db.insertAdminAction(
+      req.adminUser.id,
+      'setting_reset',
+      { key, from: previousValue, to: newValue },
+      clientIp(req),
+      req.get('user-agent')
+    );
+  } catch (err) {
+    // Mismo criterio que en POST /admin/settings: el reset YA se aplicó, un fallo de auditoría no
+    // debería devolver un error que le haga pensar a quien usa el panel que no se aplicó.
+    logger.error({ err }, 'No se pudo insertar la fila de auditoría de "setting_reset" (el reset SÍ se aplicó)');
+    reportHttpError(err, req, '/admin/settings/:key (auditoría)');
+  }
+
+  res.json({ key, value: newValue });
+});
+
 // --- Panel de administración: dashboard y acciones sobre salas (paso 7 de docs/PLAN-PANEL-ADMIN.md,
 // secciones 1.3 y 5.1) ------------------------------------------------------------------------------
 // Todas requieren requireAdmin; las 4 que escriben (sweep-now / :id/close / close-inactive /

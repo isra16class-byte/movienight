@@ -54,6 +54,7 @@ movienight/
   lib/alerts.js            # Alertas mínimas por email si el healthcheck o R2 vienen fallando — Fase 4
   lib/settings.js          # Catálogo de parámetros administrables (panel de admin, EN CURSO — ver "Por dónde seguir")
   scripts/make-admin.js    # Promueve una cuenta existente a admin (panel de admin, EN CURSO)
+  public/admin.html        # Panel de administración: settings + dashboard + acciones sobre salas (paso 8, EN CURSO)
   scripts/r2-cleanup-multipart.js
   test/                    # Tests unitarios (node:test) de la lógica extraída a lib/*.js — Fase 5
   .github/workflows/ci.yml # CI: corre npm test en cada push/PR — Fase 5
@@ -144,12 +145,43 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
-**Panel de administración — EN CURSO, pasos 1-7 de 9 (2026-09-09, rama
+**Panel de administración — EN CURSO, pasos 1-8 de 9 (2026-09-09, rama
 `plan-produccion`)**: feature nueva, no forma parte de `docs/PLAN-PRODUCCION.md`.
 Diseño completo y confirmado en `docs/PLAN-PANEL-ADMIN.md` (las 6 preguntas de la
 sección 9 están resueltas) — si retomás esto en otra sesión, **leé ese documento
-primero**, tiene todo el diseño y el orden de implementación (sección 8).
-Completado: migración (`role` en `users`, tablas `app_settings` y
+primero**, tiene todo el diseño y el orden de implementación (sección 8). Solo
+falta el **paso 9**: prueba end-to-end completa con un admin real navegando
+`public/admin.html` de verdad (Docker Compose + navegador), este sandbox no
+tiene Postgres ni cliente real para hacerla.
+
+**Paso 8 — `public/admin.html` ✅ (2026-09-09)**: la pantalla del panel, vanilla
+JS sin framework, reusando `mnDialog`/`mnPrompt`/`mnConfirm` y `style.css` tal
+cual (bloque nuevo al final de ese archivo, prefijo `.admin-*`). Chequea acceso
+al cargar vía `GET /admin/settings` (no por el rol de `GET /auth/me`, que solo
+pinta el email en la barra) y redirige a `/` sin mensaje si no da 200 — mismo
+criterio de "no confirmarle a cualquiera que la pantalla existe" que ya usa el
+resto de `/admin/*`. Dashboard (`GET /admin/stats` + `GET /admin/rooms`, con
+refresco cada 15s) arriba de los settings; un input por cada uno de los 8
+parámetros con etiqueta/descripción en criollo (`SETTINGS_META`, vive en el
+frontend, el backend no la manda) y botón "Restaurar" (deshabilitado si la
+fuente no es `db`); tres botones de acción global en una "zona de riesgo"
+separada visualmente, el de "Cerrar TODAS" exige escribir `CERRAR TODO` en un
+prompt antes de mandar el request. **Ruta nueva no prevista en el plan
+original**: `DELETE /admin/settings/:key` (restaurar default por fila) — el
+plan pedía el botón pero `resetSetting()` de `lib/settings.js` (paso 3) nunca
+había quedado expuesto por HTTP; se agregó con el mismo par de middlewares y
+el mismo criterio de auditoría (`setting_reset`) que ya usan las demás rutas de
+escritura de `/admin/*`. Verificado en sandbox: sintaxis OK, 76/76 tests (sin
+tests nuevos — la ruta nueva reusa `resetSetting()` ya testeado, y este
+proyecto no testea las rutas de `server.js` directo), lint limpio, arranque
+real sin Redis/Postgres (`GET /admin.html` en 200, `GET/DELETE /admin/settings*`
+en 404 igual que el resto de `/admin/*`, resto de la app sin romperse). **No
+verificado todavía con un admin real navegando la pantalla** (guardar/restaurar
+un parámetro y verlo reflejado en pantalla, cerrar una sala desde la tabla, el
+flujo completo de "Cerrar TODAS" con el prompt) — queda para el paso 9. Detalle
+completo en `docs/CHANGELOG.md`.
+
+Completado (pasos 1-7): migración (`role` en `users`, tablas `app_settings` y
 `admin_actions_audit`), `scripts/make-admin.js`, `lib/settings.js` (catálogo de 8
 parámetros con precedencia DB→env→default, cache en memoria, 11 tests), el
 refactor "constante → función" en los 8 puntos que los usan

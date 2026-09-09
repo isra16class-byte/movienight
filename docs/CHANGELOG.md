@@ -1,5 +1,64 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-09 — Panel de administración, paso 8: `public/admin.html` (EN CURSO, pasos 1-8 de 9)
+
+- **Motivo**: hasta este punto el panel tenía todas las rutas del backend
+  (pasos 1-7) pero **no existía ninguna pantalla** para usarlas desde el
+  navegador — `public/admin.html` es esa pantalla, siguiendo el diseño de la
+  sección 6 de `docs/PLAN-PANEL-ADMIN.md`.
+- **Ruta nueva, no prevista en el plan original**: `DELETE
+  /admin/settings/:key` ("Restaurar default" por fila, sección 6 del plan) —
+  al escribir el frontend se notó que `lib/settings.js::resetSetting()` ya
+  existía desde el paso 3 pero ninguna ruta HTTP lo exponía todavía. Sigue el
+  mismo criterio de convención de método que ya usa el proyecto (`DELETE
+  /api/uploads/:filename` para "borrar algo"), mismo par de middlewares que
+  `POST /admin/settings` (`requireSameOrigin` + `requireAdmin`), inserta
+  `setting_reset` en `admin_actions_audit` con el mismo criterio de "un fallo
+  de auditoría no debe esconder que la acción sí se aplicó" que ya usan las
+  demás rutas de escritura de `/admin/*`.
+- **`public/admin.html`**: vanilla JS, sin framework (consistente con el
+  resto del proyecto), reusa `mnDialog`/`mnPrompt`/`mnConfirm` y el
+  `style.css` existente en vez de un lenguaje visual nuevo.
+  - Chequeo de acceso al cargar: `GET /auth/me` solo para pintar el email en
+    la barra de cuenta; el chequeo real de "sos admin o no" es `GET
+    /admin/settings` — si no da 200 (401/403/404), redirige a `/` sin
+    mostrar ningún mensaje de "esto es para admins" (sección 6 del plan, para
+    no confirmarle a cualquiera que la pantalla existe).
+  - Dashboard con los 4 contadores de `GET /admin/stats` y la tabla de `GET
+    /admin/rooms` (id, viewers, dueña, última actividad, referencia de video,
+    host actual), con refresco automático cada 15s y un botón "Cerrar" por
+    fila que llama a `POST /admin/rooms/:id/close`.
+  - Un input por cada uno de los 8 parámetros del catálogo, con etiqueta y
+    descripción en criollo (`SETTINGS_META`, nuevo en el frontend — el
+    backend no manda esto, solo key/type/min/max/value/source), la fuente
+    actual ("desde tu .env" / "por defecto" / "editado acá") y un botón
+    "Restaurar" por fila (deshabilitado si la fuente no es `db`, ya que no
+    hay nada que restaurar).
+  - Tres botones de acción global, separados en una "zona de riesgo": "🧹
+    Limpiar salas vencidas" (sin confirmación, bajo riesgo, dispara `POST
+    /admin/rooms/sweep-now`), "🚪 Cerrar salas inactivas" (confirmación
+    simple con `mnConfirm`, `POST /admin/rooms/close-inactive`), y "💣 Cerrar
+    TODAS las salas" (pide escribir exactamente `CERRAR TODO` en un
+    `mnPrompt`, no un solo click — si no coincide, no se manda ningún
+    request; el backend igual revalida la frase por su cuenta).
+- **Verificado en sandbox**: sintaxis OK (`node --check server.js`, HTML
+  legible), 76/76 tests (sin cambios de lógica testeable — la ruta nueva
+  reusa `settings.resetSetting()` ya testeado, y las rutas de `server.js` no
+  se testean directo en este proyecto, mismo criterio que el resto de
+  `/admin/*`), lint limpio (`eslint .`). Arranque real sin Redis/Postgres:
+  `GET /admin.html` sirve 200 (estático, vía `express.static`), `GET
+  /admin/settings` y la nueva `DELETE /admin/settings/:key` dan 404 (mismo
+  criterio que el resto de `/admin/*` sin `DATABASE_URL`), `GET /auth/me`
+  sigue en 200 con `loggedIn: false`, el resto de la app sigue funcionando.
+  **No verificado todavía con un admin real navegando la pantalla de
+  verdad** (guardar un parámetro y verlo reflejado, restaurar default,
+  cerrar una sala desde la tabla, el flujo completo de "Cerrar TODAS") — este
+  sandbox no tiene Postgres ni un navegador real; queda para el paso 9,
+  mismo criterio que las fases anteriores que dependen de un entorno real
+  (`docker compose up`).
+- **Pendiente**: paso 9 (prueba end-to-end completa del panel armado,
+  navegador real + Docker Compose).
+
 ## 2026-09-08 — Panel de administración: EN CURSO (pasos 1-6 de 9, `docs/PLAN-PANEL-ADMIN.md`)
 
 - **Motivo**: feature nueva (no es parte de `docs/PLAN-PRODUCCION.md`, que es sobre
