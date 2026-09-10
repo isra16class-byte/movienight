@@ -296,19 +296,26 @@ visible todo el tiempo en ambas pestañas. La observación original fue
 probablemente una conexión stale de una prueba anterior, no un problema
 real.
 
-**Sync automático hacia el invitado — sigue sin confirmarse, pero por una
-limitación del harness de prueba, no de la app (2026-09-08)**: se instrumentó
-un listener directo sobre `#playPauseBtn` para contar clicks reales; tras
-`locator.click({force:true})` el contador dio 0 — el click de Playwright
-nunca llegó a disparar el botón porque esa pestaña quedó en segundo plano.
-Sin warnings de autoplay ni `unhandledrejection` en consola. Código
-revisado de punta a punta (`player.addEventListener('play'/'pause')` →
-`socket.emit('sync', ...)` en el cliente, `socket.on('sync', ...)` →
-`socket.to(currentRoom).emit('sync', data)` en el server) sin encontrar
-ningún bug. Verificación manual pendiente (dos ventanas reales de
-navegador, no dos pestañas) para cerrar esto del todo — no bloquea el
-resto del plan, el `heartbeat` cada ~4s ya actúa como red de seguridad ante
-la pérdida puntual de un evento.
+**Sync automático hacia el invitado — ✅ confirmado con navegador real
+(2026-09-10)**: lo que había quedado pendiente el 2026-09-08 (el intento con
+Playwright falló por una limitación del harness, no de la app — la segunda
+pestaña quedaba en segundo plano y el navegador la throttleaba, así que el
+click nunca llegaba a disparar el botón) se probó a mano con **dos ventanas
+de navegador reales**, sesión host + invitado, sala real con un video pesado
+servido desde R2 (`1280x720-23_000_vidas_reparado.mp4`, ~1h45min). Play,
+pausa y seek disparados a mano desde el host se replicaron correctamente en
+la ventana del invitado, sin desincronizarse. En el camino apareció
+buffering intermitente (⏳ junto al nombre de ambas personas en el panel de
+sala — el evento nativo `waiting` del `<video>`, ver
+`public/room.html::setBuffering()`) al reproducir por primera vez ese
+archivo real; se confirmó que es tráfico real bajando de R2 (la barra de
+progreso en DevTools/Network seguía avanzando, no quedó en `pending`/`0
+bytes`) y no un bug — con R2 configurado el `<video src>` apunta directo a
+la URL pública de R2 (`lib/r2.js::getPublicUrl()`), el archivo nunca pasa
+por el proceso Node, así que entrar por Cloudflare Tunnel en vez de
+`localhost` no iba a cambiar nada de esto (se descartó esa hipótesis antes
+de probar). Sin bugs de implementación que corregir — el `heartbeat` cada
+4s sigue siendo la red de seguridad para cualquier evento de sync perdido.
 
 **Paso 7 verificado end-to-end con Docker Compose real y clientes de navegador
 (2026-09-09)**: Redis/Postgres reales, cuenta promovida a admin, las seis rutas
