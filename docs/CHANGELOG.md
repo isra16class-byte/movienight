@@ -1,5 +1,37 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-10 — Panel de administración, paso 9: verificación end-to-end completa
+
+- **Entorno real**: `docker compose up -d --build` levantó app, Redis y
+  Postgres saludables; la app conectó además con el R2 configurado. Se crearon
+  dos cuentas, se promovió una con `scripts/make-admin.js` y se ejecutó el
+  checklist de `docs/PRUEBAS-PANEL-ADMIN.md` en orden.
+- **API y settings**: pasaron `401` sin sesión, `403` para usuario no admin y
+  `200` para admin; el catálogo devolvió exactamente las 8 keys. Un video MP4
+  real subió a R2, `MAX_LIBRARY_VIDEOS` cambió a `1` sin reiniciar y la segunda
+  subida devolvió `413`; `DELETE` restauró el valor de `.env`. Rango, tipo y key
+  no administrable devolvieron `400`; `Origin` cruzado devolvió `403` y sin
+  headers pasó con `200`.
+- **Salas y dashboard**: con pestañas de navegador reales se verificaron
+  contadores, dueña, referencia de video y host; `close-inactive` cerró solo la
+  sala vacía después de 15s, `close` devolvió `200` y emitió el aviso al
+  espectador, una sala inexistente dio `404`, y `sweep-now` devolvió `0`.
+  `close-all` rechazó body ausente o frase incorrecta con `400`, y con
+  `CERRAR TODO` cerró la sala activa y desconectó ambas pestañas con el mensaje
+  de mantenimiento.
+- **Panel en navegador**: cargó con admin, redirigió a `/` sin sesión, guardó y
+  restauró un setting mostrando el origen correcto, no confirmó "Limpiar",
+  pidió confirmación para inactivas, exigió la frase para todas y refrescó una
+  sala nueva automáticamente a los 15s. Una frase incorrecta en el prompt no
+  generó ningún request; la validación del backend también quedó confirmada.
+- **Auditoría y regresión**: SQL mostró `setting_changed`, `setting_reset`,
+  `room_closed`, `rooms_closed_inactive`, `sweep_forced` y `rooms_closed_all`,
+  asociados al admin, sin registrar los intentos inválidos. En el checkout,
+  `npm test` terminó `76/76` y `npm run lint` limpio. Dentro de la imagen de
+  producción, `npm test` terminó con `0` tests porque `.dockerignore` excluye
+  `test/`, y `npm run lint` falló porque no instala devDependencies; se deja
+  documentado como limitación de la imagen, sin cambios de código.
+
 ## 2026-09-09 — Panel de administración, paso 8: `public/admin.html` (EN CURSO, pasos 1-8 de 9)
 
 - **Motivo**: hasta este punto el panel tenía todas las rutas del backend

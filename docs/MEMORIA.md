@@ -145,14 +145,22 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
-**Panel de administración — EN CURSO, pasos 1-8 de 9 (2026-09-09, rama
+**Panel de administración — ✅ COMPLETO, paso 9 cerrado (2026-09-10, rama
 `plan-produccion`)**: feature nueva, no forma parte de `docs/PLAN-PRODUCCION.md`.
-Diseño completo y confirmado en `docs/PLAN-PANEL-ADMIN.md` (las 6 preguntas de la
-sección 9 están resueltas) — si retomás esto en otra sesión, **leé ese documento
-primero**, tiene todo el diseño y el orden de implementación (sección 8). Solo
-falta el **paso 9**: prueba end-to-end completa con un admin real navegando
-`public/admin.html` de verdad (Docker Compose + navegador), este sandbox no
-tiene Postgres ni cliente real para hacerla.
+La verificación end-to-end se corrió contra `docker compose` real (app, Redis,
+Postgres y R2) y con navegador automatizado: registro/promoción de admin,
+permisos `401/403/200`, catálogo exacto de 8 settings, cambio en caliente de
+`MAX_LIBRARY_VIDEOS` con subida real a R2 y `413`, restauración, validaciones
+`400`, CSRF `403/200`, dashboard con salas/viewers/hosts reales, cierre de
+inactivas sin tocar la sala activa, cierre puntual y `404`, sweep TTL, cierre
+total con ambas confirmaciones `400` y la frase exacta `200`, auditoría SQL y
+refresco automático del panel a los 15s. Las pestañas recibieron los mensajes
+de cierre y se desconectaron. No hubo bugs de implementación que corregir.
+La suite del checkout dio `76/76` y `npm run lint` limpio; dentro de la imagen
+de producción, literalmente los comandos del checklist dieron `0` tests porque
+`.dockerignore` excluye `test/`, y `npm run lint` falló porque la imagen instala
+solo dependencias de producción y no incluye ESLint: queda anotado como
+limitación del packaging, no como fallo funcional del panel.
 
 **Paso 8 — `public/admin.html` ✅ (2026-09-09)**: la pantalla del panel, vanilla
 JS sin framework, reusando `mnDialog`/`mnPrompt`/`mnConfirm` y `style.css` tal
@@ -175,11 +183,9 @@ escritura de `/admin/*`. Verificado en sandbox: sintaxis OK, 76/76 tests (sin
 tests nuevos — la ruta nueva reusa `resetSetting()` ya testeado, y este
 proyecto no testea las rutas de `server.js` directo), lint limpio, arranque
 real sin Redis/Postgres (`GET /admin.html` en 200, `GET/DELETE /admin/settings*`
-en 404 igual que el resto de `/admin/*`, resto de la app sin romperse). **No
-verificado todavía con un admin real navegando la pantalla** (guardar/restaurar
-un parámetro y verlo reflejado en pantalla, cerrar una sala desde la tabla, el
-flujo completo de "Cerrar TODAS" con el prompt) — queda para el paso 9. Detalle
-completo en `docs/CHANGELOG.md`.
+en 404 igual que el resto de `/admin/*`, resto de la app sin romperse). La
+verificación con Postgres/Redis reales y navegador quedó cerrada en el paso 9;
+el detalle completo está en `docs/CHANGELOG.md`.
 
 Completado (pasos 1-7): migración (`role` en `users`, tablas `app_settings` y
 `admin_actions_audit`), `scripts/make-admin.js`, `lib/settings.js` (catálogo de 8
