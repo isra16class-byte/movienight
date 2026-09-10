@@ -63,6 +63,7 @@ movienight/
     library.html            # Biblioteca de videos ya subidos (con contraseña propia o sesión de cuenta)
     room.html              # La sala: reproductor, chat, controles (la mayoría de la lógica de cliente vive acá)
     reset-password.html    # Pantalla para elegir contraseña nueva tras el link de "olvidé mi contraseña"
+    terms.html, privacy.html # Términos de uso / privacidad (BORRADOR, sin linkear todavía — Fase 6)
     style.css, sw.js, manifest.webmanifest
   docs/
     MEMORIA.md              # Este archivo (resumen activo — se actualiza)
@@ -144,6 +145,17 @@ mover la barra de progreso — cualquier intento se revierte.
 - Cada cambio importante debería reflejarse acá (este archivo, `docs/MEMORIA.md`, si cambia algo esencial) y como entrada nueva en `docs/CHANGELOG.md` — no en los archivos de `docs/historico/`, que quedaron congelados como registro del estado anterior a esta reorganización.
 
 ## Por dónde seguir
+
+**Términos de uso / privacidad — BORRADOR, no publicado (2026-09-10)**: único
+ítem pendiente de `docs/PLAN-PRODUCCION.md` (Fase 6). `public/terms.html` y
+`public/privacy.html` ya están escritos, con el mismo estilo visual del resto
+del sitio, pero **sin linkear todavía** desde ninguna página — el usuario
+todavía no decidió si/cuándo pasa esto a producción. Enfoque de copyright:
+"disclaimer fuerte" (quien sube declara tener derechos, notificación y baja
+para reclamos), elegido porque el registro está abierto a cualquiera, no
+limitado a un grupo cerrado. Quedan placeholders por completar antes de
+publicar: email de contacto y ley aplicable/jurisdicción (todavía no
+definidos). Detalle completo en `docs/CHANGELOG.md`.
 
 **Panel de administración — ✅ COMPLETO, paso 9 cerrado (2026-09-10, rama
 `plan-produccion`)**: feature nueva, no forma parte de `docs/PLAN-PRODUCCION.md`.

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
+<title>MovieNight — Política de privacidad 📼</title>
+<meta name="theme-color" content="#170b27">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Monoton&family=Space+Grotesk:wght@400;500;600;700&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="vhs-scene">
+  <div class="horizon"><div class="sun"></div><div class="grid"></div></div>
+
+  <main class="deck deck-wide">
+    <span class="deck-corner tl"></span>
+    <span class="deck-corner tr"></span>
+    <span class="deck-corner bl"></span>
+    <span class="deck-corner br"></span>
+
+    <a href="/" class="back-link">◂ Volver al inicio</a>
+    <p class="eyebrow-osd">▸ REWIND · PLAY · REC ◂</p>
+    <h1 class="marquee-title" style="font-size:clamp(20px, 4.5vw, 28px);">PRIVACIDAD</h1>
+    <p class="tagline">Qué datos guardamos, para qué, y dónde viven.</p>
+
+    <div id="legalBody">
+      <p class="legal-updated">Última actualización: <span class="legal-placeholder">[completar fecha de publicación]</span> · Versión borrador, todavía no publicada</p>
+
+      <div class="legal-section">
+        <h2>1. Qué datos recolectamos</h2>
+        <p>Según cómo uses el Servicio, guardamos:</p>
+        <ul>
+          <li><strong>Si creás una cuenta</strong>: tu email y tu contraseña
+          (nunca en texto plano — se guarda con hash <code>bcrypt</code>,
+          irreversible).</li>
+          <li><strong>Al iniciar sesión</strong>: una cookie de sesión
+          (<code>movienight.sid</code>), marcada <code>httpOnly</code> (no
+          accesible desde JavaScript) y con vencimiento de 30 días.</li>
+          <li><strong>Al crear o entrar a una sala</strong>: el nombre que
+          elegís para esa sala, un identificador aleatorio que guarda tu
+          navegador (para reconocerte entre reconexiones, distinto por
+          persona) y, si sos quien crea la sala sin cuenta, un token también
+          guardado en tu navegador que te acredita como anfitrión.</li>
+          <li><strong>Los videos y subtítulos que subís</strong>, junto con el
+          nombre de archivo y metadatos técnicos básicos (tamaño, tipo real
+          verificado por contenido, no solo por extensión).</li>
+          <li><strong>Mensajes de chat y reacciones</strong> dentro de una
+          sala mientras esa sala existe.</li>
+          <li><strong>Tu dirección IP</strong>, usada únicamente para
+          limitar intentos repetidos de login/contraseña (anti fuerza bruta)
+          y en los logs técnicos del servidor.</li>
+        </ul>
+      </div>
+
+      <div class="legal-section">
+        <h2>2. Para qué usamos estos datos</h2>
+        <ul>
+          <li>Operar el Servicio: crear salas, sincronizar reproducción,
+          mostrar chat, mantener tu sesión iniciada.</li>
+          <li>Seguridad: detectar y frenar intentos de fuerza bruta sobre
+          contraseñas, prevenir accesos no autorizados.</li>
+          <li>Comunicarnos con vos: por ejemplo, un email para restablecer tu
+          contraseña si lo pedís.</li>
+          <li>Diagnóstico técnico: logs y reporte de errores para detectar y
+          arreglar fallas del Servicio.</li>
+        </ul>
+        <p>No usamos tus datos para publicidad, no armamos perfiles con fines
+        comerciales, y no vendemos datos personales a terceros.</p>
+      </div>
+
+      <div class="legal-section">
+        <h2>3. Dónde vive cada dato</h2>
+        <ul>
+          <li><strong>Cuenta de usuario</strong> (email, contraseña
+          hasheada): base de datos PostgreSQL propia.</li>
+          <li><strong>Estado de las salas</strong> (chat, posición del video,
+          contraseñas de sala, muteos): Redis, con borrado automático a las 24
+          horas sin actividad.</li>
+          <li><strong>Videos y subtítulos</strong>: según cómo esté
+          configurado el Servicio, en disco del propio servidor o en
+          Cloudflare R2 (almacenamiento de objetos). El video en sí nunca se
+          borra automáticamente al expirar una sala — solo cuando vos lo
+          borrás de la biblioteca.</li>
+          <li><strong>Envío de emails</strong> (recuperación de contraseña):
+          a través de Resend, un proveedor externo de envío de correo.</li>
+          <li><strong>Reporte de errores técnicos</strong>: si está
+          configurado, a través de Sentry — los campos sensibles (contraseñas,
+          tokens, cookies) se filtran antes de enviarse, nunca viajan en
+          claro.</li>
+        </ul>
+        <p>No compartimos tus datos personales con estos proveedores más allá
+        de lo estrictamente necesario para que presten el servicio técnico
+        correspondiente (por ejemplo, Resend solo recibe el email y el
+        contenido del correo de recuperación, no tu contraseña).</p>
+      </div>
+
+      <div class="legal-section">
+        <h2>4. Cuánto tiempo guardamos los datos</h2>
+        <ul>
+          <li>Las salas y su contenido efímero (chat, posición de reproducción)
+          se eliminan automáticamente a las 24 horas sin actividad.</li>
+          <li>Los videos subidos a la biblioteca se mantienen hasta que los
+          borrés vos mismo, o hasta que se aplique algún límite de
+          almacenamiento que hayamos configurado (tope de cantidad o tamaño de
+          la biblioteca).</li>
+          <li>Los datos de tu cuenta (email, contraseña) se mantienen mientras
+          la cuenta exista. Para pedir su eliminación, ver la sección
+          siguiente.</li>
+        </ul>
+      </div>
+
+      <div class="legal-section">
+        <h2>5. Tus derechos sobre tus datos</h2>
+        <p>Podés pedirnos en cualquier momento: acceso a los datos que tenemos
+        sobre vos, corrección de datos incorrectos, o eliminación de tu
+        cuenta y datos asociados. Hoy esto se gestiona de forma manual —
+        escribinos a <span class="legal-placeholder">[email de contacto]</span>
+        y lo resolvemos desde ahí; todavía no hay un botón de autoservicio
+        para borrar la cuenta directamente desde la app.</p>
+      </div>
+
+      <div class="legal-section">
+        <h2>6. Seguridad</h2>
+        <p>Contraseñas guardadas con <code>bcrypt</code> (nunca en texto
+        plano). Cookies de sesión <code>httpOnly</code>, con la marca
+        <code>secure</code> activa por defecto (solo se desactiva en
+        desarrollo local sin HTTPS). Conexión servida con cabeceras de
+        seguridad estándar (CSP, HSTS) y CORS explícito, sin orígenes cruzados
+        habilitados salvo que se configure a propósito. Los videos y
+        subtítulos subidos se validan por su contenido real, no solo por la
+        extensión del archivo.</p>
+        <p>Ninguna medida de seguridad es infalible — si detectás un problema,
+        avisanos a <span class="legal-placeholder">[email de contacto]</span>.</p>
+      </div>
+
+      <div class="legal-section">
+        <h2>7. Salas anónimas (sin cuenta)</h2>
+        <p>Si creás o te unís a una sala sin iniciar sesión, tu identidad
+        dentro de esa sala depende de un token guardado en tu propio
+        navegador (<code>localStorage</code>), no de una cuenta real. Ese
+        token no tiene vencimiento propio ni forma de revocarlo salvo borrando
+        los datos del sitio en tu navegador — es una limitación conocida e
+        inherente a ese modo de uso sin cuenta, distinta del modo con sesión
+        iniciada.</p>
+      </div>
+
+      <div class="legal-section">
+        <h2>8. Cambios a esta política</h2>
+        <p>Podemos actualizar esta Política de Privacidad de tanto en tanto.
+        Si el cambio es significativo, intentaremos avisarlo de forma visible
+        en el Servicio.</p>
+      </div>
+
+      <div class="legal-section">
+        <h2>9. Contacto</h2>
+        <p>Ante cualquier duda sobre esta política o tus datos, escribinos a
+        <span class="legal-placeholder">[email de contacto]</span>.</p>
+        <p>Ver también nuestros <a href="/terms.html" class="legal-cross-link">Términos de Uso</a>.</p>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

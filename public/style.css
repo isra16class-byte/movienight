@@ -1698,3 +1698,56 @@ video { width: 100%; height: 100%; display: block; background: black; }
   background-clip: padding-box;
 }
 #adminBody::-webkit-scrollbar-thumb:hover { background: var(--cyan); background-clip: padding-box; }
+
+/* ---------- Legales (términos de uso / política de privacidad) ---------- */
+/* Mismo criterio que #adminBody: el contenido de texto largo es el que scrollea dentro de
+   .deck-wide, no la tarjeta entera — .deck.deck-wide ya trae overflow:hidden + flex-column, así
+   que #legalBody (análogo a .tape-list/#adminBody) es el único con flex:1 + overflow-y:auto. */
+#legalBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+#legalBody::-webkit-scrollbar { width: 8px; }
+#legalBody::-webkit-scrollbar-track { background: transparent; }
+#legalBody::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: var(--radius-md);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+#legalBody::-webkit-scrollbar-thumb:hover { background: var(--cyan); background-clip: padding-box; }
+
+.legal-updated {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-family: var(--font-osd);
+  letter-spacing: 0.04em;
+  margin: 0 0 18px;
+}
+.legal-section { margin-bottom: 22px; }
+.legal-section h2 {
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+.legal-section p, .legal-section li {
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  line-height: 1.55;
+  margin: 0 0 10px;
+}
+.legal-section ul { margin: 0 0 10px; padding-left: 20px; }
+.legal-section strong { color: var(--text); }
+.legal-placeholder {
+  color: var(--pink);
+  font-style: italic;
+}
+.legal-cross-link { color: var(--cyan); text-decoration: none; }
+.legal-cross-link:hover { text-decoration: underline; }

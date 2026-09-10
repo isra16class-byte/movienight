@@ -1,5 +1,41 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-09-10 — Términos de uso y política de privacidad (BORRADOR, no publicado)
+
+- **Motivo**: único ítem pendiente de `docs/PLAN-PRODUCCION.md` (Fase 6). El
+  usuario todavía no decidió si/cuándo pasa a producción, pero pidió tener el
+  texto listo de antemano.
+- **Nuevo**: `public/terms.html` y `public/privacy.html`, mismo estilo visual
+  del resto del sitio (`.deck.deck-wide`, tipografías y paleta de
+  `style.css`), con un bloque `#legalBody` scrolleable nuevo (mismo criterio
+  que `#adminBody`: el contenido largo es el que cede, no la tarjeta entera).
+  **Ninguna de las dos páginas está linkeada todavía** desde `index.html`,
+  `library.html` ni `room.html` — a propósito, hasta que el usuario decida
+  publicarlas.
+- **Enfoque de derechos de autor** (decidido con el usuario): "disclaimer
+  fuerte" — quien sube un video declara tener los derechos o autorización
+  para hacerlo, MovieNight no modera contenido de forma previa ni actúa como
+  distribuidor público, y se deja un mecanismo de notificación y baja para
+  reclamos de titulares de derechos. Se eligió esta opción (en vez de un
+  encuadre "estrictamente privado entre amigos") porque el registro está
+  abierto a cualquiera, no limitado a un grupo cerrado.
+- **Contenido de privacidad**: describe qué se guarda (cuenta, cookie de
+  sesión, contenido de salas, videos, IP para rate limiting), para qué,
+  dónde vive cada dato (Postgres, Redis, disco/R2, Resend, Sentry opcional) y
+  cuánto dura (TTL de 24hs para salas, biblioteca hasta borrado manual). Se
+  aclara la limitación conocida de las salas anónimas (`hostToken` en
+  `localStorage`, sin expiración ni revocación propia).
+- **Placeholders pendientes de completar antes de publicar** (marcados en rosa
+  en ambas páginas con la clase `.legal-placeholder`): email de contacto para
+  reclamos/consultas, ley aplicable/jurisdicción (el usuario todavía no la
+  definió), y fecha de publicación. No hay borrado de cuenta con
+  autoservicio todavía (`/auth/*` no tiene esa ruta) — la política lo dice
+  explícitamente y remite al email de contacto.
+- **No verificado en navegador real** (no aplica: son páginas estáticas sin
+  JS, mismo patrón de `reset-password.html` en su parte de layout). Sí se
+  revisó que ambas páginas se linkean entre sí (`/terms.html` ↔
+  `/privacy.html`) y de vuelta a `/`.
+
 ## 2026-09-10 — Panel de administración, paso 9: verificación end-to-end completa
 
 - **Entorno real**: `docker compose up -d --build` levantó app, Redis y

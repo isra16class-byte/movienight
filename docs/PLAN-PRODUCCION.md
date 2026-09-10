@@ -844,10 +844,15 @@ instancia alcanza por ahora. Queda documentada para cuando haga falta retomarla)
 - ~~Multi-tenancy~~ → **decidido en Fase 0: no hace falta.** Sigue siendo un
   solo servidor con una biblioteca compartida entre todos los usuarios,
   incluso con cuentas reales. Descartado de este plan (no solo pospuesto).
-- [ ] **Términos de uso / política de privacidad** — sigue pendiente de
-      decidir. Se vuelve más relevante ahora que va a haber cuentas reales
-      (hay datos personales de por medio: email, contraseña) y sigue siendo
-      relevante por el tema de derechos de autor de los videos almacenados.
+- [ ] **Términos de uso / política de privacidad** — **BORRADOR escrito
+      (2026-09-10)**: `public/terms.html` y `public/privacy.html`, con
+      enfoque de copyright "disclaimer fuerte" (el usuario que sube declara
+      tener derechos, notificación y baja para reclamos) — elegido porque el
+      registro está abierto a cualquiera, no a un grupo cerrado. **Todavía sin
+      publicar ni linkear** desde ninguna página: falta completar el email de
+      contacto y decidir la ley aplicable/jurisdicción (marcados como
+      placeholder en ambos documentos), y decidir cuándo pasa esto a
+      producción. Detalle en `docs/CHANGELOG.md` y `docs/MEMORIA.md`.
 
 ---
 
