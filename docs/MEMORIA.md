@@ -52,9 +52,9 @@ movienight/
   lib/sentry.js            # Reporte opcional de excepciones a Sentry, con redacción de secretos — Fase 4
   lib/metrics.js           # Contadores en memoria para GET /metrics (uploads en curso, errores de R2) — Fase 4
   lib/alerts.js            # Alertas mínimas por email si el healthcheck o R2 vienen fallando — Fase 4
-  lib/settings.js          # Catálogo de parámetros administrables (panel de admin, EN CURSO — ver "Por dónde seguir")
-  scripts/make-admin.js    # Promueve una cuenta existente a admin (panel de admin, EN CURSO)
-  public/admin.html        # Panel de administración: settings + dashboard + acciones sobre salas (paso 8, EN CURSO)
+  lib/settings.js          # Catálogo de parámetros administrables (panel de admin, ✅ completo — ver "Por dónde seguir")
+  scripts/make-admin.js    # Promueve una cuenta existente a admin (panel de admin, ✅ completo)
+  public/admin.html        # Panel de administración: settings + dashboard + acciones sobre salas (✅ completo, paso 9 cerrado)
   scripts/r2-cleanup-multipart.js
   test/                    # Tests unitarios (node:test) de la lógica extraída a lib/*.js — Fase 5
   .github/workflows/ci.yml # CI: corre npm test en cada push/PR — Fase 5
