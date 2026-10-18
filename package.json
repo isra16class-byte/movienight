@@ -11,6 +11,7 @@
     "deploy": "bash scripts/deploy.sh",
     "r2:cleanup": "node scripts/r2-cleanup-multipart.js",
     "library:orphans": "node scripts/library-orphan-report.js",
+    "check:avatars": "node scripts/check-avatars.js",
     "pm2:start": "pm2 start ecosystem.config.js",
     "pm2:stop": "pm2 stop movienight",
     "pm2:restart": "pm2 restart movienight",
