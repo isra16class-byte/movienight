@@ -1,62 +1,7 @@
 [
-  {
-    "id": "avatar-01",
-    "name": "Avatar 1",
-    "file": "avatar-01.svg",
-    "placeholder": true
-  },
-  {
-    "id": "avatar-02",
-    "name": "Avatar 2",
-    "file": "avatar-02.svg",
-    "placeholder": true
-  },
-  {
-    "id": "avatar-03",
-    "name": "Avatar 3",
-    "file": "avatar-03.svg",
-    "placeholder": true
-  },
-  {
-    "id": "avatar-04",
-    "name": "Avatar 4",
-    "file": "avatar-04.svg",
-    "placeholder": true
-  },
-  {
-    "id": "avatar-05",
-    "name": "Avatar 5",
-    "file": "avatar-05.svg",
-    "placeholder": true
-  },
-  {
-    "id": "avatar-06",
-    "name": "Avatar 6",
-    "file": "avatar-06.svg",
-    "placeholder": true
-  },
-  {
-    "id": "avatar-07",
-    "name": "Avatar 7",
-    "file": "avatar-07.svg",
-    "placeholder": true
-  },
-  {
-    "id": "avatar-08",
-    "name": "Avatar 8",
-    "file": "avatar-08.svg",
-    "placeholder": true
-  },
-  {
-    "id": "avatar-09",
-    "name": "Avatar 9",
-    "file": "avatar-09.svg",
-    "placeholder": true
-  },
-  {
-    "id": "avatar-10",
-    "name": "Avatar 10",
-    "file": "avatar-10.svg",
-    "placeholder": true
-  }
+  { "id": "koala-ninja", "name": "Koala ninja", "file": "koala-ninja.png" },
+  { "id": "caballero", "name": "Caballero", "file": "caballero.png" },
+  { "id": "viajero", "name": "Viajero", "file": "viajero.png" },
+  { "id": "pajaro-rojo", "name": "Pájaro rojo", "file": "pajaro-rojo.png" },
+  { "id": "trex", "name": "T-rex", "file": "trex.png" }
 ]

@@ -1,12 +1,12 @@
 # Avatares
 
-Lista fija de iconos que las personas con cuenta pueden elegir. Hoy son **marcadores**
-(`avatar-01` … `avatar-10`, formas simples dibujadas para esto); la idea es reemplazarlos por
-iconos reales sin tocar código.
+Lista fija de iconos que las personas con cuenta pueden elegir. El orden y los nombres salen de
+`avatars.json`; el origen y la licencia de cada icono están en `CREDITS.md` (hoy todos figuran como
+«NO INFORMADO», revisa ese archivo antes de publicar).
 
-## Cómo reemplazar los marcadores
+## Cómo agregar, quitar o reemplazar iconos
 
-1. Copia los iconos nuevos a esta carpeta (`public/avatars/`).
+1. Copia los iconos nuevos a esta carpeta (`public/avatars/`), con el nombre de archivo igual al id.
 2. Edita `avatars.json`: es un arreglo con una entrada por icono, en el orden en que se muestran:
 
    ```json
@@ -16,10 +16,13 @@ iconos reales sin tocar código.
    - `id`: letras minúsculas, números y guiones, de 2 a 32 caracteres. Único.
    - `name`: el nombre que ve la gente.
    - `file`: nombre del archivo en esta carpeta (sin `/` ni `..`). Debe existir.
-   - `placeholder`: solo los marcadores llevan `"placeholder": true`. Quítalo en los iconos reales.
-3. Borra los marcadores que ya no uses (archivo y entrada del manifiesto).
-4. Corre la revisión: `npm run check:avatars`.
-5. Reinicia el servidor: el manifiesto se lee al arrancar.
+   - `placeholder`: es opcional. Solo se usa para un icono provisional (`"placeholder": true`) y la
+     revisión avisa mientras quede alguno. Los iconos reales no lo llevan.
+3. Si quitas un icono, borra también su archivo y su entrada del manifiesto.
+4. Agrega una fila por icono en `CREDITS.md` con autor o fuente, enlace y licencia. Lo que no conste se
+   escribe «NO INFORMADO»; no se inventa.
+5. Corre la revisión: `npm run check:avatars`.
+6. Reinicia el servidor: el manifiesto se lee al arrancar.
 
 Máximo 40 avatares. Si el manifiesto es inválido, el servidor arranca igual pero la lista queda
 vacía y el error queda en el log.
@@ -46,4 +49,5 @@ npm run check:avatars
 ```
 
 Imprime una tabla con el formato, el tamaño y las dimensiones de cada icono, avisa cuántos
-marcadores quedan sin reemplazar y sale con código distinto de 0 si hay errores.
+marcadores quedan sin reemplazar, avisa si `CREDITS.md` no existe o no menciona algún id del manifiesto,
+y sale con código distinto de 0 si hay errores (los avisos no fallan la revisión).

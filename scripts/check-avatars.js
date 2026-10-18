@@ -3,12 +3,37 @@
 // Revisa public/avatars/avatars.json y cada archivo que referencia: archivo existente, formato
 // (png, webp, svg), peso (<= 200 KB), dimensiones de PNG/WebP (cuadrado, 128-1024 px) y SVG sin
 // scripts ni referencias externas; ids y archivos únicos. Usa lib/avatars.js, el mismo código que
-// valida el servidor y los tests. Sale con código 1 si hay errores; los avisos no fallan la revisión.
+// valida el servidor y los tests. Avisa si public/avatars/CREDITS.md no menciona algún id del
+// manifiesto. Sale con código 1 si hay errores; los avisos no fallan la revisión.
 
+const fs = require('fs');
+const path = require('path');
 const { checkManifestFiles, DEFAULT_AVATARS_DIR } = require('../lib/avatars');
 
 function pad(value, width) {
   return String(value).padEnd(width);
+}
+
+// ¿Aparece `id` en `text` como palabra completa (sin letras, números o guiones pegados)?
+function mentionsId(text, id) {
+  const isIdChar = (ch) => ch !== undefined && /[a-z0-9-]/.test(ch);
+  let from = text.indexOf(id);
+  while (from !== -1) {
+    if (!isIdChar(text[from - 1]) && !isIdChar(text[from + id.length])) return true;
+    from = text.indexOf(id, from + 1);
+  }
+  return false;
+}
+
+// Ids del manifiesto que CREDITS.md no menciona (o todos, si el archivo no existe).
+function idsWithoutCredits(ids) {
+  let text;
+  try {
+    text = fs.readFileSync(path.join(DEFAULT_AVATARS_DIR, 'CREDITS.md'), 'utf8');
+  } catch {
+    return { missingFile: true, missing: ids };
+  }
+  return { missingFile: false, missing: ids.filter((id) => !mentionsId(text, id)) };
 }
 
 function main() {
@@ -33,6 +58,14 @@ function main() {
   }
   if (placeholders > 0) {
     console.log(`\nAVISO: ${placeholders} marcadores sin reemplazar.`);
+  }
+  const credits = idsWithoutCredits(entries.map((e) => e.id));
+  if (credits.missingFile) {
+    console.log('\nAVISO: falta public/avatars/CREDITS.md (origen y licencia de cada icono).');
+    warningCount++;
+  } else if (credits.missing.length) {
+    console.log(`\nAVISO: CREDITS.md no menciona estos ids: ${credits.missing.join(', ')}.`);
+    warningCount++;
   }
   console.log(`\n${entries.length} iconos revisados: ${errorCount} errores, ${warningCount} avisos.`);
   process.exit(errorCount > 0 ? 1 : 0);
