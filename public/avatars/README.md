@@ -27,6 +27,30 @@ Lista fija de iconos que las personas con cuenta pueden elegir. El orden y los n
 Máximo 40 avatares. Si el manifiesto es inválido, el servidor arranca igual pero la lista queda
 vacía y el error queda en el log.
 
+## Preparar una imagen con el script
+
+`scripts/prepare-avatar.py` recorta a cuadrado, escala y guarda el PNG por ti. Necesita Python 3 (probado con 3.12) y
+Pillow (`pip install pillow`); no usa npm ni cambia `package.json`. Se ejecuta desde la raíz del repo
+(en Windows puedes usar `py` en vez de `python`):
+
+```
+python scripts/prepare-avatar.py "C:\fotos\zorro.jpg" zorro
+python scripts/prepare-avatar.py zorro.jpg zorro --box 120,40,1100,1020 --size 256
+python scripts/prepare-avatar.py zorro.jpg zorro --add --name "Zorro" --author "Ana" --link https://ejemplo.com/z --license "CC BY 4.0"
+```
+
+- Sin `--box` recorta el cuadrado central. Con `--box izquierda,arriba,derecha,abajo` (en píxeles de la
+  imagen original) recorta esa zona; tiene que ser cuadrada. El script no ve la imagen: si el personaje
+  no está en el centro, hay que darle la caja.
+- `--size` es el lado final (128 a 1024; por defecto 256).
+- Si el PNG pasa de 200 KB, el script reduce los colores a una paleta y lo avisa; si aun así no cabe,
+  falla y te pide un `--size` menor.
+- Si `ID.png` ya existe, falla salvo que pases `--force` (así se reemplaza la imagen de un id sin cambiar el id).
+- Con `--add --name "..."` agrega el icono al final de `avatars.json` y una fila a `CREDITS.md`. Lo que no
+  pases con `--author`, `--link` o `--license` queda como «NO INFORMADO». Sin `--add`, solo crea el PNG.
+- Si `node` está instalado, valida el resultado con el mismo código del servidor (`lib/avatars.js`).
+- El fondo se deja como está: un JPG no tiene transparencia y el script no la inventa.
+
 ## Los ids no se renombran
 
 El `id` es lo que se guarda en la base de datos y lo que viaja en los eventos de la sala. Si
