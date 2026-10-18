@@ -1676,7 +1676,7 @@ app.post('/room/:id/change-video', requireUploadAuth, checkStorageLimits, upload
   if (!req.file) return res.status(400).json({ error: 'No llegó ningún video' });
   room.videoFile = videoUrlForUploadedFile(req.file);
   room.videoPosition = { time: 0, paused: true }; // cinta nueva: arranca de 0, no de donde iba la anterior
-  const changedMsg = { system: true, text: `📼 Cambiaron la cinta: ${videoDisplayName(room.videoFile)}` };
+  const changedMsg = { system: true, avatarId: null, text: `📼 Cambiaron la cinta: ${videoDisplayName(room.videoFile)}` };
   pushChatHistory(room, changedMsg);
   io.to(req.params.id).emit('chat-message', changedMsg);
   io.to(req.params.id).emit('video-changed', { videoFile: room.videoFile });
@@ -1706,7 +1706,7 @@ app.post('/room/:id/change-video-from-upload', async (req, res) => {
   }
   room.videoFile = videoUrlForExistingFile(filename);
   room.videoPosition = { time: 0, paused: true }; // cinta nueva: arranca de 0, no de donde iba la anterior
-  const changedMsg = { system: true, text: `📼 Cambiaron la cinta: ${videoDisplayName(room.videoFile)}` };
+  const changedMsg = { system: true, avatarId: null, text: `📼 Cambiaron la cinta: ${videoDisplayName(room.videoFile)}` };
   pushChatHistory(room, changedMsg);
   io.to(req.params.id).emit('chat-message', changedMsg);
   io.to(req.params.id).emit('video-changed', { videoFile: room.videoFile });
@@ -1980,6 +1980,28 @@ app.use((err, req, res, next) => {
   res.status(502).json({ error: msg });
 });
 
+// Avatar de la persona de este socket, para join-room. Sale de `socket.request.session` (compartida con
+// Socket.io, ver io.engine.use(sessionMiddleware)): el handshake de un socket NUEVO carga la sesión
+// desde Redis, así que un cambio hecho por PUT /auth/avatar llega a todo socket que se conecte después.
+// (Un socket que ya estaba conectado conserva la copia que cargó al conectarse: el avatar nuevo se ve la
+// próxima vez que se conecta.) Una sesión anterior a los avatares no tiene `avatarId`: se lee de la base
+// SIN escribir la sesión desde acá (la guardan /auth/me y /auth/avatar). Nunca viene del cliente. Si el
+// id ya no está en el manifiesto, queda null.
+async function getSocketAvatarId(socket) {
+  const sess = socket.request.session;
+  if (!sess || !sess.userId) return null;
+  let avatarId = sess.avatarId;
+  if (avatarId === undefined) {
+    try {
+      avatarId = db.isEnabled() ? await db.getUserAvatarId(sess.userId) : null;
+    } catch (err) {
+      logger.error({ err }, 'No se pudo leer el avatar al entrar a una sala');
+      avatarId = null;
+    }
+  }
+  return avatars.resolveAvatar(avatarId) ? avatarId : null;
+}
+
 function broadcastViewerList(roomId) {
   const room = rooms[roomId];
   if (!room) return;
@@ -1992,7 +2014,10 @@ function broadcastViewerList(roomId) {
       username: room.userNames.get(id) || 'Anónimo',
       isHost: !!s.isHost,
       muted: room.mutedUserIds.has(s.userId),
-      buffering: room.bufferingSockets.has(id)
+      buffering: room.bufferingSockets.has(id),
+      // id del avatar de la cuenta (lib/avatars.js), puesto por el SERVIDOR en join-room; null para
+      // quien no tiene cuenta o no eligió. Es el id, no la URL: los clientes lo resuelven con GET /api/avatars.
+      avatarId: s.avatarId || null
     };
   });
   io.to(roomId).emit('viewer-list', list);
@@ -2091,9 +2116,14 @@ io.on('connection', (socket) => {
       }
     }
 
+    // Avatar de la cuenta (null si no hay sesión o no eligió). Se lee ANTES de tocar el estado de la sala
+    // para que el resto de este handler siga siendo síncrono, como siempre.
+    const avatarId = await getSocketAvatarId(socket);
+
     currentRoom = roomId;
     socket.username = (username || 'Anónimo').slice(0, 40);
     socket.userId = userId || socket.id;
+    socket.avatarId = avatarId;
     socket.join(roomId);
 
     room.userNames.set(socket.id, socket.username);
@@ -2115,7 +2145,7 @@ io.on('connection', (socket) => {
     // change-video/change-video-from-upload.
     if (!room.initialVideoAnnounced) {
       room.initialVideoAnnounced = true;
-      const loadedMsg = { system: true, text: `🎬 Cinta cargada: ${videoDisplayName(room.videoFile)}` };
+      const loadedMsg = { system: true, avatarId: null, text: `🎬 Cinta cargada: ${videoDisplayName(room.videoFile)}` };
       pushChatHistory(room, loadedMsg);
       io.to(roomId).emit('chat-message', loadedMsg);
       roomStore.saveRoom(roomId, room); // fire-and-forget: no vale la pena bloquear el join por esto
@@ -2127,7 +2157,7 @@ io.on('connection', (socket) => {
       clearTimeout(recent.timer);
       room.recentDisconnects.delete(socket.userId);
     } else {
-      const joinedMsg = { system: true, text: `${socket.username} se unió a la sala 🎬` };
+      const joinedMsg = { system: true, avatarId: null, text: `${socket.username} se unió a la sala 🎬` };
       pushChatHistory(room, joinedMsg);
       socket.to(roomId).emit('chat-message', joinedMsg);
     }
@@ -2213,7 +2243,10 @@ io.on('connection', (socket) => {
     // mensajes" de los de otros sin ambigüedad — dos personas pueden elegir el mismo nombre al unirse
     // (no hay validación de unicidad), así que comparar por `user` en el cliente daría falsos
     // positivos. userId sí es estable por navegador (ver getPersistentUserId() en room.html).
-    const msg = { system: false, user: socket.username, text: text.slice(0, 500), replyTo, isHost: !!socket.isHost, userId: socket.userId };
+    // avatarId: igual que en viewer-list, lo pone el servidor (socket.avatarId, fijado en join-room) y nunca
+    // se toma del payload del cliente. Queda guardado en chatHistory: un mensaje viejo conserva el avatar
+    // que la persona tenía al escribirlo.
+    const msg = { system: false, user: socket.username, text: text.slice(0, 500), replyTo, isHost: !!socket.isHost, userId: socket.userId, avatarId: socket.avatarId || null };
     pushChatHistory(room, msg);
     io.to(currentRoom).emit('chat-message', msg);
     roomStore.saveRoom(currentRoom, room); // fire-and-forget: guarda el chatHistory actualizado
@@ -2268,7 +2301,7 @@ io.on('connection', (socket) => {
     const fromName = socket.username;
     const toName = target.username;
     setHost(room, currentRoom, target); // degrada a `socket` (host actual) y promueve a `target`
-    const transferMsg = { system: true, text: `🎛 ${fromName} le pasó el control remoto a ${toName}` };
+    const transferMsg = { system: true, avatarId: null, text: `🎛 ${fromName} le pasó el control remoto a ${toName}` };
     pushChatHistory(room, transferMsg);
     io.to(currentRoom).emit('chat-message', transferMsg);
     broadcastViewerList(currentRoom);
@@ -2299,7 +2332,7 @@ io.on('connection', (socket) => {
       try {
         room.recentDisconnects.delete(userId);
         room.mutedUserIds.delete(userId); // ya pasó el margen de gracia, se limpia el estado de silencio
-        const leftMsg = { system: true, text: `${username} salió de la sala` };
+        const leftMsg = { system: true, avatarId: null, text: `${username} salió de la sala` };
         pushChatHistory(room, leftMsg);
         io.to(currentRoom).emit('chat-message', leftMsg);
         roomStore.saveRoom(currentRoom, room); // fire-and-forget: refleja el mutedUserIds actualizado
@@ -2318,7 +2351,7 @@ io.on('connection', (socket) => {
         const next = io.sockets.sockets.get([...stillConnected][0]);
         if (next) {
           setHost(room, currentRoom, next);
-          const autoTransferMsg = { system: true, text: `🎛 ${next.username || 'Alguien'} ahora tiene el control remoto (el host anterior se desconectó)` };
+          const autoTransferMsg = { system: true, avatarId: null, text: `🎛 ${next.username || 'Alguien'} ahora tiene el control remoto (el host anterior se desconectó)` };
           pushChatHistory(room, autoTransferMsg);
           io.to(currentRoom).emit('chat-message', autoTransferMsg);
           broadcastViewerList(currentRoom);
