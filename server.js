@@ -97,6 +97,8 @@ const settings = require('./lib/settings');
 // de Origin/Referer para los POST del panel, sección 2.4 del plan). `db`/`logger` ya están definidos
 // arriba en este punto del archivo.
 const { makeRequireAdmin, requireSameOrigin } = require('./lib/adminAuth');
+// Avatares de cuenta (lista fija de iconos en public/avatars/, ver lib/avatars.js).
+const avatars = require('./lib/avatars');
 const requireAdmin = makeRequireAdmin(db, logger);
 
 // closeRoom() (paso 5 de docs/PLAN-PANEL-ADMIN.md) — mismo motivo que setHost() en lib/hostAuth.js:
@@ -270,6 +272,9 @@ if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 // nueva del código de la app antes que ganar unos ms de velocidad — `no-store` en el código (no en
 // los uploads/thumbnails de `public/uploads`, que si se pueden cachear normalmente) evita que
 // Cloudflare vuelva a guardar una copia vieja.
+// Carga el manifiesto de avatares al arrancar (y calcula el hash de cada archivo para la URL). Si el
+// manifiesto es inválido NO tumba el servidor: lo registra y la lista queda vacía (lib/avatars.js).
+avatars.init({ log: logger });
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res, filePath) => {
     if (/\.(html|css|js)$/i.test(filePath)) res.setHeader('Cache-Control', 'no-store');
@@ -588,6 +593,8 @@ function requireDbEnabled(req, res, next) {
 // una cuenta no bloquea el intento de otra persona (u otra cuenta) desde la misma IP compartida, y
 // tampoco alcanza con probar el mismo email desde IPs distintas para saltarse el límite.
 const loginAuthLimiter = makeAttemptLimiter();
+// Cambiar de avatar: 20 cambios cada 10 minutos, clave = id de la cuenta (ver lib/avatars.js).
+const avatarChangeLimiter = avatars.makeAvatarChangeLimiter();
 
 app.post('/auth/register', requireDbEnabled, async (req, res) => {
   const { email, password } = req.body || {};
@@ -655,6 +662,16 @@ app.post('/auth/login', requireDbEnabled, async (req, res) => {
 
     loginAuthLimiter.recordSuccess(limiterKey);
 
+    // Avatar elegido, para cachearlo en la sesión (la web y la app lo piden en cada /auth/me y cada
+    // socket lo lee al entrar a una sala). Si la lectura falla no se corta el login: la sesión queda
+    // sin `avatarId` y se vuelve a intentar la primera vez que haga falta (getSessionAvatarId).
+    let loginAvatarId;
+    try {
+      loginAvatarId = await db.getUserAvatarId(user.id);
+    } catch (avatarErr) {
+      logger.error({ err: avatarErr }, 'No se pudo leer el avatar al iniciar sesión');
+    }
+
     // `regenerate()` en vez de escribir directo sobre req.session: crea un `sid` nuevo y descarta
     // cualquier sesión anónima previa asociada a la cookie que ya traía este navegador (si la había,
     // aunque hoy no se usa sesión para nada estando deslogueado) — mitiga session fixation (un
@@ -669,6 +686,8 @@ app.post('/auth/login', requireDbEnabled, async (req, res) => {
       }
       req.session.userId = user.id;
       req.session.email = user.email;
+      // `avatarId` leído antes de regenerate() (ver más arriba): undefined si la lectura falló.
+      if (loginAvatarId !== undefined) req.session.avatarId = loginAvatarId;
       // save() explícito (en vez de confiar en que express-session guarde solo al final de la
       // response): así, si guardar en Redis falla, se entera este handler y responde 500 en vez de
       // devolver 200 con una cookie que en la práctica no quedó respaldada en el store.
@@ -708,9 +727,77 @@ app.post('/auth/logout', (req, res) => {
 // Le permite al cliente (room.html, library.html, etc.) preguntar "¿hay alguien logueado ahora?" sin
 // tener que guardar ese dato por su cuenta — la cookie httpOnly no se puede leer desde JS, así que
 // esta es la única forma de que el frontend sepa el estado de la sesión.
-app.get('/auth/me', (req, res) => {
+// `avatar` (aditivo): { id, name, url } o null — el resto de los campos no cambia. Sin sesión sigue
+// siendo solo { loggedIn: false }.
+app.get('/auth/me', async (req, res) => {
   if (!req.session || !req.session.userId) return res.json({ loggedIn: false });
-  res.json({ loggedIn: true, id: req.session.userId, email: req.session.email });
+  let avatarId = null;
+  try {
+    avatarId = await getSessionAvatarId(req);
+  } catch (err) {
+    // Un fallo leyendo el avatar no debe romper /auth/me (la web y la app dependen de él para saber si
+    // hay sesión): se responde sin avatar y se deja el error en el log.
+    logger.error({ err }, 'No se pudo leer el avatar en /auth/me');
+  }
+  res.json({ loggedIn: true, id: req.session.userId, email: req.session.email, avatar: avatars.resolveAvatar(avatarId) });
+});
+
+// Avatar de la sesión: el cacheado en `req.session.avatarId`, o — para sesiones anteriores a esta
+// función, que no lo tienen — una consulta por clave primaria cuyo resultado se guarda en la sesión
+// (express-session la persiste al terminar la respuesta). `null` = sin avatar.
+async function getSessionAvatarId(req) {
+  if (!req.session || !req.session.userId) return null;
+  if (req.session.avatarId !== undefined) return req.session.avatarId;
+  if (!db.isEnabled()) return null;
+  const avatarId = await db.getUserAvatarId(req.session.userId);
+  req.session.avatarId = avatarId;
+  return avatarId;
+}
+
+// Lista fija de avatares, en el orden del manifiesto. Pública (no pide sesión). La URL lleva ?v=<hash
+// del contenido>, así que reemplazar un archivo sin cambiar su nombre rompe cachés (también la de
+// Cloudflare); la propia lista se cachea poco (60 s) porque solo cambia al reiniciar el servidor.
+app.get('/api/avatars', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=60');
+  res.json({ avatars: avatars.listAvatars() });
+});
+
+// Elegir (o quitar, con null) el avatar de la cuenta. requireSameOrigin deja pasar los pedidos sin
+// Origin ni Referer (ver lib/adminAuth.js::isSameOrigin): la app Android (OkHttp) no los manda y
+// puede llamar esta ruta; un Origin/Referer de OTRO sitio sí se rechaza con 403.
+app.put('/auth/avatar', requireDbEnabled, requireSameOrigin, async (req, res) => {
+  if (!req.session || !req.session.userId) {
+    return res.status(401).json({ error: 'Inicia sesión para elegir un avatar.' });
+  }
+  const userId = req.session.userId;
+  const lockedMinutes = avatarChangeLimiter.lockedMinutes(userId);
+  if (lockedMinutes !== null) {
+    return res.status(429).json({ error: `Has cambiado de avatar muchas veces. Espera ${lockedMinutes} min e inténtalo de nuevo.` });
+  }
+  avatarChangeLimiter.recordFailure(userId); // cada pedido cuenta como un intento
+
+  const avatarId = req.body ? req.body.avatarId : undefined;
+  if (avatarId !== null && !avatars.isValidAvatarId(avatarId)) {
+    return res.status(400).json({ error: 'Ese avatar no existe.' });
+  }
+
+  try {
+    const found = await db.setUserAvatarId(userId, avatarId);
+    if (!found) return res.status(401).json({ error: 'Inicia sesión para elegir un avatar.' });
+    req.session.avatarId = avatarId;
+    req.session.save((saveErr) => {
+      if (saveErr) {
+        logger.error({ err: saveErr }, 'Error guardando la sesión tras cambiar el avatar');
+        reportHttpError(saveErr, req, '/auth/avatar');
+        return res.status(500).json({ error: 'No se pudo guardar el avatar. Inténtalo de nuevo en un momento.' });
+      }
+      res.json({ ok: true, avatar: avatars.resolveAvatar(avatarId) });
+    });
+  } catch (err) {
+    logger.error({ err }, 'Error cambiando el avatar');
+    reportHttpError(err, req, '/auth/avatar');
+    res.status(500).json({ error: 'No se pudo guardar el avatar. Inténtalo de nuevo en un momento.' });
+  }
 });
 
 // --- Recuperación de contraseña (Fase 2bis del plan de producción) ------------------------------
