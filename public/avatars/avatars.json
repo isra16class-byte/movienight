@@ -3,5 +3,6 @@
   { "id": "caballero", "name": "Caballero", "file": "caballero.png" },
   { "id": "viajero", "name": "Viajero", "file": "viajero.png" },
   { "id": "pajaro-rojo", "name": "Pájaro rojo", "file": "pajaro-rojo.png" },
-  { "id": "trex", "name": "T-rex", "file": "trex.png" }
+  { "id": "trex", "name": "T-rex", "file": "trex.png" },
+  { "id": "pinguino", "name": "Pingüino", "file": "pinguino.png" }
 ]

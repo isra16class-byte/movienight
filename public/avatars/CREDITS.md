@@ -25,6 +25,7 @@ aparecer aquí**: `npm run check:avatars` avisa si falta alguno.
 | `viajero` | Viajero | NO INFORMADO | NO INFORMADO | NO INFORMADO |
 | `pajaro-rojo` | Pájaro rojo | NO INFORMADO | NO INFORMADO | NO INFORMADO |
 | `trex` | T-rex | NO INFORMADO | NO INFORMADO | NO INFORMADO |
+| `pinguino` | Pingüino | NO INFORMADO | NO INFORMADO | NO INFORMADO |
 
 ## Modificaciones hechas en este repo
 
