@@ -1,5 +1,25 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-18 — Avatares de cuenta: servidor listo con 6 iconos reales (confirmado por la persona)
+
+- **Qué**: cada persona con cuenta puede elegir un avatar de una lista fija y los demás lo ven en la sala. Nuevo: `lib/avatars.js`,
+  `scripts/check-avatars.js` (`npm run check:avatars`), `scripts/prepare-avatar.py` (Python 3 y Pillow), `public/avatars/` (manifiesto,
+  README, CREDITS y 6 PNG), `test/avatars.test.js` (20 tests) y la columna `users.avatar_id`. Rutas: `GET /api/avatars` y
+  `PUT /auth/avatar`; `GET /auth/me` agrega `avatar`; `viewer-list` y `chat-message` agregan `avatarId`. Todo aditivo y sin dependencias nuevas
+  (en `package.json` solo se agregó el script `check:avatars`). Detalle del contrato en `docs/MEMORIA.md`, «Por dónde seguir».
+- **Commits** (sobre `a9bca2a`): `7ac4edb`, `85a54be`, `fc1d27c` (infraestructura con 10 marcadores SVG); `ffd2178` (iconos reales en lugar de
+  los marcadores), `60b19be` (script para prepararlos) y `62aadf8` («agrega zorro», que en realidad agrega `pinguino`).
+- **Verificado por el asistente (sobre `62aadf8`)**: `npm test` 96/96, `npm run lint` limpio y `npm run check:avatars` con 0 errores y 0 avisos;
+  lectura del diff de `server.js` y `lib/db.js`. Informe de Copilot (resumen, no las salidas): rutas, sockets, límites y manifiesto roto,
+  sobre `fc1d27c` y con Node 24 (el `Dockerfile` fija Node 22). El asistente no probó la vista de los iconos, la web real ni la app Android, y
+  `prepare-avatar.py` no se corrió; **la persona dijo (2026-10-18) «si hice todas las pruebas» (las que se le pasaron: las de los avatares del servidor, la web de siempre y la app Android actual); no dio detalle por punto ni qué navegador, teléfono ni versión de Android usó**.
+- **Pendiente**: **origen y licencia de los 6 iconos: NO INFORMADO** y `pajaro-rojo` se parece a un personaje de
+  marca (ver `public/avatars/CREDITS.md`); `public/privacy.html` no menciona el avatar; no hay migración de los marcadores a los iconos
+  reales; la web no muestra avatares; la app Android aún no los usa.
+- **Solo documentación en este commit**: `docs/MEMORIA.md` y `docs/CHANGELOG.md`; sin cambios de código.
+
+---
+
 ## 2026-09-10 — Términos de uso y política de privacidad (BORRADOR, no publicado)
 
 - **Motivo**: único ítem pendiente de `docs/PLAN-PRODUCCION.md` (Fase 6). El

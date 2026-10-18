@@ -53,8 +53,12 @@ movienight/
   lib/metrics.js           # Contadores en memoria para GET /metrics (uploads en curso, errores de R2) — Fase 4
   lib/alerts.js            # Alertas mínimas por email si el healthcheck o R2 vienen fallando — Fase 4
   lib/settings.js          # Catálogo de parámetros administrables (panel de admin, ✅ completo — ver "Por dónde seguir")
+  lib/avatars.js           # Avatares de cuenta: lee public/avatars/avatars.json, valida, resuelve id -> { id, name, url } y limita los cambios (20 cada 10 min por cuenta)
   scripts/make-admin.js    # Promueve una cuenta existente a admin (panel de admin, ✅ completo)
+  scripts/check-avatars.js # `npm run check:avatars`: revisa los iconos del manifiesto (formato, peso, dimensiones, SVG inseguros, CREDITS.md)
+  scripts/prepare-avatar.py # Recorta, escala y guarda una imagen como public/avatars/<id>.png (Python 3 + Pillow; no usa npm)
   public/admin.html        # Panel de administración: settings + dashboard + acciones sobre salas (✅ completo, paso 9 cerrado)
+  public/avatars/          # Iconos de avatar: avatars.json (manifiesto), 6 PNG de 256x256, README.md (cómo agregarlos) y CREDITS.md (origen y licencia)
   scripts/r2-cleanup-multipart.js
   test/                    # Tests unitarios (node:test) de la lógica extraída a lib/*.js — Fase 5
   .github/workflows/ci.yml # CI: corre npm test en cada push/PR — Fase 5
@@ -145,6 +149,61 @@ mover la barra de progreso — cualquier intento se revierte.
 - Cada cambio importante debería reflejarse acá (este archivo, `docs/MEMORIA.md`, si cambia algo esencial) y como entrada nueva en `docs/CHANGELOG.md` — no en los archivos de `docs/historico/`, que quedaron congelados como registro del estado anterior a esta reorganización.
 
 ## Por dónde seguir
+
+**Avatares de cuenta: servidor listo, con 6 iconos reales (2026-10-18)**: hecho y subido a
+`origin/plan-produccion` y **confirmado por la persona** (2026-10-18): dijo «si hice todas las pruebas» (las que se le pasaron: las de los avatares del servidor, la web de siempre y la app Android actual); no dio detalle por punto ni qué navegador, teléfono ni versión de Android usó. Son 6 commits sobre `a9bca2a`: `7ac4edb`, `85a54be` y `fc1d27c` (infraestructura, con 10 marcadores SVG) y
+`ffd2178`, `60b19be` y `62aadf8` (iconos reales y script para prepararlos). Sin dependencias nuevas: en `package.json` solo se agregó el script `check:avatars`.
+
+- **Qué hay (contrato, todo aditivo; lo que usa hoy la web y la app Android no cambió):**
+  - `GET /api/avatars` (público): `{ avatars: [{ id, name, url }] }` en el orden del manifiesto; `url` es relativa,
+    `/avatars/<archivo>?v=<hash corto del contenido>` (se calcula al arrancar para romper cachés, también la de Cloudflare,
+    si se reemplaza un archivo sin cambiar su nombre); `Cache-Control: public, max-age=60`.
+  - `PUT /auth/avatar` con `{ avatarId: string | null }` (`null` quita el avatar): 401 sin sesión; 404 si la base de datos
+    está desactivada; 403 con `Origin` ajeno y 200 sin `Origin` ni `Referer` (así lo llama OkHttp); 400 `{ error }` si el id no
+    está en el manifiesto; 200 `{ ok: true, avatar: { id, name, url } | null }`; 429 al pasar de 20 pedidos cada 10 min por
+    cuenta (cuenta todos los pedidos, también los inválidos).
+  - `GET /auth/me` agrega `avatar: { id, name, url } | null`.
+  - Sockets: `viewer-list` (cada elemento) y `chat-message` (también los del sistema) agregan `avatarId: string | null`.
+    Lo pone el servidor desde la sesión; el que mande el cliente en el payload se ignora. Las personas sin cuenta llevan
+    `null`. Los mensajes de `chatHistory` anteriores al cambio no lo traen (los clientes deben tratar `undefined` como
+    `null`). Se guarda en el mensaje el avatar de cuando se escribió.
+  - Cuándo se ve un cambio: al volver a entrar a una sala; un socket ya conectado conserva el anterior. El avatar se cachea en la
+    sesión (`req.session.avatarId`); un dispositivo con otra sesión lo ve hasta volver a iniciar sesión, y una sesión anterior al
+    cambio lo lee una vez de Postgres.
+  - Datos: columna `users.avatar_id TEXT` (nula = sin avatar), con migración idempotente en `lib/db.js`. **No hay migración
+    de los marcadores a los iconos reales** (`ffd2178` no la agregó): quien eligió un `avatar-NN` quedó sin avatar si se
+    desplegó la parte 1 con personas reales.
+  - Reglas del manifiesto: id `^[a-z0-9-]{2,32}$` y único, máximo 40 avatares, PNG, WebP o SVG de hasta 200 KB (PNG y WebP entre
+    128 y 1024 px, cuadrados). Los ids no se renombran: renombrar uno deja sin avatar a quien lo eligió. Un manifiesto inválido
+    no tumba el servidor: `/api/avatars` devuelve `{ "avatars": [] }` y se registra el error.
+- **Iconos actuales (orden del manifiesto):** `koala-ninja`, `caballero`, `viajero`, `pajaro-rojo`, `trex` y `pinguino`; PNG de
+  256x256 de 62 a 110 KB. Cajas de recorte usadas sobre los JPG originales (que no están en el repo): koala-ninja `45,15,1015,985`;
+  caballero (busto) `255,30,775,550`; viajero `55,110,975,1030`; pajaro-rojo `45,0,1035,990`; trex `3,55,975,1027`; la de pinguino no
+  se anotó. Para agregar uno: `python scripts/prepare-avatar.py RUTA ID --box izq,arriba,der,abajo --add --name "Nombre"` y
+  `npm run check:avatars` (ver `public/avatars/README.md`). **Para la app Android conviene PNG o WebP**: la app no tiene ninguna
+  librería para SVG (solo `BitmapFactory`).
+- **Verificado por el asistente (2026-10-18, sobre `62aadf8`):** `npm ci` y `npm test` 96/96 (76 anteriores y 20 de
+  `test/avatars.test.js`), `npm run lint` limpio y `npm run check:avatars` con 6 iconos, 0 errores y 0 avisos. Se leyó el diff de
+  `server.js` y `lib/db.js`; el parseo de la app Android usa `opt*` y ignora los campos nuevos; el `Dockerfile` copia todo el repo
+  y `.dockerignore` solo excluye `public/uploads/*`, así que `public/avatars/` va en la imagen.
+- **Informe de Copilot (resumen que pegó la persona; no se vieron las salidas crudas):** en Windows con Docker, Postgres y Redis
+  desechables, contra el commit `fc1d27c` (con los 10 marcadores, no con los iconos reales) y con **Node 24, mientras el
+  `Dockerfile` fija Node 22**: tests 96/96 y lint limpio; las rutas y los códigos de `PUT /auth/avatar` (200, 400, 401, 403, 429),
+  `/auth/me` con avatar que sobrevive a cerrar sesión y volver a entrar; sockets con `avatarId` correcto, `null` para la anónima,
+  uno falso ignorado y mensajes del sistema con `null`; una sesión sin `avatarId` en Redis lo recupera de Postgres; cuatro iconos
+  malos (SVG con `<script>`, SVG con `onload=`, PNG de 256x128 y archivo de 205 KB) fallan la revisión con código 1; manifiesto roto:
+  el servidor arranca con lista vacía y un error en el log; sin `DATABASE_URL`, `/api/avatars` da 200 y el `PUT` da 404.
+  El asistente tampoco corrió `scripts/prepare-avatar.py`.
+- **Pendiente:**
+  - **Origen y licencia de los 6 iconos: NO INFORMADO** (`public/avatars/CREDITS.md`). Los nombres originales de los archivos
+    («Gemini_Generated_Image…») sugieren que son imágenes generadas con IA, pero es solo una pista. `pajaro-rojo` se parece a un
+    personaje de marca conocido: revisarlo antes de publicar.
+  - `CREDITS.md` dice «Los 5 iconos» y hay 6; y el commit `62aadf8` se titula «agrega zorro» pero agrega `pinguino.png` y su
+    entrada (no hay zorro).
+  - `public/privacy.html` no menciona que se guarda el avatar elegido (`avatar_id`): revisarlo antes de publicar el borrador.
+  - La web (`index.html`, `room.html`) no muestra avatares ni deja elegirlos: sin decidir.
+  - La app Android todavía no los usa (la app y su contrato viven en el repo `movienight-android`).
+  - Se propuso un `npm run avatar:prepare` con `sharp` (dependencia nueva); no se hizo: el script que existe es el de Python.
 
 **Términos de uso / privacidad — BORRADOR, no publicado (2026-09-10)**: único
 ítem pendiente de `docs/PLAN-PRODUCCION.md` (Fase 6). `public/terms.html` y
