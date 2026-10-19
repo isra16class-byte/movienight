@@ -1,5 +1,23 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-19 — Docs: el servidor se despliega con Docker Compose y los avatares ya funcionan en la app (confirmado por la persona)
+
+- **Qué pasó:** al elegir un avatar, la app mostró un error porque el servidor de la persona (Docker Compose en su PC) corría una imagen anterior a
+  los avatares: `GET /api/avatars` daba `Cannot GET /api/avatars`. La rama `plan-produccion` ya tenía el código (`7ac4edb` a `62aadf8`). Tras
+  `docker compose up -d --build`, la app cargó los avatares.
+- **Cómo se actualiza este servidor:** en su carpeta, `git pull` y `docker compose up -d --build`. Hay que reconstruir porque el `Dockerfile`
+  copia todo el repo dentro de la imagen. `scripts/deploy.sh` es para pm2 y no aplica; el despliegue automático del CI (`deploy-vps`) solo corre
+  con push a `main` y con el secret `DEPLOY_HOST`, así que subir a `plan-produccion` no despliega nada solo.
+- **Confirmado por la persona (2026-10-19):** dijo «si funciona y si cargan» y mandó una captura; el asistente vio en ella avatares con imagen y una
+  inicial en el chat (no es una prueba formal). El detalle de las pruebas de la app está en `movienight-android`, `docs/MEMORIA.md`.
+- **Corrección:** la confirmación del 2026-10-18 de los avatares del servidor («si hice todas las pruebas») no detectó que el servidor de uso diario
+  no tenía el código; no se sabe en qué entorno se hizo.
+- **Pendiente:** origen y licencia de los 6 iconos (`NO INFORMADO`), `pajaro-rojo` se parece a un personaje de marca, `public/privacy.html` no
+  menciona el avatar, no hay migración de los marcadores a los iconos reales y la web no muestra avatares.
+- **Solo documentación en este commit:** `docs/MEMORIA.md` y `docs/CHANGELOG.md`; sin cambios de código.
+
+---
+
 ## 2026-10-18 — Avatares de cuenta: servidor listo con 6 iconos reales (confirmado por la persona)
 
 - **Qué**: cada persona con cuenta puede elegir un avatar de una lista fija y los demás lo ven en la sala. Nuevo: `lib/avatars.js`,

@@ -151,7 +151,7 @@ mover la barra de progreso — cualquier intento se revierte.
 ## Por dónde seguir
 
 **Avatares de cuenta: servidor listo, con 6 iconos reales (2026-10-18)**: hecho y subido a
-`origin/plan-produccion` y **confirmado por la persona** (2026-10-18): dijo «si hice todas las pruebas» (las que se le pasaron: las de los avatares del servidor, la web de siempre y la app Android actual); no dio detalle por punto ni qué navegador, teléfono ni versión de Android usó. Son 6 commits sobre `a9bca2a`: `7ac4edb`, `85a54be` y `fc1d27c` (infraestructura, con 10 marcadores SVG) y
+`origin/plan-produccion` y **confirmado por la persona** (2026-10-18): dijo «si hice todas las pruebas» (las que se le pasaron: las de los avatares del servidor, la web de siempre y la app Android actual); no dio detalle por punto ni qué navegador, teléfono ni versión de Android usó (no se sabe en qué entorno las hizo: el servidor que usa su teléfono todavía no tenía el código, ver «Despliegue real»). Son 6 commits sobre `a9bca2a`: `7ac4edb`, `85a54be` y `fc1d27c` (infraestructura, con 10 marcadores SVG) y
 `ffd2178`, `60b19be` y `62aadf8` (iconos reales y script para prepararlos). Sin dependencias nuevas: en `package.json` solo se agregó el script `check:avatars`.
 
 - **Qué hay (contrato, todo aditivo; lo que usa hoy la web y la app Android no cambió):**
@@ -194,6 +194,20 @@ mover la barra de progreso — cualquier intento se revierte.
   malos (SVG con `<script>`, SVG con `onload=`, PNG de 256x128 y archivo de 205 KB) fallan la revisión con código 1; manifiesto roto:
   el servidor arranca con lista vacía y un error en el log; sin `DATABASE_URL`, `/api/avatars` da 200 y el `PUT` da 404.
   El asistente tampoco corrió `scripts/prepare-avatar.py`.
+- **Despliegue real de la persona (2026-10-19):** su servidor corre con **Docker Compose** en su PC (imagen `movienight-app` y contenedores
+  `movienight-app-1`, `movienight-postgres-1` y `movienight-redis-1`), no con pm2. Al elegir un avatar, la app mostró «El servidor respondió algo
+  inesperado…» y `GET /api/avatars` daba `Cannot GET /api/avatars` (Express sin esa ruta): ese servidor corría una imagen anterior a los
+  avatares, aunque la rama `plan-produccion` ya los tenía en `origin` y en su carpeta local (`e0c0c6a`). Tras `docker compose up -d --build`
+  la app cargó los avatares. Como el `Dockerfile` hace `COPY . .`, **cada cambio de código o de iconos exige reconstruir la imagen**: en la
+  carpeta del servidor, `git pull` y `docker compose up -d --build`; un simple reinicio del contenedor no basta. `scripts/deploy.sh` (pm2) no
+  aplica con Docker, y el job `deploy-vps` del CI solo corre con push a `main` y con el secret `DEPLOY_HOST`: **subir a `plan-produccion` no
+  despliega nada solo**. No hizo falta migración a mano: `avatar_id` se crea al arrancar (según `lib/db.js`; no se verificó en su base). El servidor
+  no expone su commit, así que para saber qué versión corre se prueban rutas que aparecieron en commits conocidos (por ejemplo `/terms.html`, de
+  `a9bca2a`, y `/api/avatars`, de `7ac4edb`). `pm2 restart movienight` dio «not found» (no es pm2).
+- **La app Android ya los usa (confirmado por la persona, 2026-10-19):** elegir avatar en Perfil y verlo en el chat y en la lista de conectados
+  (repo `movienight-android`, `5e076af`, `cdf3640` y `28c73d0`; el detalle de sus pruebas está en el `docs/MEMORIA.md` de la app). La persona dijo
+  «si funciona y si cargan» y mandó una captura de la sala: el asistente vio avatares con imagen y una inicial en círculo junto a los nombres del
+  chat (no es una prueba formal; la inicial es lo esperado para una cuenta sin avatar elegido).
 - **Pendiente:**
   - **Origen y licencia de los 6 iconos: NO INFORMADO** (`public/avatars/CREDITS.md`). Los nombres originales de los archivos
     («Gemini_Generated_Image…») sugieren que son imágenes generadas con IA, pero es solo una pista. `pajaro-rojo` se parece a un
@@ -202,7 +216,6 @@ mover la barra de progreso — cualquier intento se revierte.
     entrada (no hay zorro).
   - `public/privacy.html` no menciona que se guarda el avatar elegido (`avatar_id`): revisarlo antes de publicar el borrador.
   - La web (`index.html`, `room.html`) no muestra avatares ni deja elegirlos: sin decidir.
-  - La app Android todavía no los usa (la app y su contrato viven en el repo `movienight-android`).
   - Se propuso un `npm run avatar:prepare` con `sharp` (dependencia nueva); no se hizo: el script que existe es el de Python.
 
 **Términos de uso / privacidad — BORRADOR, no publicado (2026-09-10)**: único
