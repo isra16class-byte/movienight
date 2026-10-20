@@ -444,9 +444,24 @@ function requireMetricsAuth(req, res, next) {
 async function requireLibraryAuth(req, res, next) {
   try {
     if (req.session && req.session.userId) return next(); // sesión de cuenta real: alcanza sola
+    // Mismo límite de intentos por IP que requireUploadAuth: es el mismo secreto (LIBRARY_PASSWORD).
+    // Se reusa a propósito `uploadAuthLimiter` (clave: solo ip), así que agotar los intentos aquí
+    // bloquea también la subida, y al revés. Decisión tomada, no efecto colateral.
+    const ip = clientIp(req);
+    const lockedMinutes = uploadAuthLimiter.lockedMinutes(ip);
+    if (lockedMinutes !== null) {
+      return res.status(429).json({
+        error: `Demasiados intentos. Esperá ${lockedMinutes} min.`,
+        lockedMinutes
+      });
+    }
     const provided = req.get('x-library-password') || req.query.libraryPassword || (req.body && req.body.libraryPassword) || '';
     const { valid } = await verifyPassword(provided, libraryPasswordHash);
-    if (!valid) return res.status(401).json({ error: 'Contraseña de biblioteca requerida o incorrecta.' });
+    if (!valid) {
+      const { attemptsLeft } = uploadAuthLimiter.recordFailure(ip);
+      return res.status(401).json({ error: 'Contraseña de biblioteca requerida o incorrecta.', attemptsLeft });
+    }
+    uploadAuthLimiter.recordSuccess(ip);
     next();
   } catch (err) {
     logger.error({ err }, 'Error verificando la contraseña de biblioteca');
