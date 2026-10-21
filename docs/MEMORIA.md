@@ -135,6 +135,8 @@ mover la barra de progreso — cualquier intento se revierte.
   navegador)~~ → **resuelto en Fase 2.5 (2026-09-07)**: video validado por
   magic bytes (`file-type`), subtítulos por estructura real. Detalle más
   abajo en "Por dónde seguir" y en `docs/PLAN-PRODUCCION.md`.
+- ~~Contraseña de biblioteca sin bloqueo por IP~~ → **resuelto 2026-10-21**: `requireLibraryAuth` comparte el limitador de
+  `requireUploadAuth` (3 intentos, 15 min). Ver «Por dónde seguir».
 - Las salas nunca expiran — se acumulan en memoria y en R2 indefinidamente.
 - ~~Subir un video real vía `create-room` devuelve `413 Payload Too Large` de
   Cloudflare~~ → **resuelto en modo R2 (Fase 2.7, 2026-09-06)**: subida
@@ -149,6 +151,33 @@ mover la barra de progreso — cualquier intento se revierte.
 - Cada cambio importante debería reflejarse acá (este archivo, `docs/MEMORIA.md`, si cambia algo esencial) y como entrada nueva en `docs/CHANGELOG.md` — no en los archivos de `docs/historico/`, que quedaron congelados como registro del estado anterior a esta reorganización.
 
 ## Por dónde seguir
+
+**Biblioteca: bloqueo por IP tras intentos fallidos, y la web maneja el 429 (2026-10-21)**: hecho y **confirmado por la persona**
+(2026-10-21): dijo «si hice la pruebas y si funcionaron» y antes «todo salio perfecto» (siguió los 5 puntos que se le pasaron; no dio detalle
+por punto ni dijo qué navegador usó). Son dos parches sobre `origin/plan-produccion` (commits locales `f2684ea` y `cae7607`; al aplicarlos con
+`git am` el hash cambia). Para verlos en el servidor de la persona hace falta `git pull` y `docker compose up -d --build`.
+
+- **Servidor (`server.js`, `requireLibraryAuth`):** `GET` y `DELETE` de `/api/uploads` ahora usan `uploadAuthLimiter` (clave: solo IP), igual
+  que `requireUploadAuth`. Sesión de cuenta: pasa sin limitador. IP bloqueada: 429 `{ error, lockedMinutes }` sin comparar la contraseña.
+  Contraseña mala: 401 con `attemptsLeft`; la 3.ª mala responde 401 con `attemptsLeft: 0` y desde la 4.ª todo es 429. Contraseña buena:
+  `recordSuccess`.
+- **Decisión (no efecto colateral):** el limitador es el MISMO para biblioteca y subida (mismo secreto, `LIBRARY_PASSWORD`). Agotar los
+  intentos en uno bloquea también el otro (crear sala, cambiar video, `/api/uploads/presign`), y un acierto en cualquiera limpia los fallos
+  de ambos. `generalApiLimiter`, la duración del bloqueo (15 min) y `requireUploadAuth` no cambiaron.
+- **Web (`public/library.html`):** `mnLibraryFetch` ya no guarda `mn_library_pw` en localStorage si la respuesta es 429 (antes guardaba una
+  contraseña mala, y lo mismo pasaba con el 429 de `/create-room-from-upload`). `loadTapes` muestra el mensaje del servidor si la respuesta
+  no es una lista (antes decía «Todavía no hay cintas»). No hay clave nueva en localStorage; una contraseña mala guardada antes se corrige
+  sola con el siguiente 401.
+- **Verificado por el asistente:** `npm test` 96/96, `npm run lint` limpio, `node --check` del JS inline de `library.html`, y contra un
+  servidor local (Redis, sin Postgres ni R2) con `curl`: 3 malas → 401 (`attemptsLeft` 2, 1, 0), 4.ª y 5.ª → 429, la contraseña correcta
+  sigue en 429 en `GET` y `DELETE` de `/api/uploads` y en `/api/uploads/presign`. No se agregaron tests: no existían de `requireLibraryAuth`.
+- **Pendiente / no probado:** (1) que el bloqueo venza a los 15 min con tiempo real (solo lo cubre `test/rateLimiter.test.js`); (2)
+  `clientIp` lee primero el header `cf-connecting-ip`: si el servidor se puede alcanzar sin pasar por Cloudflare, ese header es falsificable
+  y el bloqueo se podría saltear (lectura del código, no probado; ya era así en `requireUploadAuth`), y si no hay proxy delante, todos
+  comparten la IP del proxy; (3) el limitador está en memoria del proceso: reiniciar el contenedor limpia los bloqueos; (4) no hay tests de
+  `requireLibraryAuth`.
+
+---
 
 **Sala sin host cuando el dueño se va (observado, decidido dejarlo así por ahora; 2026-10-20).** Regla de este servidor, leída en `lib/hostAuth.js` y en `server.js` (~2165-2175 y ~2347-2360; rama `plan-produccion`, commit `256c280`): si la sala tiene dueño (se creó con una sesión iniciada), solo la cuenta dueña puede ser host (`isRoomOwner`); quien entra y no es el dueño queda sin host aunque esté solo en la sala. El host solo pasa a otra persona por traspaso automático si se desconecta mientras quedan otras personas conectadas. Si el dueño es el último en irse, la sala queda sin host hasta que el dueño vuelva o hasta que venza por inactividad: nadie puede cambiar el video, moverlo ni moderar. Caso visto por la persona (en la app Android): sala 613c27 (cuentas «israel» e «Israel 2»); que el dueño fuera «israel» es una deducción de las capturas, no se comprobó entrando con esa cuenta. La persona decidió dejarlo como está por ahora. Posible mejora sin hacer ni decidir (cambio de servidor): dar el host de forma temporal a la primera persona que entre a una sala sin host (el dueño lo recuperaría al volver, porque `setHost` degrada al anterior); falta decidir el riesgo de seguridad (cualquier invitado podría moderar si el dueño no está) y si lo recibirían solo las cuentas con sesión o también las anónimas.
 

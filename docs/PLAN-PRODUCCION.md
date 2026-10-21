@@ -232,6 +232,9 @@ secundario.
       antes de llegar a este middleware) ni el healthcheck (excluido
       explícitamente); el handshake de Socket.io tampoco pasa por acá, porque
       intercepta su propio path antes de que la request llegue a Express.
+- [x] Contraseña de biblioteca (`requireLibraryAuth`, 2026-10-21): bloqueo por IP con el mismo `uploadAuthLimiter` que `requireUploadAuth`
+      (limitador compartido a propósito: mismo secreto). La web ya no guarda la contraseña ante un 429. Confirmado por la persona en
+      navegador; vencimiento real a los 15 min e IP tras Cloudflare sin probar. Detalle en `docs/MEMORIA.md`.
 
 ### 2.3 Identidad del host — reemplazada por Fase 2bis (cuentas reales)
 - ~~Endurecer el `hostToken` actual (expiración, JWT, cookie httpOnly)~~ — con

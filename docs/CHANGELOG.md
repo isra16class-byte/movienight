@@ -1,5 +1,22 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-21 — Biblioteca: bloqueo por IP tras intentos fallidos y manejo del 429 en la web (confirmado por la persona)
+
+- **Qué:** `requireLibraryAuth` (`GET`/`DELETE` `/api/uploads`) reusa `uploadAuthLimiter` (3 intentos, bloqueo de 15 min, clave = IP): 429 al estar
+  bloqueada, sin comparar la contraseña. En `public/library.html`, `mnLibraryFetch` no guarda `mn_library_pw` ante un 429 y `loadTapes` muestra
+  el mensaje del servidor en lugar de «Todavía no hay cintas».
+- **Decisión:** limitador compartido con la subida (mismo secreto): agotar intentos en uno bloquea el otro y un acierto limpia ambos.
+- **Parches** (sobre `origin/plan-produccion`): `server.js` (+16/−1, commit local `f2684ea`) y `public/library.html` (+12/−1, `cae7607`).
+- **Verificado por el asistente:** `npm test` 96/96, `npm run lint` limpio, `node --check` del JS de `library.html` y `curl` contra servidor local
+  (Redis): 401 ×3 (`attemptsLeft` 2, 1, 0), luego 429, también con la contraseña correcta y también en `/api/uploads/presign`.
+- **Confirmado por la persona (2026-10-21):** «si hice la pruebas y si funcionaron» (bloqueo, `mn_library_pw` sin la contraseña mala, mensaje en la
+  lista, aviso al borrar y al usar cinta). Sin detalle por punto ni navegador.
+- **No probado / pendiente:** vencimiento real a los 15 min; IP real tras Cloudflare/proxy (`cf-connecting-ip` falsificable si el servidor es
+  alcanzable sin Cloudflare); sin tests de `requireLibraryAuth`.
+- **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
+
+---
+
 ## 2026-10-19 — Docs: el servidor se despliega con Docker Compose y los avatares ya funcionan en la app (confirmado por la persona)
 
 - **Qué pasó:** al elegir un avatar, la app mostró un error porque el servidor de la persona (Docker Compose en su PC) corría una imagen anterior a
