@@ -1,5 +1,26 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-21 — Biblioteca: la contraseña ya no se guarda en localStorage, ahora sessionStorage (confirmado por la persona)
+
+- **Qué:** en `public/index.html` y `public/library.html`, `mn_library_pw` pasa de `localStorage` a `sessionStorage` (por pestaña), con
+  `getLibraryPw`/`setLibraryPw`/`clearLibraryPw` y try/catch. Migración: `localStorage.removeItem('mn_library_pw')` al cargar. Ante un 401 se
+  borra la contraseña guardada (antes nunca se borraba). Comentarios «en este navegador» → «en esta pestaña».
+- **No se tocó:** `mn_host_<sala>`, `mn_uid`, `mn_username_<sala>`, `server.js`, CSP, dependencias.
+- **Parche** (sobre `origin/plan-produccion`): `public/index.html` y `public/library.html` (+61/−14), commit local `2587970` (en el repo de la
+  persona, `5b97cf9`).
+- **Verificado por el asistente:** `npm test` 96/96, `npm run lint` limpio, `node --check` del JS inline, `grep` sin escrituras a localStorage.
+- **Probado con Playwright (herramienta de la persona, puerto 3100):** migración, misma pestaña, pestaña nueva y segunda pestaña, contraseña mala,
+  clave vieja que se borra al 401, y `sessionStorage` bloqueado.
+- **Confirmado por la persona (2026-10-21), Chrome incógnito en su dominio:** `mn_library_pw` en Session Storage y no en Local Storage; no pide
+  de nuevo entre library e index; pide de nuevo en ventana nueva; contraseña mala no guarda nada; 3 fallos → bloqueo de 15 min. Sin detalle:
+  app Android y vencimiento del bloqueo a los 15 min «funcionaron bien».
+- **No probado / pendiente:** Firefox y Safari (y su modo privado). `sessionStorage` sigue siendo texto plano legible por un script inyectado.
+- **Observaciones (sin tocar):** la CSP bloquea `beacon.min.js` de Cloudflare Insights; abrir la biblioteca sin contraseña guardada probablemente
+  gasta un intento (lectura del código); `mn_host_<sala>` sigue en localStorage; cambiar `LIBRARY_PASSWORD` porque salió en capturas.
+- **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
+
+---
+
 ## 2026-10-21 — Biblioteca: bloqueo por IP tras intentos fallidos y manejo del 429 en la web (confirmado por la persona)
 
 - **Qué:** `requireLibraryAuth` (`GET`/`DELETE` `/api/uploads`) reusa `uploadAuthLimiter` (3 intentos, bloqueo de 15 min, clave = IP): 429 al estar

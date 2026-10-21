@@ -235,6 +235,9 @@ secundario.
 - [x] Contraseña de biblioteca (`requireLibraryAuth`, 2026-10-21): bloqueo por IP con el mismo `uploadAuthLimiter` que `requireUploadAuth`
       (limitador compartido a propósito: mismo secreto). La web ya no guarda la contraseña ante un 429. Confirmado por la persona en
       navegador; vencimiento real a los 15 min e IP tras Cloudflare sin probar. Detalle en `docs/MEMORIA.md`.
+- [x] Contraseña de biblioteca en el navegador (2026-10-21): `mn_library_pw` pasa de `localStorage` a `sessionStorage` (por pestaña), se migra/borra
+      la vieja y se borra ante un 401. Confirmado por la persona en Chrome (normal e incógnito), app Android y vencimiento del bloqueo a los 15 min;
+      Firefox/Safari sin probar. Sigue legible por un script inyectado en la pestaña. Detalle en `docs/MEMORIA.md`.
 
 ### 2.3 Identidad del host — reemplazada por Fase 2bis (cuentas reales)
 - ~~Endurecer el `hostToken` actual (expiración, JWT, cookie httpOnly)~~ — con

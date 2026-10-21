@@ -137,6 +137,8 @@ mover la barra de progreso — cualquier intento se revierte.
   abajo en "Por dónde seguir" y en `docs/PLAN-PRODUCCION.md`.
 - ~~Contraseña de biblioteca sin bloqueo por IP~~ → **resuelto 2026-10-21**: `requireLibraryAuth` comparte el limitador de
   `requireUploadAuth` (3 intentos, 15 min). Ver «Por dónde seguir».
+- ~~Contraseña de biblioteca guardada en `localStorage` en texto plano~~ → **mitigado 2026-10-21**: ahora en `sessionStorage` (por pestaña) y se
+  migra/borra la vieja. Sigue legible por un script inyectado en esa pestaña. `mn_host_<sala>` sigue en `localStorage`. Ver «Por dónde seguir».
 - Las salas nunca expiran — se acumulan en memoria y en R2 indefinidamente.
 - ~~Subir un video real vía `create-room` devuelve `413 Payload Too Large` de
   Cloudflare~~ → **resuelto en modo R2 (Fase 2.7, 2026-09-06)**: subida
@@ -151,6 +153,36 @@ mover la barra de progreso — cualquier intento se revierte.
 - Cada cambio importante debería reflejarse acá (este archivo, `docs/MEMORIA.md`, si cambia algo esencial) y como entrada nueva en `docs/CHANGELOG.md` — no en los archivos de `docs/historico/`, que quedaron congelados como registro del estado anterior a esta reorganización.
 
 ## Por dónde seguir
+
+**Biblioteca: la contraseña ya no queda en `localStorage`, ahora `sessionStorage` (2026-10-21)**: hecho y **confirmado por la persona**
+(2026-10-21) en Chrome (normal e incógnito). Un parche sobre `origin/plan-produccion` (commit local `2587970`; al aplicarlo con `git am` el
+hash cambia, en el repo de la persona quedó como `5b97cf9`). Para verlo en el servidor hace falta `git pull` y `docker compose up -d --build`.
+
+- **Web (`public/index.html` y `public/library.html`):** `mn_library_pw` pasa de `localStorage` a `sessionStorage` (por pestaña; se comparte
+  entre index y library dentro de la misma pestaña y se borra al cerrarla). Todo acceso va por `getLibraryPw`, `setLibraryPw` y
+  `clearLibraryPw` (un juego por página, con try/catch: si el storage falla, no guarda y pide la contraseña cada vez). Migración: al cargar
+  ambas páginas se ejecuta `localStorage.removeItem('mn_library_pw')`. `room.html` no usa esta clave.
+- **Comportamiento nuevo:** ante un 401 se borra la contraseña guardada (antes nunca se borraba: solo se sobrescribía al acertar). Con 429 no
+  se borra, porque el servidor no llegó a compararla.
+- **No se tocó:** `mn_host_<sala>`, `mn_uid`, `mn_username_<sala>`, `server.js`, la CSP ni dependencias.
+- **Verificado por el asistente:** `npm test` 96/96 y `npm run lint` limpio antes y después, `node --check` del JS inline, `grep` sin ninguna
+  escritura de `mn_library_pw` a `localStorage`.
+- **Probado con Playwright (herramienta de la persona, instancia local puerto 3100, commit `5b97cf9`):** migración desde localStorage, misma
+  pestaña entre index y library, pestaña nueva pide de nuevo, segunda pestaña no comparte, contraseña mala sin guardar nada, clave vieja
+  rechazada se borra al primer 401, y `sessionStorage` lanzando `SecurityError` (la web sigue funcionando y pide la contraseña cada vez).
+- **Confirmado por la persona a mano, en Chrome incógnito sobre su dominio:** desbloquea, `mn_library_pw` aparece en Session Storage y no en
+  Local Storage; crear sala con la biblioteca y volver no la pide otra vez; cerrar la ventana y abrir otra la pide de nuevo; contraseña mala
+  no deja nada en Session Storage. Tras 3 intentos fallidos hechos a propósito apareció «Demasiados intentos. Esperá 15 min.». También
+  confirmó, sin dar detalle, que la app Android y el vencimiento del bloqueo a los 15 min funcionaron bien.
+- **Límite que sigue:** `sessionStorage` sigue siendo texto plano que un script inyectado en esa pestaña podría leer. Se reduce la exposición
+  (no sobrevive al cierre de la pestaña ni se comparte entre pestañas), no se elimina.
+- **No probado / pendiente:** Firefox y Safari (incluido su modo privado).
+- **Observaciones para la sesión guía (fuera de este paso, no se tocaron):** (1) la CSP bloquea el script `beacon.min.js` de
+  `static.cloudflareinsights.com` (Cloudflare Web Analytics, lo inyecta Cloudflare; error en la consola, no afecta a la biblioteca); para
+  permitirlo hay que tocar `server.js`, o desactivarlo en el panel de Cloudflare; (2) abrir la biblioteca sin contraseña guardada envía un
+  `GET /api/uploads` con la contraseña vacía y, según el código de `requireLibraryAuth` (no probado en vivo), cuenta como un intento fallido;
+  (3) `mn_host_<sala>` sigue en `localStorage` en texto plano; (4) la contraseña real apareció en capturas y logs de las pruebas: conviene
+  cambiar `LIBRARY_PASSWORD`.
 
 **Biblioteca: bloqueo por IP tras intentos fallidos, y la web maneja el 429 (2026-10-21)**: hecho y **confirmado por la persona**
 (2026-10-21): dijo «si hice la pruebas y si funcionaron» y antes «todo salio perfecto» (siguió los 5 puntos que se le pasaron; no dio detalle
