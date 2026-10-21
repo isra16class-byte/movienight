@@ -182,12 +182,30 @@ function mnPrompt({ title, message = '', placeholder = '', type = 'text', defaul
   return mnDialog({ title, message, showInput: true, inputType: type, placeholder, defaultValue, okLabel, cancelLabel, showCancel });
 }
 
+// --- Contraseña de biblioteca guardada SOLO en sessionStorage (por pestaña) ---------------------
+// Antes vivía en localStorage (`mn_library_pw`, en texto plano, legible por cualquier script del
+// origen y compartida entre pestañas). Ahora dura lo que la pestaña y se comparte entre index.html y
+// library.html dentro de ella. Todo acceso a la clave pasa por estas tres funciones; si el storage
+// lanza (algunos modos privados), no se guarda nada y la web pide la contraseña cada vez.
+const MN_LIBRARY_PW_KEY = 'mn_library_pw';
+function getLibraryPw() {
+  try { return sessionStorage.getItem(MN_LIBRARY_PW_KEY) || ''; } catch { return ''; }
+}
+function setLibraryPw(pw) {
+  try { sessionStorage.setItem(MN_LIBRARY_PW_KEY, pw); } catch { /* sin storage: se pedirá de nuevo */ }
+}
+function clearLibraryPw() {
+  try { sessionStorage.removeItem(MN_LIBRARY_PW_KEY); } catch { /* sin storage: nada que borrar */ }
+}
+// Migración: borra la contraseña que dejó la versión anterior en localStorage.
+try { localStorage.removeItem(MN_LIBRARY_PW_KEY); } catch { /* sin storage: nada que migrar */ }
+
 // --- Contraseña de subida (V19) ---------------------------------------------------------------
 // Motivo: con R2 conectado, cualquiera con el link llegaba acá y podía subir archivos gigantes sin
 // ninguna traba — cada uno se factura (ver requireUploadAuth en server.js). Reusa la MISMA contraseña
 // que ya protege la biblioteca (`LIBRARY_PASSWORD`, un solo secreto para todo el server) y el mismo
-// nombre de localStorage (`mn_library_pw`) que usa library.html: si ya la desbloqueaste ahí en este
-// navegador, acá ni te la vuelve a pedir. El servidor corta a las 3 contraseñas incorrectas seguidas
+// clave de sessionStorage (`mn_library_pw`) que usa library.html: si ya la desbloqueaste ahí en esta
+// pestaña, acá ni te la vuelve a pedir. El servidor corta a las 3 contraseñas incorrectas seguidas
 // (bloqueo de 15 min por IP) — este loop del cliente respeta ese límite vía `attemptsLeft` en la
 // respuesta 401, no reintenta indefinidamente.
 async function getUploadPassword(message = '') {
@@ -207,7 +225,7 @@ btn.onclick = async () => {
   // Fase 2bis, "la biblioteca deja de depender de una única LIBRARY_PASSWORD": con sesión iniciada,
   // el server acepta la request sin pedir la contraseña compartida (ver requireUploadAuth en
   // server.js) — no tiene sentido pedirla acá tampoco. Sin sesión, sigue el flujo de siempre.
-  let pw = localStorage.getItem('mn_library_pw') || '';
+  let pw = getLibraryPw();
   if (!currentUser && !pw) {
     pw = await getUploadPassword();
     if (pw === null) return; // canceló el prompt
@@ -287,6 +305,8 @@ btn.onclick = async () => {
     const { httpStatus, data } = await confirmRoomFromKey(pw, key);
 
     if (httpStatus === 401 || httpStatus === 429) {
+
+      if (httpStatus === 401) clearLibraryPw(); // la guardada (si había) es incorrecta
       if (httpStatus === 401 && data.attemptsLeft > 0) {
         const nextPw = await getUploadPassword(`Contraseña incorrecta. Te quedan ${data.attemptsLeft} intento${data.attemptsLeft === 1 ? '' : 's'}.`);
         if (nextPw === null) { resetUi('Subida cancelada.'); return; }
@@ -301,7 +321,7 @@ btn.onclick = async () => {
       return;
     }
 
-    localStorage.setItem('mn_library_pw', pw); // correcta: no se vuelve a pedir en este navegador
+    setLibraryPw(pw); // correcta: no se vuelve a pedir en esta pestaña
     localStorage.setItem('mn_host_' + data.roomId, data.hostToken);
     window.location = `/room/${data.roomId}`;
   }
@@ -313,6 +333,8 @@ btn.onclick = async () => {
     if (httpStatus === 404) return legacyUploadViaServer(pw); // este server no tiene R2 configurado
 
     if (httpStatus === 401 || httpStatus === 429) {
+
+      if (httpStatus === 401) clearLibraryPw(); // la guardada (si había) es incorrecta
       if (httpStatus === 401 && data.attemptsLeft > 0) {
         const nextPw = await getUploadPassword(`Contraseña incorrecta. Te quedan ${data.attemptsLeft} intento${data.attemptsLeft === 1 ? '' : 's'}.`);
         if (nextPw === null) { resetUi('Subida cancelada.'); return; }
@@ -367,6 +389,8 @@ btn.onclick = async () => {
       try { data = JSON.parse(xhr.responseText); } catch { data = { error: 'Respuesta inválida del servidor' }; }
 
       if (xhr.status === 401 || xhr.status === 429) {
+
+        if (xhr.status === 401) clearLibraryPw(); // la guardada (si había) es incorrecta
         if (xhr.status === 401 && data.attemptsLeft > 0) {
           const nextPw = await getUploadPassword(`Contraseña incorrecta. Te quedan ${data.attemptsLeft} intento${data.attemptsLeft === 1 ? '' : 's'}.`);
           if (nextPw === null) { resetUi('Subida cancelada.'); return; }
@@ -382,7 +406,7 @@ btn.onclick = async () => {
         return;
       }
 
-      localStorage.setItem('mn_library_pw', pw); // correcta: no se vuelve a pedir en este navegador
+      setLibraryPw(pw); // correcta: no se vuelve a pedir en esta pestaña
       localStorage.setItem('mn_host_' + data.roomId, data.hostToken);
       progressBar.style.width = '100%';
       status.innerHTML = `${cassetteIcon} Preparando la sala...`;

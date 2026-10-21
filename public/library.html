@@ -190,21 +190,40 @@ function mnPrompt({ title, message = '', placeholder = '', type = 'text', okLabe
   return mnDialog({ title, message, showInput: true, inputType: type, placeholder, okLabel, cancelLabel, showCancel });
 }
 
+// --- Contraseña de biblioteca guardada SOLO en sessionStorage (por pestaña) ---------------------
+// Antes vivía en localStorage (`mn_library_pw`, en texto plano, legible por cualquier script del
+// origen y compartida entre pestañas). Ahora dura lo que la pestaña y se comparte entre index.html y
+// library.html dentro de ella. Todo acceso a la clave pasa por estas tres funciones; si el storage
+// lanza (algunos modos privados), no se guarda nada y la web pide la contraseña cada vez.
+const MN_LIBRARY_PW_KEY = 'mn_library_pw';
+function getLibraryPw() {
+  try { return sessionStorage.getItem(MN_LIBRARY_PW_KEY) || ''; } catch { return ''; }
+}
+function setLibraryPw(pw) {
+  try { sessionStorage.setItem(MN_LIBRARY_PW_KEY, pw); } catch { /* sin storage: se pedirá de nuevo */ }
+}
+function clearLibraryPw() {
+  try { sessionStorage.removeItem(MN_LIBRARY_PW_KEY); } catch { /* sin storage: nada que borrar */ }
+}
+// Migración: borra la contraseña que dejó la versión anterior en localStorage.
+try { localStorage.removeItem(MN_LIBRARY_PW_KEY); } catch { /* sin storage: nada que migrar */ }
+
 // --- Contraseña de biblioteca (V9): protege listar/borrar cintas, separada de la contraseña de cada
-// sala. Se guarda en localStorage tras la primera vez que se ingresa correctamente, así no se vuelve
-// a pedir en visitas futuras desde el mismo navegador (ver mnLibraryFetch, usado por todas las
+// sala. Se guarda en sessionStorage tras la primera vez que se ingresa correctamente, así no se vuelve
+// a pedir mientras la pestaña siga abierta (ver mnLibraryFetch, usado por todas las
 // llamadas a /api/uploads).
 async function mnLibraryFetch(url, options = {}) {
-  let pw = localStorage.getItem('mn_library_pw') || '';
+  let pw = getLibraryPw();
   while (true) {
     const headers = Object.assign({}, options.headers, { 'x-library-password': pw });
     const res = await fetch(url, Object.assign({}, options, { headers }));
     if (res.status !== 401) {
       // 429 = IP bloqueada por demasiados intentos: la contraseña NO se llegó a comparar, así que
       // no se sabe si es correcta y no se guarda (antes se guardaba una contraseña mala).
-      if (pw && res.status !== 429) localStorage.setItem('mn_library_pw', pw);
+      if (pw && res.status !== 429) setLibraryPw(pw);
       return res;
     }
+    clearLibraryPw(); // 401: la guardada (si había) es incorrecta
     pw = await mnPrompt({
       title: 'Biblioteca protegida',
       message: pw
@@ -429,8 +448,8 @@ if (fromRoom) {
   // --- Contraseña de subida (V19) ---------------------------------------------------------------
   // Mismo motivo y misma contraseña que en index.html (ver ese comentario): el server exige
   // `x-library-password` en /room/:id/change-video y corta a los 3 intentos incorrectos (bloqueo de
-  // 15 min por IP, ver requireUploadAuth en server.js). Reusa el mismo localStorage `mn_library_pw`
-  // que ya usa mnLibraryFetch acá mismo — si ya se desbloqueó la biblioteca en este navegador, no
+  // 15 min por IP, ver requireUploadAuth en server.js). Reusa el mismo sessionStorage `mn_library_pw`
+  // que ya usa mnLibraryFetch acá mismo — si ya se desbloqueó la biblioteca en esta pestaña, no
   // vuelve a pedir nada.
   async function getUploadPassword(message = '') {
     return await mnPrompt({
@@ -449,7 +468,7 @@ if (fromRoom) {
 
     // Fase 2bis, "la biblioteca deja de depender de una única LIBRARY_PASSWORD": con sesión iniciada
     // no hace falta pedir la contraseña compartida (ver requireUploadAuth en server.js).
-    let pw = localStorage.getItem('mn_library_pw') || '';
+    let pw = getLibraryPw();
     if (!currentUser && !pw) {
       pw = await getUploadPassword();
       if (pw === null) return; // canceló el prompt
@@ -535,6 +554,8 @@ if (fromRoom) {
       if (httpStatus === 404) return legacyUploadViaServer(pw); // sin R2 configurado
 
       if (httpStatus === 401 || httpStatus === 429) {
+
+        if (httpStatus === 401) clearLibraryPw(); // la guardada (si había) es incorrecta
         if (httpStatus === 401 && data.attemptsLeft > 0) {
           const nextPw = await getUploadPassword(`Contraseña incorrecta. Te quedan ${data.attemptsLeft} intento${data.attemptsLeft === 1 ? '' : 's'}.`);
           if (nextPw === null) { resetUi('Subida cancelada.'); return; }
@@ -558,7 +579,7 @@ if (fromRoom) {
         return;
       }
 
-      localStorage.setItem('mn_library_pw', pw); // correcta: no se vuelve a pedir en este navegador
+      setLibraryPw(pw); // correcta: no se vuelve a pedir en esta pestaña
       await confirmChangeVideo(data.key);
     }
 
@@ -589,6 +610,8 @@ if (fromRoom) {
         try { data = JSON.parse(xhr.responseText); } catch { data = { error: 'Respuesta inválida del servidor' }; }
 
         if (xhr.status === 401 || xhr.status === 429) {
+
+          if (xhr.status === 401) clearLibraryPw(); // la guardada (si había) es incorrecta
           if (xhr.status === 401 && data.attemptsLeft > 0) {
             const nextPw = await getUploadPassword(`Contraseña incorrecta. Te quedan ${data.attemptsLeft} intento${data.attemptsLeft === 1 ? '' : 's'}.`);
             if (nextPw === null) { resetUi('Subida cancelada.'); return; }
@@ -603,7 +626,7 @@ if (fromRoom) {
           resetUi('Error: ' + (data.error || 'no se pudo cambiar la cinta'));
           return;
         }
-        localStorage.setItem('mn_library_pw', pw); // correcta: no se vuelve a pedir en este navegador
+        setLibraryPw(pw); // correcta: no se vuelve a pedir en esta pestaña
         newTapeProgressBar.style.width = '100%';
         newTapeStatus.textContent = 'Listo, volviendo a la sala...';
         window.location = `/room/${fromRoom}`;
