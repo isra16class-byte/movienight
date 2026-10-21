@@ -200,7 +200,9 @@ async function mnLibraryFetch(url, options = {}) {
     const headers = Object.assign({}, options.headers, { 'x-library-password': pw });
     const res = await fetch(url, Object.assign({}, options, { headers }));
     if (res.status !== 401) {
-      if (pw) localStorage.setItem('mn_library_pw', pw);
+      // 429 = IP bloqueada por demasiados intentos: la contraseña NO se llegó a comparar, así que
+      // no se sabe si es correcta y no se guarda (antes se guardaba una contraseña mala).
+      if (pw && res.status !== 429) localStorage.setItem('mn_library_pw', pw);
       return res;
     }
     pw = await mnPrompt({
@@ -324,6 +326,15 @@ async function loadTapes() {
   try {
     const res = await mnLibraryFetch('/api/uploads');
     const tapes = await res.json();
+    if (!res.ok || !Array.isArray(tapes)) {
+      // Ej. 429 por bloqueo de IP: mostrar el mensaje del servidor en vez de "no hay cintas".
+      tapeList.innerHTML = '';
+      const li = document.createElement('li');
+      li.className = 'library-empty';
+      li.textContent = (tapes && tapes.error) || 'No se pudo cargar la biblioteca. Intenta de nuevo.';
+      tapeList.appendChild(li);
+      return;
+    }
     renderTapes(tapes);
   } catch (err) {
     tapeList.innerHTML = '<li class="library-empty">No se pudo cargar la biblioteca. Intenta de nuevo.</li>';
