@@ -52,3 +52,28 @@ test('claves distintas no se pisan entre sí (ej. dos IPs, o IP+roomId)', () => 
   assert.equal(a.locked, true);
   assert.equal(limiter.lockedMinutes('ip-b'), null); // otra clave, sin bloqueo
 });
+
+test('listLocked: vacío al inicio, lista la clave al bloquear y la quita al vencer el bloqueo', () => {
+  let now = 1_000;
+  const limiter = makeAttemptLimiter({ now: () => now, lockoutMs: 1000, maxAttempts: 3 });
+  assert.deepEqual(limiter.listLocked(), []);
+  limiter.recordFailure('ip');
+  limiter.recordFailure('ip');
+  assert.deepEqual(limiter.listLocked(), []); // todavía contando, no bloqueada
+  limiter.recordFailure('ip'); // 3er intento -> bloquea
+  limiter.recordFailure('otra'); // 1 intento: no bloqueada
+  assert.deepEqual(limiter.listLocked(), [{ key: 'ip', lockedUntil: 2_000, attemptCount: 3 }]);
+  now = 1_999;
+  assert.equal(limiter.listLocked().length, 1);
+  now = 2_000; // lockedUntil ya no es futuro
+  assert.deepEqual(limiter.listLocked(), []);
+});
+
+test('listLocked: recordSuccess quita la clave y no modifica el resto del estado', () => {
+  const limiter = makeAttemptLimiter({ now: () => 0 });
+  limiter.recordFailure('a'); limiter.recordFailure('a'); limiter.recordFailure('a');
+  limiter.listLocked();
+  assert.equal(limiter.lockedMinutes('a'), 15); // listLocked no cambió nada
+  limiter.recordSuccess('a');
+  assert.deepEqual(limiter.listLocked(), []);
+});

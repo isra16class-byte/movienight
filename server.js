@@ -458,6 +458,7 @@ async function requireLibraryAuth(req, res, next) {
     const provided = req.get('x-library-password') || req.query.libraryPassword || (req.body && req.body.libraryPassword) || '';
     const { valid } = await verifyPassword(provided, libraryPasswordHash);
     if (!valid) {
+      logger.warn({ ip }, 'Intento fallido de contraseña de biblioteca');
       const { attemptsLeft } = uploadAuthLimiter.recordFailure(ip);
       return res.status(401).json({ error: 'Contraseña de biblioteca requerida o incorrecta.', attemptsLeft });
     }
@@ -523,6 +524,7 @@ async function requireUploadAuth(req, res, next) {
       return next();
     }
 
+    logger.warn({ ip }, 'Intento fallido de contraseña de subida/cambio de video');
     const { locked, attemptsLeft } = uploadAuthLimiter.recordFailure(ip);
     if (locked) {
       return res.status(401).json({
@@ -662,12 +664,14 @@ app.post('/auth/login', requireDbEnabled, async (req, res) => {
     // distinguir "ese email no existe" de "esa contraseña está mal" le regala a un atacante una forma
     // barata de enumerar qué emails tienen cuenta registrada, probando uno por uno.
     if (!user) {
+      logger.warn({ ip: clientIp(req) }, 'Intento fallido de login');
       loginAuthLimiter.recordFailure(limiterKey);
       return res.status(401).json({ error: 'Email o contraseña incorrectos.' });
     }
 
     const { valid } = await verifyPassword(password, user.password_hash);
     if (!valid) {
+      logger.warn({ ip: clientIp(req) }, 'Intento fallido de login');
       const { locked } = loginAuthLimiter.recordFailure(limiterKey);
       if (locked) {
         return res.status(429).json({ error: 'Demasiados intentos fallidos. Esperá 15 min y volvé a intentar.' });
@@ -1001,6 +1005,18 @@ app.get('/admin/stats', requireAdmin, (req, res) => {
     connectedUsers: io.engine.clientsCount,
     uploadsInProgress: snapshot.uploadsInProgress,
     r2ErrorCount: snapshot.r2ErrorCount
+  });
+});
+
+// GET /admin/security: quién está bloqueado AHORA por intentos fallidos (login, biblioteca/subida, salas con
+// contraseña). Vive en memoria (el Map de cada limitador): se pierde al reiniciar el proceso y no es un
+// historial, solo el estado actual. Cada intento fallido queda además en los logs (logger.warn con la IP).
+// Las claves son `ip` (biblioteca), `ip:email` (login) e `ip:roomId` (sala). Solo lectura: sin requireSameOrigin.
+app.get('/admin/security', requireAdmin, (req, res) => {
+  res.json({
+    login: loginAuthLimiter.listLocked(),
+    library: uploadAuthLimiter.listLocked(),
+    roomJoin: roomJoinAuthLimiter.listLocked()
   });
 });
 
@@ -2118,6 +2134,7 @@ io.on('connection', (socket) => {
       // viejo, así que se re-hashea con bcrypt y se persiste, sin que quien se conecta note nada.
       const { valid, needsRehash } = await verifyPassword(password || '', room.passwordHash);
       if (!valid) {
+        logger.warn({ ip: socketClientIp(socket) }, 'Intento fallido de contraseña de sala');
         const { locked, attemptsLeft } = roomJoinAuthLimiter.recordFailure(attemptKey);
         socket.emit('room-error', locked
           ? 'Contraseña incorrecta. Se bloquearon los intentos por 15 minutos.'
