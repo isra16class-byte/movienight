@@ -45,7 +45,7 @@ movienight/
   lib/mailer.js            # Envío de emails vía Resend, para recuperación de contraseña (Fase 2bis)
   lib/fileValidation.js    # Validación real de video (magic bytes) y subtítulos (estructura) — Fase 2.5
   lib/passwordAuth.js      # Hashing bcrypt + migración desde sha256 legacy (extraído en Fase 5, ver docs/CHANGELOG.md)
-  lib/rateLimiter.js       # Limitador de intentos fallidos (extraído en Fase 5)
+  lib/rateLimiter.js       # Limitador de intentos fallidos (extraído en Fase 5); listLocked() lista los bloqueados ahora
   lib/hostAuth.js          # isRoomOwner + setHost, el sistema de roles (extraído en Fase 5)
   lib/uploadReference.js   # Modo dual disco/R2 para referencias a videos ya subidos (extraído en Fase 5)
   lib/logger.js            # Logger estructurado (JSON) sobre pino, con redacción de campos sensibles — Fase 4
@@ -137,6 +137,8 @@ mover la barra de progreso — cualquier intento se revierte.
   abajo en "Por dónde seguir" y en `docs/PLAN-PRODUCCION.md`.
 - ~~Contraseña de biblioteca sin bloqueo por IP~~ → **resuelto 2026-10-21**: `requireLibraryAuth` comparte el limitador de
   `requireUploadAuth` (3 intentos, 15 min). Ver «Por dónde seguir».
+- ~~Sin forma de ver qué IPs están bloqueadas ni log de los intentos fallidos~~ → **resuelto 2026-10-23**: `GET /admin/security` (solo admin)
+  y `logger.warn` con la IP en cada intento fallido. Es el estado actual en memoria, no un historial. Ver «Por dónde seguir».
 - ~~Contraseña de biblioteca guardada en `localStorage` en texto plano~~ → **mitigado 2026-10-21**: ahora en `sessionStorage` (por pestaña) y se
   migra/borra la vieja. Sigue legible por un script inyectado en esa pestaña. `mn_host_<sala>` sigue en `localStorage`. Ver «Por dónde seguir».
 - Las salas nunca expiran — se acumulan en memoria y en R2 indefinidamente.
@@ -153,6 +155,36 @@ mover la barra de progreso — cualquier intento se revierte.
 - Cada cambio importante debería reflejarse acá (este archivo, `docs/MEMORIA.md`, si cambia algo esencial) y como entrada nueva en `docs/CHANGELOG.md` — no en los archivos de `docs/historico/`, que quedaron congelados como registro del estado anterior a esta reorganización.
 
 ## Por dónde seguir
+
+**Admin: ver qué IPs están bloqueadas ahora y log de cada intento fallido (2026-10-23)**: hecho. Un parche sobre `origin/plan-produccion`
+(`Admin: GET /admin/security (IPs bloqueadas ahora) y log de cada intento fallido`; al aplicarlo con `git am` el hash cambia). Para verlo en el
+servidor hace falta `git pull` y `docker compose up -d --build`.
+
+- **`lib/rateLimiter.js`:** nuevo `listLocked()`: devuelve `{ key, lockedUntil, attemptCount }` solo de las claves con bloqueo vigente. No
+  modifica `attempts` ni borra entradas vencidas. `attemptCount` es siempre `maxAttempts`: `recordFailure` deja `entry.count` en 0 al bloquear.
+- **`server.js`:** `GET /admin/security` (`requireAdmin`, sin `requireSameOrigin`) devuelve `{ login, library, roomJoin }`. Claves: `library` = IP,
+  `login` = `ip:email`, `roomJoin` = `ip:roomId`. Vive en la memoria del proceso: reiniciar el contenedor lo vacía; no es un historial.
+- **Logs:** `logger.warn({ ip }, ...)` justo antes de cada `recordFailure` de login (2 sitios), biblioteca (`requireLibraryAuth`), subida/cambio de
+  video (`requireUploadAuth`) y `join-room`. No se loguea la contraseña ni el email ni la sala. No se registró `avatarChangeLimiter` (límite de
+  frecuencia por usuario, no de contraseñas). Sin tabla ni migración en Postgres.
+- **No se tocó:** `public/admin.html`, duración de los bloqueos, Postgres, dependencias.
+- **Verificado por el asistente:** `npm test` 96/96 antes y 98/98 después (2 tests nuevos de `listLocked`), `npm run lint` limpio, `node --check`.
+  En local sin Postgres/Redis: 4 pedidos con contraseña mala a `/api/uploads` dieron 401, 401, 401 y 429, con 3 líneas de log con la IP;
+  `/admin/security` sin sesión y sin Postgres responde 404.
+- **Confirmado por la persona (2026-10-23), Chrome, en su dominio:** tras 3 fallos de la biblioteca, `/admin/security` listó su IP real (IPv6, no
+  la de Cloudflare ni la de Docker) en `library` con `attemptCount: 3`; los logs tenían las 3 líneas con esa IP; y dijo que a los 15 minutos el
+  listado volvió a quedar normal. Con esto queda resuelto el punto «IP tras Cloudflare sin probar» que figuraba para la biblioteca.
+- **Probado por Copilot (herramienta de la persona), en local `localhost:3000` con Docker/Postgres/Redis, no por la persona:** 3 fallos de login con
+  un email de prueba y 3 fallos de contraseña en una sala protegida: `login` y `roomJoin` listaron su clave con `attemptCount: 3` y los logs
+  mostraron 3 líneas de cada tipo (según el resumen de la herramienta). Para eso activó `SESSION_COOKIE_INSECURE=1` temporalmente y lo restauró.
+- **No probado / pendiente:** (1) vencimiento a los 15 min de `login` y `roomJoin` con tiempo real (el test unitario usa reloj falso);
+  (2) `login` y `roomJoin` en el dominio real; (3) `/admin/security` aún no se ve en `admin.html` (paso aparte).
+- **Observaciones para la sesión guía (no se tocaron):** (1) `login` y `roomJoin` devuelven `ip:email` e `ip:roomId`, así que el admin ve emails;
+  decidir si se separa la IP o se enmascara; (2) la clave del limitador es la dirección IPv6 completa: quien tenga un bloque (normalmente /64)
+  puede cambiar de dirección y esquivar el límite (lectura del código, no probado); (3) abrir la biblioteca sin contraseña guardada gasta un
+  intento y ahora además deja una línea en el log; (4) las pruebas con herramientas automáticas dejaron la contraseña de la cuenta admin en
+  comandos y archivos temporales (ya borrados, pero queda historial): conviene cambiarla; (5) quedó una sala de prueba creada por esa
+  herramienta (`9cd6ee`): cerrarla desde el panel.
 
 **Biblioteca: la contraseña ya no queda en `localStorage`, ahora `sessionStorage` (2026-10-21)**: hecho y **confirmado por la persona**
 (2026-10-21) en Chrome (normal e incógnito). Un parche sobre `origin/plan-produccion` (commit local `2587970`; al aplicarlo con `git am` el

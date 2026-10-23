@@ -1,5 +1,22 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-23 — Admin: `GET /admin/security` (IPs bloqueadas ahora) y log de cada intento fallido
+
+- **Qué:** `lib/rateLimiter.js` gana `listLocked()`; `server.js` expone `GET /admin/security` (`requireAdmin`) con `{ login, library, roomJoin }` y
+  loguea con `logger.warn({ ip }, ...)` cada intento fallido de login, biblioteca, subida/cambio de video y sala con contraseña. Estado en memoria:
+  se pierde al reiniciar; sin Postgres ni migración.
+- **Parche** (sobre `origin/plan-produccion`): `lib/rateLimiter.js`, `server.js` y `test/rateLimiter.test.js` (2 tests nuevos).
+- **Decisión:** `attemptCount` devuelve `maxAttempts` porque `entry.count` queda en 0 al bloquear.
+- **Verificado por el asistente:** `npm test` 96/96 → 98/98, `npm run lint` limpio; en local sin Postgres, 3 fallos de biblioteca dieron 3 logs con IP.
+- **Confirmado por la persona (Chrome, su dominio):** `library` lista su IP real con `attemptCount: 3`, logs con la IP y el listado vuelve a vaciarse
+  a los 15 min.
+- **Probado por Copilot en local, no por la persona:** `login` y `roomJoin`.
+- **No probado / pendiente:** vencimiento real de `login`/`roomJoin`; mostrarlo en `admin.html`; las claves de login muestran el email al admin; la
+  clave IPv6 completa permite esquivar el límite con otra dirección del mismo bloque (lectura del código).
+- **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
+
+---
+
 ## 2026-10-21 — Biblioteca: la contraseña ya no se guarda en localStorage, ahora sessionStorage (confirmado por la persona)
 
 - **Qué:** en `public/index.html` y `public/library.html`, `mn_library_pw` pasa de `localStorage` a `sessionStorage` (por pestaña), con

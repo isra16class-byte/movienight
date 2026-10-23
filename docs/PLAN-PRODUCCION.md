@@ -238,6 +238,9 @@ secundario.
 - [x] Contraseña de biblioteca en el navegador (2026-10-21): `mn_library_pw` pasa de `localStorage` a `sessionStorage` (por pestaña), se migra/borra
       la vieja y se borra ante un 401. Confirmado por la persona en Chrome (normal e incógnito), app Android y vencimiento del bloqueo a los 15 min;
       Firefox/Safari sin probar. Sigue legible por un script inyectado en la pestaña. Detalle en `docs/MEMORIA.md`.
+- [x] Admin: IPs bloqueadas y log de intentos fallidos (2026-10-23): `GET /admin/security` (solo admin, estado en memoria) y `logger.warn` con la
+      IP en cada fallo de login, biblioteca, subida y sala con contraseña. Biblioteca confirmada por la persona en Chrome en su dominio (IP real
+      visible); `login` y `roomJoin` solo probados en local por Copilot. Falta mostrarlo en `admin.html`. Detalle en `docs/MEMORIA.md`.
 
 ### 2.3 Identidad del host — reemplazada por Fase 2bis (cuentas reales)
 - ~~Endurecer el `hostToken` actual (expiración, JWT, cookie httpOnly)~~ — con
