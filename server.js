@@ -835,7 +835,7 @@ app.post('/auth/forgot-password', requireDbEnabled, async (req, res) => {
   const trimmedEmail = email.trim();
   const genericResponse = { ok: true, message: 'Si ese email tiene una cuenta registrada, te mandamos un link para elegir una contraseña nueva.' };
 
-  const limiterKey = `${clientIp(req)}:${trimmedEmail.toLowerCase()}`;
+  const limiterKey = `${rateLimitKeyFromIp(clientIp(req))}:${trimmedEmail.toLowerCase()}`;
   if (isResetRequestRateLimited(limiterKey)) {
     // Ojo: acá SÍ conviene devolver el mismo mensaje genérico (no un 429 explícito) — un 429 en este
     // endpoint puntual delataría "este email/IP ya pidió el máximo de veces", que ya es información de
