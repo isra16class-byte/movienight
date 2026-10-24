@@ -1,5 +1,20 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-24 — Limitadores de intentos: clave por /64 en IPv6
+
+- **Qué:** login, biblioteca/subida y salas con contraseña usan el prefijo /64 de una IPv6 como clave (`2800:bf0:8163:1234::/64`) en vez de la dirección completa;
+  cambiar de dirección dentro del mismo bloque ya no esquiva el bloqueo. IPv4 y las IPv4-mapeadas no cambian. Los logs siguen con la IP completa.
+- **Parche** (sobre `origin/plan-produccion`): `lib/ipKey.js` (nuevo), `server.js` (4 sitios) y `test/ipKey.test.js` (9 tests; 102 → 111). Usa `ipKeyGenerator(ip, 64)`
+  de `express-rate-limit`, ya instalado.
+- **Verificado por el asistente:** `npm test` 111/111, `npm run lint` limpio, salida real de la función con IPs reales y raras, grep de los 4 sitios.
+- **Probado por Copilot en el PC de la persona, contra el dominio real, resultado pasado por la persona:** biblioteca 401/401/401/429 y una sola fila `/64` en el
+  panel; rotación entre dos direcciones del mismo /64: 3 fallos desde A y B recibe 429 sin haber fallado nunca.
+- **No probado / pendiente:** login y sala con contraseña por rotación en el dominio real; `isResetRequestRateLimited` sigue con la IPv6 completa; el comentario de
+  `generalApiLimiter` dice /64 pero el valor por defecto es /56.
+- **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
+
+---
+
 ## 2026-10-24 — Admin: el panel muestra las IPs bloqueadas ahora (`public/admin.html`)
 
 - **Qué:** bloque nuevo «Bloqueados ahora (intentos fallidos)» en `admin.html` que lee `GET /admin/security`: origen (Login / Biblioteca / Sala), IP,

@@ -46,6 +46,7 @@ movienight/
   lib/fileValidation.js    # Validación real de video (magic bytes) y subtítulos (estructura) — Fase 2.5
   lib/passwordAuth.js      # Hashing bcrypt + migración desde sha256 legacy (extraído en Fase 5, ver docs/CHANGELOG.md)
   lib/rateLimiter.js       # Limitador de intentos fallidos (extraído en Fase 5); listLocked() lista los bloqueados ahora; splitLastColon() y maskEmail() para el panel
+  lib/ipKey.js             # rateLimitKeyFromIp(): clave de los limitadores (IPv6 -> prefijo /64)
   lib/hostAuth.js          # isRoomOwner + setHost, el sistema de roles (extraído en Fase 5)
   lib/uploadReference.js   # Modo dual disco/R2 para referencias a videos ya subidos (extraído en Fase 5)
   lib/logger.js            # Logger estructurado (JSON) sobre pino, con redacción de campos sensibles — Fase 4
@@ -139,6 +140,9 @@ mover la barra de progreso — cualquier intento se revierte.
   `requireUploadAuth` (3 intentos, 15 min). Ver «Por dónde seguir».
 - ~~Sin forma de ver qué IPs están bloqueadas ni log de los intentos fallidos~~ → **resuelto 2026-10-23**: `GET /admin/security` (solo admin)
   y `logger.warn` con la IP en cada intento fallido. Es el estado actual en memoria, no un historial. Ver «Por dónde seguir».
+- ~~Los limitadores de intentos usaban la IPv6 completa como clave: cambiar de dirección dentro del mismo bloque esquivaba el bloqueo~~ →
+  **resuelto 2026-10-24** para login, biblioteca/subida y salas con contraseña: la clave es el prefijo /64. Ver «Por dónde seguir». Siguen con IPv6
+  completa el limitador de recuperación de contraseña (`isResetRequestRateLimited`).
 - ~~Contraseña de biblioteca guardada en `localStorage` en texto plano~~ → **mitigado 2026-10-21**: ahora en `sessionStorage` (por pestaña) y se
   migra/borra la vieja. Sigue legible por un script inyectado en esa pestaña. `mn_host_<sala>` sigue en `localStorage`. Ver «Por dónde seguir».
 - Las salas nunca expiran — se acumulan en memoria y en R2 indefinidamente.
@@ -155,6 +159,36 @@ mover la barra de progreso — cualquier intento se revierte.
 - Cada cambio importante debería reflejarse acá (este archivo, `docs/MEMORIA.md`, si cambia algo esencial) y como entrada nueva en `docs/CHANGELOG.md` — no en los archivos de `docs/historico/`, que quedaron congelados como registro del estado anterior a esta reorganización.
 
 ## Por dónde seguir
+
+**Limitadores de intentos: clave por /64 en IPv6 (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
+(`Limitadores de intentos: clave por /64 en IPv6 (login, biblioteca, sala)`). Para verlo en el servidor hace falta `git pull` y
+`docker compose up -d --build`.
+
+- **`lib/ipKey.js` (archivo nuevo):** `rateLimitKeyFromIp(ip)`. Una IPv6 se convierte en su prefijo /64 (`2800:bf0:8163:1234::/64`); IPv4, `'unknown'`,
+  vacío, lo que no es string y las IPv4-mapeadas (`::ffff:a.b.c.d`, en forma decimal y hexadecimal) quedan tal cual. Usa `ipKeyGenerator(ip, 64)` de
+  `express-rate-limit` (v8.7.0, ya era dependencia), no un parser propio. Vive en `lib/` y no en `server.js` porque `server.js` no se puede importar en los tests.
+- **`server.js`:** la parte de IP de la clave pasa por `rateLimitKeyFromIp` en los cuatro sitios de los tres limitadores: `requireLibraryAuth` y
+  `requireUploadAuth` (comparten `uploadAuthLimiter`), login (`ip:email`) y `join-room` (`ip:roomId`). La IP completa sigue en los logs
+  (`logger.warn({ ip }, ...)`) y en el resto del código. `lib/rateLimiter.js`, las duraciones (3 intentos / 15 min) y `admin.html` no cambiaron.
+- **Efecto visible:** en `/admin/security` y en el panel, las IPv6 salen como prefijo `...::/64` (`splitLastColon` sigue separando bien el email o el roomId).
+  Varias personas con el mismo /64 comparten bloqueo, igual que ya pasa con una IPv4 compartida por NAT.
+- **Tests:** `test/ipKey.test.js`, 9 tests (IPv4, mapeada, IPv6 real, `::` al inicio/medio/final, zona, mismo /64 = misma clave, y dos direcciones del mismo
+  /64 comparten el contador del limitador). `npm test` 102 → 111, lint limpio.
+- **Verificado por el asistente:** tests y lint; salida real de la función con las IPs de la persona y con casos raros; grep de que ninguna llamada a
+  `uploadAuthLimiter`/`loginAuthLimiter`/`roomJoinAuthLimiter` usa ya la IP suelta; en local por IPv4 la biblioteca dio 401/401/401/429 como antes
+  (el entorno del asistente no tiene IPv6).
+- **Probado por Copilot en el PC de la persona, contra el dominio real (`curl -6`), resultado pasado por la persona; la persona no lo marcó
+  explícitamente como confirmado:** (1) biblioteca desde una IPv6: 401, 401, 401 y cuarto intento 429; el panel mostró UNA fila `2800:bf0:8163:1234::/64`,
+  «vence en 15 min». (2) Prueba de rotación, tras `docker compose restart app` (el bloqueo vive en memoria): 3 fallos desde la dirección A
+  (`...:5f3b:165d:791a:e2fe`) dieron 401, 401, 401; un único intento desde la dirección B (`...:a5ef:b591:3c8f:f41`, del mismo /64 y sin fallos previos)
+  dio **429**, y el log solo tiene las 3 líneas de A. Eso es lo que antes habría dado 401 (inferido del código anterior, no medido).
+  También: con sesión de admin la biblioteca respondió 200, el login correcto y entrar a una sala con contraseña correcta funcionaron.
+- **No probado / pendiente:** login y sala con contraseña bloqueados por rotación de dirección en el dominio real (solo se probó la biblioteca; el
+  mecanismo es el mismo y los tests unitarios lo cubren); uso normal de la biblioteca SIN sesión y con la contraseña correcta tras el cambio.
+- **Observaciones para la sesión guía (no se tocaron):** (1) `generalApiLimiter` ya usa `ipKeyGenerator(clientIp(req))` con el valor por defecto de la
+  librería, que es /56 (`2800:bf0:8163:1234:...` da `2800:bf0:8163:1200::/56`), pero el comentario de `server.js` ~383 dice /64: comentario incorrecto, no un
+  fallo; (2) `isResetRequestRateLimited` (recuperar contraseña, `server.js` ~835) sigue con la IPv6 completa como clave; (3) `maskEmail` con 2 letras
+  antes de la `@` las muestra enteras; (4) no hay botón de desbloquear.
 
 **Admin: `public/admin.html` muestra las IPs bloqueadas ahora (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
 (`admin.html: mostrar las IPs bloqueadas ahora (GET /admin/security)`). Solo toca `public/admin.html`. Para verlo en el servidor hace falta `git pull` y

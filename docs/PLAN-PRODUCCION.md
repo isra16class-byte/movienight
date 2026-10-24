@@ -247,6 +247,9 @@ secundario.
 - [x] Admin: bloque «Bloqueados ahora» en `admin.html` (2026-10-24): muestra lo que devuelve `/admin/security` (origen, IP, `emailMasked`/`roomId`, minutos
       restantes) y se actualiza con el refresco de 15 s. Confirmado por la persona (panel, IPv6 larga en pantalla angosta, claro/oscuro); vencimiento a 15 min
       visto por Copilot en local. Sin botón de desbloquear. Detalle en `docs/MEMORIA.md`.
+- [x] Limitadores de intentos por /64 en IPv6 (2026-10-24): login, biblioteca/subida y salas con contraseña usan el prefijo /64 como clave (`lib/ipKey.js`);
+      cambiar de dirección dentro del bloque ya no esquiva el bloqueo. Rotación probada por Copilot en el dominio real con la biblioteca (resultado pasado por la
+      persona). Falta probar login/sala por rotación y el limitador de recuperar contraseña (sigue con IPv6 completa). Detalle en `docs/MEMORIA.md`.
 
 ### 2.3 Identidad del host — reemplazada por Fase 2bis (cuentas reales)
 - ~~Endurecer el `hostToken` actual (expiración, JWT, cookie httpOnly)~~ — con
