@@ -447,8 +447,9 @@ async function requireLibraryAuth(req, res, next) {
     // Mismo límite de intentos por IP que requireUploadAuth: es el mismo secreto (LIBRARY_PASSWORD).
     // Se reusa a propósito `uploadAuthLimiter` (clave: solo ip), así que agotar los intentos aquí
     // bloquea también la subida, y al revés. Decisión tomada, no efecto colateral.
-    const ip = clientIp(req);
-    const lockedMinutes = uploadAuthLimiter.lockedMinutes(ip);
+    const ip = clientIp(req); // IP completa: solo para logs
+    const limiterKey = rateLimitKeyFromIp(ip); // clave del limitador: IPv4 igual, IPv6 al /64
+    const lockedMinutes = uploadAuthLimiter.lockedMinutes(limiterKey);
     if (lockedMinutes !== null) {
       return res.status(429).json({
         error: `Demasiados intentos. Esperá ${lockedMinutes} min.`,
@@ -459,10 +460,10 @@ async function requireLibraryAuth(req, res, next) {
     const { valid } = await verifyPassword(provided, libraryPasswordHash);
     if (!valid) {
       logger.warn({ ip }, 'Intento fallido de contraseña de biblioteca');
-      const { attemptsLeft } = uploadAuthLimiter.recordFailure(ip);
+      const { attemptsLeft } = uploadAuthLimiter.recordFailure(limiterKey);
       return res.status(401).json({ error: 'Contraseña de biblioteca requerida o incorrecta.', attemptsLeft });
     }
-    uploadAuthLimiter.recordSuccess(ip);
+    uploadAuthLimiter.recordSuccess(limiterKey);
     next();
   } catch (err) {
     logger.error({ err }, 'Error verificando la contraseña de biblioteca');
@@ -496,9 +497,10 @@ async function requireLibraryAuth(req, res, next) {
 // (incluyendo el paso del tiempo, sin `setTimeout`s reales de 15 minutos). Comportamiento sin cambios
 // — acá se usa con los defaults del módulo (3 intentos, 15 minutos de bloqueo).
 const { makeAttemptLimiter, splitLastColon, maskEmail } = require('./lib/rateLimiter');
+const { rateLimitKeyFromIp } = require('./lib/ipKey'); // clave de los limitadores de intentos: IPv6 -> prefijo /64
 
-const uploadAuthLimiter = makeAttemptLimiter(); // clave: ip
-const roomJoinAuthLimiter = makeAttemptLimiter(); // clave: ip + roomId (ver 'join-room' más abajo)
+const uploadAuthLimiter = makeAttemptLimiter(); // clave: ip (IPv6: prefijo /64, ver lib/ipKey.js)
+const roomJoinAuthLimiter = makeAttemptLimiter(); // clave: ip (IPv6: /64) + roomId (ver 'join-room' más abajo)
 
 async function requireUploadAuth(req, res, next) {
   try {
@@ -508,8 +510,9 @@ async function requireUploadAuth(req, res, next) {
     // LIBRARY_PASSWORD, sin cuenta (ver "quién puede crear salas" más abajo, decisión ya cerrada).
     if (req.session && req.session.userId) return next();
 
-    const ip = clientIp(req);
-    const lockedMinutes = uploadAuthLimiter.lockedMinutes(ip);
+    const ip = clientIp(req); // IP completa: solo para logs
+    const limiterKey = rateLimitKeyFromIp(ip); // clave del limitador: IPv4 igual, IPv6 al /64
+    const lockedMinutes = uploadAuthLimiter.lockedMinutes(limiterKey);
     if (lockedMinutes !== null) {
       return res.status(429).json({
         error: `Demasiados intentos fallidos. Esperá ${lockedMinutes} min y volvé a intentar.`,
@@ -520,12 +523,12 @@ async function requireUploadAuth(req, res, next) {
     const provided = req.get('x-library-password') || '';
     const { valid } = await verifyPassword(provided, libraryPasswordHash);
     if (valid) {
-      uploadAuthLimiter.recordSuccess(ip);
+      uploadAuthLimiter.recordSuccess(limiterKey);
       return next();
     }
 
     logger.warn({ ip }, 'Intento fallido de contraseña de subida/cambio de video');
-    const { locked, attemptsLeft } = uploadAuthLimiter.recordFailure(ip);
+    const { locked, attemptsLeft } = uploadAuthLimiter.recordFailure(limiterKey);
     if (locked) {
       return res.status(401).json({
         error: 'Contraseña incorrecta. Se bloquearon los intentos de subida por 15 minutos.',
@@ -649,7 +652,7 @@ app.post('/auth/login', requireDbEnabled, async (req, res) => {
     return res.status(400).json({ error: 'Faltan email y/o contraseña.' });
   }
   const trimmedEmail = email.trim();
-  const limiterKey = `${clientIp(req)}:${trimmedEmail.toLowerCase()}`;
+  const limiterKey = `${rateLimitKeyFromIp(clientIp(req))}:${trimmedEmail.toLowerCase()}`;
   const lockedMinutes = loginAuthLimiter.lockedMinutes(limiterKey);
   if (lockedMinutes !== null) {
     return res.status(429).json({
@@ -2130,7 +2133,7 @@ io.on('connection', (socket) => {
     // LIBRARY_PASSWORD para todo el server, pero acá cada sala tiene su propia contraseña — bloquear
     // por ip sola dejaría que errar la contraseña de UNA sala te saque también de intentar entrar a
     // CUALQUIER otra sala con esa misma IP (ej. varios amigos en la misma red/NAT).
-    const attemptKey = `${socketClientIp(socket)}:${roomId}`;
+    const attemptKey = `${rateLimitKeyFromIp(socketClientIp(socket))}:${roomId}`;
     if (room.passwordHash) {
       const lockedMinutes = roomJoinAuthLimiter.lockedMinutes(attemptKey);
       if (lockedMinutes !== null) {
