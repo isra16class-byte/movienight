@@ -45,7 +45,7 @@ movienight/
   lib/mailer.js            # Envío de emails vía Resend, para recuperación de contraseña (Fase 2bis)
   lib/fileValidation.js    # Validación real de video (magic bytes) y subtítulos (estructura) — Fase 2.5
   lib/passwordAuth.js      # Hashing bcrypt + migración desde sha256 legacy (extraído en Fase 5, ver docs/CHANGELOG.md)
-  lib/rateLimiter.js       # Limitador de intentos fallidos (extraído en Fase 5); listLocked() lista los bloqueados ahora
+  lib/rateLimiter.js       # Limitador de intentos fallidos (extraído en Fase 5); listLocked() lista los bloqueados ahora; splitLastColon() y maskEmail() para el panel
   lib/hostAuth.js          # isRoomOwner + setHost, el sistema de roles (extraído en Fase 5)
   lib/uploadReference.js   # Modo dual disco/R2 para referencias a videos ya subidos (extraído en Fase 5)
   lib/logger.js            # Logger estructurado (JSON) sobre pino, con redacción de campos sensibles — Fase 4
@@ -155,6 +155,34 @@ mover la barra de progreso — cualquier intento se revierte.
 - Cada cambio importante debería reflejarse acá (este archivo, `docs/MEMORIA.md`, si cambia algo esencial) y como entrada nueva en `docs/CHANGELOG.md` — no en los archivos de `docs/historico/`, que quedaron congelados como registro del estado anterior a esta reorganización.
 
 ## Por dónde seguir
+
+**Admin: `/admin/security` separa la IP y enmascara el email de login (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
+(`Admin: /admin/security separa la IP y enmascara el email de login`). Para verlo en el servidor hace falta `git pull` y `docker compose up -d --build`.
+
+- **`lib/rateLimiter.js`:** dos funciones puras exportadas. `splitLastColon(key)` corta en el ÚLTIMO `:` y devuelve `{ ip, rest }` (`rest` es `null` si
+  no hay `:`). `maskEmail(email)` devuelve las 2 primeras letras + `***@` + dominio (`is***@gmail.com`); con menos de 2 letras `***@dominio`; sin `@`, `***`.
+  `listLocked()`, el `Map` y las claves internas (`ip`, `ip:email`, `ip:roomId`) NO cambiaron.
+- **Por qué el último `:` y no el primero (el paso decía el primero):** una IPv6 lleva `:` por dentro; cortar en el primero daba `ip: "2800"` y dejaba
+  media IP en `rest`. Ni un email ni un `roomId` llevan `:`. La clave de `library` es la IP sola y no se corta.
+- **`server.js`, `GET /admin/security`:** `library` = `{ ip, lockedUntil, attemptCount }`; `login` = `{ ip, emailMasked, lockedUntil, attemptCount }` (ya no
+  sale el email completo); `roomJoin` = `{ ip, roomId, lockedUntil, attemptCount }` (el `roomId` no se enmascara a propósito).
+- **Tests:** 4 nuevos en `test/rateLimiter.test.js` (IPv4, IPv6 real, IPv4 mapeada, sin `:`, email de 1 letra, sin `@`). `npm test` 98 → 102, lint limpio.
+- **No se tocó:** `public/admin.html`, duraciones de bloqueo, Postgres, dependencias, ni las claves de los limitadores.
+- **Verificado por el asistente:** tests y lint (arriba); en local sin Postgres, la biblioteca dio 401, 401, 401, 429 como antes y `/admin/security` 404.
+- **Probado por Copilot en local (`localhost:3000`, Docker/Postgres/Redis), no por la persona:** los tres limitadores con la forma nueva. `login`:
+  `emailMasked: "pr***@example.com"` sin el email completo en ningún campo; `roomJoin`: `ip` y `roomId` completos; `library`: solo `ip`, sin `key` ni
+  `rest`. IP vista: `::ffff:172.18.0.1` (la del puente de Docker, una IPv4 mapeada con `:` por dentro).
+- **Confirmado con el dominio real (2026-10-24):** 3 pedidos con `curl -6` a `https://<dominio>/api/uploads` con contraseña mala (hechos por Copilot, sin sesión)
+  dieron 401, 401, 401 y 3 líneas de log con la IPv6 completa `2800:bf0:8163:1234:a5ef:b591:3c8f:f41`. La persona abrió `/admin/security` con su sesión
+  de admin y `library` mostró esa misma `ip` completa (8 grupos), con `attemptCount: 3` y `lockedUntil` = último intento + 15 min.
+- **No probado / pendiente:** (1) `emailMasked` y `roomId` en el dominio real (solo en local); (2) vencimiento a los 15 min de `login` y `roomJoin` con
+  tiempo real; (3) `/admin/security` aún no se ve en `admin.html` (paso aparte); (4) `maskEmail` con exactamente 2 letras antes de la `@` las muestra
+  enteras (así lo pedía el paso).
+- **Observación para la sesión guía (no se tocó):** la clave del limitador es la IPv6 completa, y el mismo equipo mostró dos direcciones distintas en el
+  mismo día (`...f487:b058:2780:4d53` y `...a5ef:b591:3c8f:f41`, mismo prefijo `2800:bf0:8163:1234`). Quien tenga ese bloque (normalmente /64) puede rotar de
+  dirección y esquivar el límite. Es lectura del código más esas dos direcciones; no se probó la evasión.
+- **Pendientes de higiene (no son del código):** las pruebas automáticas dejaron la contraseña de la cuenta admin en comandos y archivos temporales
+  (ya borrados, queda historial): cambiarla. Quedaron salas de prueba creadas por esa herramienta (`9cd6ee`, `f38d60`): cerrarlas desde el panel.
 
 **Admin: ver qué IPs están bloqueadas ahora y log de cada intento fallido (2026-10-23)**: hecho. Un parche sobre `origin/plan-produccion`
 (`Admin: GET /admin/security (IPs bloqueadas ahora) y log de cada intento fallido`; al aplicarlo con `git am` el hash cambia). Para verlo en el

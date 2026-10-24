@@ -1,5 +1,20 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-24 — Admin: `/admin/security` separa la IP y enmascara el email de login
+
+- **Qué:** `lib/rateLimiter.js` exporta `splitLastColon()` y `maskEmail()`; `GET /admin/security` devuelve `library { ip }`, `login { ip, emailMasked }` y
+  `roomJoin { ip, roomId }`. Ya no sale el email completo. `listLocked()` y las claves internas no cambiaron.
+- **Parche** (sobre `origin/plan-produccion`): `lib/rateLimiter.js`, `server.js` y `test/rateLimiter.test.js` (4 tests nuevos; 98 → 102).
+- **Decisión:** se corta en el último `:` y no en el primero, porque una IPv6 lleva `:` por dentro.
+- **Verificado por el asistente:** `npm test` 102/102, `npm run lint` limpio; en local sin Postgres la biblioteca dio 401/401/401/429 como antes.
+- **Confirmado con el dominio real:** la IPv6 completa aparece en `library` y en el log (curl -6 por Copilot; panel visto por la persona).
+- **Probado por Copilot en local, no por la persona:** `login` (email enmascarado) y `roomJoin` (`roomId` completo).
+- **No probado / pendiente:** `login` y `roomJoin` en el dominio real; vencimiento real a 15 min; mostrarlo en `admin.html`; el límite sigue siendo por IPv6
+  completa (se puede esquivar con otra dirección del mismo bloque, lectura del código).
+- **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
+
+---
+
 ## 2026-10-23 — Admin: `GET /admin/security` (IPs bloqueadas ahora) y log de cada intento fallido
 
 - **Qué:** `lib/rateLimiter.js` gana `listLocked()`; `server.js` expone `GET /admin/security` (`requireAdmin`) con `{ login, library, roomJoin }` y

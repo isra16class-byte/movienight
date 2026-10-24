@@ -241,6 +241,9 @@ secundario.
 - [x] Admin: IPs bloqueadas y log de intentos fallidos (2026-10-23): `GET /admin/security` (solo admin, estado en memoria) y `logger.warn` con la
       IP en cada fallo de login, biblioteca, subida y sala con contraseña. Biblioteca confirmada por la persona en Chrome en su dominio (IP real
       visible); `login` y `roomJoin` solo probados en local por Copilot. Falta mostrarlo en `admin.html`. Detalle en `docs/MEMORIA.md`.
+- [x] Admin: IP separada y email enmascarado en `/admin/security` (2026-10-24): `login` devuelve `emailMasked` (nunca el email completo), `roomJoin` `roomId`,
+      `library` solo `ip`; la IP se separa cortando en el último `:` (compatible con IPv6). IPv6 real confirmada en el dominio (curl -6 por Copilot +
+      panel visto por la persona); `login` y `roomJoin` solo en local. Falta mostrarlo en `admin.html`. Detalle en `docs/MEMORIA.md`.
 
 ### 2.3 Identidad del host — reemplazada por Fase 2bis (cuentas reales)
 - ~~Endurecer el `hostToken` actual (expiración, JWT, cookie httpOnly)~~ — con
