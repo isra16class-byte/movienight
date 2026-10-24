@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { makeAttemptLimiter } = require('../lib/rateLimiter');
+const { makeAttemptLimiter, splitLastColon, maskEmail } = require('../lib/rateLimiter');
 
 test('deja pasar sin bloqueo antes de agotar los intentos', () => {
   const limiter = makeAttemptLimiter();
@@ -76,4 +76,35 @@ test('listLocked: recordSuccess quita la clave y no modifica el resto del estado
   assert.equal(limiter.lockedMinutes('a'), 15); // listLocked no cambió nada
   limiter.recordSuccess('a');
   assert.deepEqual(limiter.listLocked(), []);
+});
+
+test('splitLastColon: separa la IP del sufijo cortando en el último ":" (IPv4, IPv6, IPv4 mapeada)', () => {
+  assert.deepEqual(splitLastColon('1.2.3.4:ana@x.com'), { ip: '1.2.3.4', rest: 'ana@x.com' });
+  assert.deepEqual(splitLastColon('2800:bf0:8163:1234:f487:b058:2780:4d53:9cd6ee'), { ip: '2800:bf0:8163:1234:f487:b058:2780:4d53', rest: '9cd6ee' });
+  assert.deepEqual(splitLastColon('::ffff:172.18.0.1:prueba@example.com'), { ip: '::ffff:172.18.0.1', rest: 'prueba@example.com' });
+  assert.deepEqual(splitLastColon('::ffff:172.18.0.1:9cd6ee'), { ip: '::ffff:172.18.0.1', rest: '9cd6ee' });
+});
+
+test('splitLastColon: clave sin ":" devuelve la clave como ip y rest null', () => {
+  assert.deepEqual(splitLastColon('unknown'), { ip: 'unknown', rest: null });
+  assert.deepEqual(splitLastColon('1.2.3.4'), { ip: '1.2.3.4', rest: null });
+});
+
+test('maskEmail: 2 letras + ***@ + dominio; con menos de 2 letras, ***@dominio; sin @, ***', () => {
+  assert.equal(maskEmail('prueba-login@example.com'), 'pr***@example.com');
+  assert.equal(maskEmail('is@gmail.com'), 'is***@gmail.com');
+  assert.equal(maskEmail('a@gmail.com'), '***@gmail.com');
+  assert.equal(maskEmail('@gmail.com'), '***@gmail.com');
+  assert.equal(maskEmail('sin-arroba'), '***');
+  assert.ok(!maskEmail('prueba-login@example.com').includes('prueba-login'));
+});
+
+test('listLocked + splitLastColon con claves reales de los tres limitadores', () => {
+  const limiter = makeAttemptLimiter({ now: () => 0 });
+  const keys = ['2800:bf0:8163:1234:f487:b058:2780:4d53', '::ffff:172.18.0.1:a@b.com', '1.2.3.4:9cd6ee'];
+  for (const k of keys) { limiter.recordFailure(k); limiter.recordFailure(k); limiter.recordFailure(k); }
+  const out = limiter.listLocked().map((e) => e.key);
+  assert.deepEqual(out, keys); // listLocked sigue devolviendo la clave completa
+  assert.deepEqual(splitLastColon(out[1]), { ip: '::ffff:172.18.0.1', rest: 'a@b.com' });
+  assert.equal(maskEmail(splitLastColon(out[1]).rest), '***@b.com'); // "a" tiene 1 letra
 });

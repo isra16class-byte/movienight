@@ -495,7 +495,7 @@ async function requireLibraryAuth(req, res, next) {
 // La fábrica en sí vive en lib/rateLimiter.js desde la Fase 5 (tests), para poder testearla aislada
 // (incluyendo el paso del tiempo, sin `setTimeout`s reales de 15 minutos). Comportamiento sin cambios
 // — acá se usa con los defaults del módulo (3 intentos, 15 minutos de bloqueo).
-const { makeAttemptLimiter } = require('./lib/rateLimiter');
+const { makeAttemptLimiter, splitLastColon, maskEmail } = require('./lib/rateLimiter');
 
 const uploadAuthLimiter = makeAttemptLimiter(); // clave: ip
 const roomJoinAuthLimiter = makeAttemptLimiter(); // clave: ip + roomId (ver 'join-room' más abajo)
@@ -1011,12 +1011,21 @@ app.get('/admin/stats', requireAdmin, (req, res) => {
 // GET /admin/security: quién está bloqueado AHORA por intentos fallidos (login, biblioteca/subida, salas con
 // contraseña). Vive en memoria (el Map de cada limitador): se pierde al reiniciar el proceso y no es un
 // historial, solo el estado actual. Cada intento fallido queda además en los logs (logger.warn con la IP).
-// Las claves son `ip` (biblioteca), `ip:email` (login) e `ip:roomId` (sala). Solo lectura: sin requireSameOrigin.
+// Las claves internas son `ip` (biblioteca), `ip:email` (login) e `ip:roomId` (sala); no cambian. Lo que se
+// DEVUELVE es: library { ip, ... }, login { ip, emailMasked, ... } (nunca el email completo) y roomJoin
+// { ip, roomId, ... }, todos con lockedUntil y attemptCount. La IP se separa cortando en el ÚLTIMO ":"
+// (splitLastColon), porque una IPv6 lleva ":" por dentro. Solo lectura: sin requireSameOrigin.
 app.get('/admin/security', requireAdmin, (req, res) => {
   res.json({
-    login: loginAuthLimiter.listLocked(),
-    library: uploadAuthLimiter.listLocked(),
-    roomJoin: roomJoinAuthLimiter.listLocked()
+    login: loginAuthLimiter.listLocked().map(({ key, lockedUntil, attemptCount }) => {
+      const { ip, rest } = splitLastColon(key);
+      return { ip, emailMasked: rest === null ? null : maskEmail(rest), lockedUntil, attemptCount };
+    }),
+    library: uploadAuthLimiter.listLocked().map(({ key, lockedUntil, attemptCount }) => ({ ip: key, lockedUntil, attemptCount })),
+    roomJoin: roomJoinAuthLimiter.listLocked().map(({ key, lockedUntil, attemptCount }) => {
+      const { ip, rest } = splitLastColon(key);
+      return { ip, roomId: rest, lockedUntil, attemptCount };
+    })
   });
 });
 
