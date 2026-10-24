@@ -380,10 +380,13 @@ const generalApiLimiter = rateLimit({
   max: 300,
   standardHeaders: true,
   legacyHeaders: false,
-  // v8 de express-rate-limit exige pasar cualquier IP por este helper (trunca IPv6 a su /64, así un
+  // v8 de express-rate-limit exige pasar cualquier IP por este helper (trunca IPv6 al prefijo, así un
   // mismo cliente no puede esquivar el límite rotando de dirección dentro del mismo bloque) — no
   // hacerlo con un keyGenerator custom es un error de validación al arrancar, no solo un warning.
-  keyGenerator: (req) => ipKeyGenerator(clientIp(req)),
+  // El 64 va explícito a propósito: sin segundo argumento el default de la librería es /56 (no /64,
+  // como decía el comentario anterior), y así queda igual que los limitadores de intentos de
+  // contraseña (lib/ipKey.js). Cambiado de /56 a /64 el 2026-10-24.
+  keyGenerator: (req) => ipKeyGenerator(clientIp(req), 64),
   // El healthcheck (Fase 1.5) y las métricas (Fase 4) pueden consultarse seguido por un
   // orquestador/hosting o un monitor externo — no tiene sentido que compitan por el mismo cupo que
   // el resto de la API ni que un chequeo automatizado termine bloqueado.
