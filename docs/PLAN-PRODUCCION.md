@@ -244,6 +244,9 @@ secundario.
 - [x] Admin: IP separada y email enmascarado en `/admin/security` (2026-10-24): `login` devuelve `emailMasked` (nunca el email completo), `roomJoin` `roomId`,
       `library` solo `ip`; la IP se separa cortando en el último `:` (compatible con IPv6). IPv6 real confirmada en el dominio (curl -6 por Copilot +
       panel visto por la persona); `login` y `roomJoin` solo en local. Falta mostrarlo en `admin.html`. Detalle en `docs/MEMORIA.md`.
+- [x] Admin: bloque «Bloqueados ahora» en `admin.html` (2026-10-24): muestra lo que devuelve `/admin/security` (origen, IP, `emailMasked`/`roomId`, minutos
+      restantes) y se actualiza con el refresco de 15 s. Confirmado por la persona (panel, IPv6 larga en pantalla angosta, claro/oscuro); vencimiento a 15 min
+      visto por Copilot en local. Sin botón de desbloquear. Detalle en `docs/MEMORIA.md`.
 
 ### 2.3 Identidad del host — reemplazada por Fase 2bis (cuentas reales)
 - ~~Endurecer el `hostToken` actual (expiración, JWT, cookie httpOnly)~~ — con

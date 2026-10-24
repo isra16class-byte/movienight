@@ -156,6 +156,33 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Admin: `public/admin.html` muestra las IPs bloqueadas ahora (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
+(`admin.html: mostrar las IPs bloqueadas ahora (GET /admin/security)`). Solo toca `public/admin.html`. Para verlo en el servidor hace falta `git pull` y
+`docker compose up -d --build`.
+
+- **Qué se agregó:** bloque «🔒 Bloqueados ahora (intentos fallidos)» entre «Salas activas» y «Acciones globales», con las mismas clases que el resto de
+  la página (`admin-section-title`, `tape-list`, `tape-item`, `library-empty`/`library-loading`). `loadSecurity()` junta `login`, `library` y `roomJoin`
+  con etiqueta de origen (Login / Biblioteca / Sala); `renderSecurity()` muestra origen, IP, `emailMasked` (login) o `roomId` (sala) y «vence en N min»
+  (`Math.max(1, Math.ceil((lockedUntil - Date.now()) / 60000))`, con el reloj del navegador).
+- **Dónde se carga:** dentro de `refreshDashboard()` (`Promise.all([loadStats(), loadRooms(), loadSecurity()])`), así entra en la carga inicial y en el
+  refresco de 15 s. Si el fetch falla o responde con error, solo ese bloque muestra «No se pudo cargar la lista de bloqueados.».
+- **Seguridad del HTML:** todo dato de `/admin/security` pasa por `escapeHtml` antes de `innerHTML`; no se muestra el email completo en ningún lado.
+- **CSS:** no se agregó ninguno; solo un `style="overflow-wrap:anywhere;"` inline en la línea de la IP para que una IPv6 larga no ensanche la página
+  (`.tape-item-name` corta con puntos suspensivos y no sirve para eso).
+- **No se hizo:** botón de «desbloquear» (el servidor no tiene esa acción). Pendiente solo si se decide agregarla en `server.js` en un paso aparte.
+- **Verificado por el asistente:** `npm test` 102/102, `npm run lint` limpio, `node --check` del JS inline, grep de ids/`escapeHtml`/sin `console.log`, y
+  `loadSecurity`/`renderSecurity` contra un DOM simulado (tres filas de ejemplo, un `roomId` con HTML sale escapado, lista vacía y respuesta 404).
+- **Probado por Copilot en local (`localhost:3000`, Docker), según su resumen:** bloque vacío al inicio; tras 3 fallos de biblioteca, login y sala aparecen
+  las tres filas (`Login — ad***@example.com`, `Sala — <roomId>`, Biblioteca con IP y «vence en 15 min»); el refresco de 15 s las muestra; a los 15 min
+  desaparecen solas en el siguiente refresco (esto cubre el vencimiento real de `login` y `roomJoin`, que estaba pendiente); sin desborde horizontal a
+  360 px en esquema claro y oscuro (medido con `scrollWidth`, con una IP corta `::ffff:172.18.0.1`).
+- **Confirmado por la persona (2026-10-24):** dio por positivas las comprobaciones que se le pidieron: el panel con sesión de admin en su servidor, la
+  IPv6 larga en pantalla angosta sin ensanchar la página, y la legibilidad en su modo claro/oscuro. No se anotó dispositivo ni navegador concretos.
+- **Pendiente:** el límite sigue siendo por IPv6 completa (el mismo equipo mostró dos direcciones del mismo /64 el mismo día; se puede esquivar con otra
+  dirección del bloque; lectura del código, no se probó la evasión); `maskEmail` con 2 letras antes de la `@` las muestra enteras; no hay desbloqueo manual.
+- **Higiene (no es del código):** las pruebas con Copilot volvieron a dejar la contraseña de la cuenta admin en comandos y archivos temporales (borrados,
+  pero queda historial): cambiarla y usar una cuenta admin de prueba. Sala de prueba `f38d60` creada por esa herramienta: cerrarla desde el panel.
+
 **Admin: `/admin/security` separa la IP y enmascara el email de login (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
 (`Admin: /admin/security separa la IP y enmascara el email de login`). Para verlo en el servidor hace falta `git pull` y `docker compose up -d --build`.
 

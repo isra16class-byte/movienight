@@ -1,5 +1,20 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-24 — Admin: el panel muestra las IPs bloqueadas ahora (`public/admin.html`)
+
+- **Qué:** bloque nuevo «Bloqueados ahora (intentos fallidos)» en `admin.html` que lee `GET /admin/security`: origen (Login / Biblioteca / Sala), IP,
+  `emailMasked` o `roomId`, y «vence en N min». Se actualiza con el refresco de 15 s; si falla el fetch, solo ese bloque muestra el error.
+- **Parche** (sobre `origin/plan-produccion`): solo `public/admin.html`; sin CSS nuevo salvo un `overflow-wrap:anywhere` inline en la línea de la IP.
+- **Verificado por el asistente:** `npm test` 102/102, `npm run lint` limpio, `node --check` del JS inline, grep de ids y `escapeHtml`, y render contra un DOM
+  simulado (incluido un `roomId` con HTML, que sale escapado).
+- **Probado por Copilot en local, no por la persona:** las tres filas, el refresco, la desaparición a los 15 min y el ancho a 360 px (claro y oscuro, IP corta).
+- **Confirmado por la persona:** panel con sesión de admin, IPv6 larga en pantalla angosta y legibilidad en su modo claro/oscuro (sin dispositivo ni navegador
+  anotados).
+- **Pendiente:** límite por IPv6 completa (se puede esquivar con otra dirección del mismo bloque); no hay botón de desbloquear (el servidor no tiene esa acción).
+- **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
+
+---
+
 ## 2026-10-24 — Admin: `/admin/security` separa la IP y enmascara el email de login
 
 - **Qué:** `lib/rateLimiter.js` exporta `splitLastColon()` y `maskEmail()`; `GET /admin/security` devuelve `library { ip }`, `login { ip, emailMasked }` y
