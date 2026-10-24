@@ -66,6 +66,11 @@ if ('serviceWorker' in navigator) {
         <li class="library-loading">Cargando salas...</li>
       </ul>
 
+      <h2 class="admin-section-title">🔒 Bloqueados ahora (intentos fallidos)</h2>
+      <ul class="tape-list" id="securityList" style="max-height:none; overflow:visible;">
+        <li class="library-loading">Cargando...</li>
+      </ul>
+
       <h2 class="admin-section-title">☢️ Acciones globales</h2>
       <div class="admin-danger-zone">
         <button id="sweepNowBtn">🧹 Limpiar salas vencidas</button>
@@ -342,6 +347,51 @@ async function loadRooms() {
   }
 }
 
+// --- Bloqueados ahora (GET /admin/security): IPs bloqueadas por intentos fallidos de login, biblioteca y
+// salas con contraseña. Es el estado en memoria del servidor (se vacía al reiniciar), no un historial. ---
+const securityList = document.getElementById('securityList');
+
+async function loadSecurity() {
+  try {
+    const res = await fetch('/admin/security');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const asList = (v) => (Array.isArray(v) ? v : []);
+    renderSecurity([
+      ...asList(data.login).map((e) => ({ ...e, source: 'Login' })),
+      ...asList(data.library).map((e) => ({ ...e, source: 'Biblioteca' })),
+      ...asList(data.roomJoin).map((e) => ({ ...e, source: 'Sala' }))
+    ]);
+  } catch (err) {
+    securityList.innerHTML = '<li class="library-empty">No se pudo cargar la lista de bloqueados.</li>';
+  }
+}
+
+function renderSecurity(items) {
+  if (!items.length) {
+    securityList.innerHTML = '<li class="library-empty">Nadie bloqueado ahora mismo.</li>';
+    return;
+  }
+  const now = Date.now(); // minutos restantes calculados desde que llegó la respuesta
+  securityList.innerHTML = '';
+  items.forEach((item) => {
+    const minLeft = Math.max(1, Math.ceil((Number(item.lockedUntil) - now) / 60000));
+    let extra = '';
+    if (item.source === 'Login' && item.emailMasked) extra = ` — ${escapeHtml(item.emailMasked)}`;
+    else if (item.source === 'Sala' && item.roomId) extra = ` — ${escapeHtml(item.roomId)}`;
+    const li = document.createElement('li');
+    li.className = 'tape-item';
+    li.innerHTML = `
+      <span class="tape-item-icon">🔒</span>
+      <div class="tape-item-info">
+        <div class="tape-item-name">${escapeHtml(item.source)}${extra}</div>
+        <div class="tape-item-meta" style="overflow-wrap:anywhere;">${escapeHtml(item.ip)} · vence en ${escapeHtml(String(minLeft))} min</div>
+      </div>
+    `;
+    securityList.appendChild(li);
+  });
+}
+
 function formatLastActivity(iso) {
   if (!iso) return 'sin actividad registrada';
   const d = new Date(iso);
@@ -448,7 +498,7 @@ document.getElementById('closeAllBtn').addEventListener('click', async () => {
 });
 
 async function refreshDashboard() {
-  await Promise.all([loadStats(), loadRooms()]);
+  await Promise.all([loadStats(), loadRooms(), loadSecurity()]);
 }
 
 // --- Arranque: chequeo de acceso -> primera carga -> refresh periódico del dashboard (15s, mismo
