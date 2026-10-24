@@ -250,6 +250,9 @@ secundario.
 - [x] Limitadores de intentos por /64 en IPv6 (2026-10-24): login, biblioteca/subida y salas con contraseña usan el prefijo /64 como clave (`lib/ipKey.js`);
       cambiar de dirección dentro del bloque ya no esquiva el bloqueo. Rotación probada por Copilot en el dominio real con la biblioteca (resultado pasado por la
       persona). Falta probar login/sala por rotación y el limitador de recuperar contraseña (sigue con IPv6 completa). Detalle en `docs/MEMORIA.md`.
+- [x] Recuperar contraseña por /64 en IPv6 (2026-10-24): `POST /auth/forgot-password` usa `rateLimitKeyFromIp` en su clave; con esto los cuatro limitadores de
+      contraseña/recuperación quedan por /64. Rotación probada por Copilot en el dominio real (el 4.º pedido desde otra dirección del mismo bloque no generó link;
+      resultado pasado por la persona). Detalle en `docs/MEMORIA.md`.
 
 ### 2.3 Identidad del host — reemplazada por Fase 2bis (cuentas reales)
 - ~~Endurecer el `hostToken` actual (expiración, JWT, cookie httpOnly)~~ — con

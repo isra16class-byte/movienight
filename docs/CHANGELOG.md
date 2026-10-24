@@ -1,5 +1,18 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-24 — Recuperar contraseña: clave del límite por /64 en IPv6
+
+- **Qué:** `POST /auth/forgot-password` arma su clave con `rateLimitKeyFromIp(clientIp(req))` (una línea de `server.js`), igual que login. Cambiar de dirección dentro del
+  mismo /64 ya no esquiva los 3 pedidos por hora. `isResetRequestRateLimited`, los 3 pedidos/hora, el mensaje genérico y la no-enumeración no cambian.
+- **Parche** (sobre `origin/plan-produccion`): solo `server.js`, una línea.
+- **Verificado por el asistente:** `npm test` 111/111, lint limpio; script en `/tmp` con `isResetRequestRateLimited` y dos IPv6 del mismo /64 (el 4.º pedido queda limitado).
+- **Probado por Copilot en el PC de la persona, contra el dominio real, resultado pasado por la persona:** 3 pedidos desde A y un cuarto desde B (mismo /64): 3 links en
+  los logs, el cuarto no generó link.
+- **No probado / pendiente:** «otro email desde la misma dirección» (la prueba usó un email sin cuenta, no distingue); tests automáticos del endpoint (necesita Postgres).
+- **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
+
+---
+
 ## 2026-10-24 — Limitadores de intentos: clave por /64 en IPv6
 
 - **Qué:** login, biblioteca/subida y salas con contraseña usan el prefijo /64 de una IPv6 como clave (`2800:bf0:8163:1234::/64`) en vez de la dirección completa;

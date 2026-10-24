@@ -141,8 +141,8 @@ mover la barra de progreso — cualquier intento se revierte.
 - ~~Sin forma de ver qué IPs están bloqueadas ni log de los intentos fallidos~~ → **resuelto 2026-10-23**: `GET /admin/security` (solo admin)
   y `logger.warn` con la IP en cada intento fallido. Es el estado actual en memoria, no un historial. Ver «Por dónde seguir».
 - ~~Los limitadores de intentos usaban la IPv6 completa como clave: cambiar de dirección dentro del mismo bloque esquivaba el bloqueo~~ →
-  **resuelto 2026-10-24** para login, biblioteca/subida y salas con contraseña: la clave es el prefijo /64. Ver «Por dónde seguir». Siguen con IPv6
-  completa el limitador de recuperación de contraseña (`isResetRequestRateLimited`).
+  **resuelto 2026-10-24** para login, biblioteca/subida y salas con contraseña: la clave es el prefijo /64. Ver «Por dónde seguir». El limitador de
+  recuperar contraseña (`isResetRequestRateLimited`) se resolvió después, el mismo día: ver «Por dónde seguir».
 - ~~Contraseña de biblioteca guardada en `localStorage` en texto plano~~ → **mitigado 2026-10-21**: ahora en `sessionStorage` (por pestaña) y se
   migra/borra la vieja. Sigue legible por un script inyectado en esa pestaña. `mn_host_<sala>` sigue en `localStorage`. Ver «Por dónde seguir».
 - Las salas nunca expiran — se acumulan en memoria y en R2 indefinidamente.
@@ -159,6 +159,34 @@ mover la barra de progreso — cualquier intento se revierte.
 - Cada cambio importante debería reflejarse acá (este archivo, `docs/MEMORIA.md`, si cambia algo esencial) y como entrada nueva en `docs/CHANGELOG.md` — no en los archivos de `docs/historico/`, que quedaron congelados como registro del estado anterior a esta reorganización.
 
 ## Por dónde seguir
+
+**Recuperar contraseña: clave del límite por /64 en IPv6 (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
+(`forgot-password: clave del limite por /64 en IPv6`). Una sola línea de `server.js`. Para verlo en el servidor hace falta `git pull` y
+`docker compose up -d --build`.
+
+- **Qué cambió:** en `POST /auth/forgot-password`, `limiterKey` pasa de `` `${clientIp(req)}:${email}` `` a `` `${rateLimitKeyFromIp(clientIp(req))}:${email}` ``,
+  igual que login. Ahora `rateLimitKeyFromIp` (de `lib/ipKey.js`, importada una sola vez) se usa en los **cuatro** sitios: biblioteca/subida, login,
+  sala con contraseña y recuperar contraseña. Con IPv6, cambiar de dirección dentro del mismo /64 ya no esquiva los 3 pedidos por hora.
+- **No cambió:** `isResetRequestRateLimited` (sigue contando cualquier pedido, no solo fallos), `resetRequestTimestamps`, `MAX_RESET_REQUESTS` (3),
+  `RESET_REQUEST_WINDOW_MS` (1 h), el mensaje genérico ni la no-enumeración de emails. IPv4 e IPv4-mapeadas tampoco.
+- **Revisión de otros sitios que usan la IP:** ninguno de los limitadores de intentos quedó sin pasar por `rateLimitKeyFromIp`. Quedan fuera a propósito:
+  `generalApiLimiter` (usa `ipKeyGenerator` con el /56 por defecto de la librería; su comentario en `server.js` dice /64), `avatarChangeLimiter` (clave:
+  `userId`) y los dos `clientIp(req)` de `db.insertAdminAction` (registro de auditoría).
+- **Verificado por el asistente:** `npm test` 111/111 antes y después, lint limpio, `node --check`. Sin tests nuevos (no hay tests de `forgot-password`; el
+  caso general está en `test/ipKey.test.js`). Un script en `/tmp` extrajo `isResetRequestRateLimited` de `server.js` y lo llamó con claves reales: 3 pedidos
+  desde la dirección A pasan, el cuarto desde la dirección B del mismo /64 queda limitado; otro /64 y otro email pasan; por IPv4 limita al cuarto.
+- **Probado por Copilot en el PC de la persona, contra el dominio real (`curl -6 --interface`), resultado pasado por la persona; la persona no lo marcó
+  explícitamente como confirmado:** 3 pedidos desde A con el mismo email (200, mensaje genérico) y un cuarto desde B (mismo /64, 200 con el mismo mensaje
+  genérico). Los logs mostraron exactamente 3 líneas «Link de reseteo» para ese email: el cuarto pedido NO generó un cuarto link. (Con `RESEND_API_KEY` sin
+  configurar el link se escribe en el log, y de ahí se deduce el efecto del límite, que por diseño no se ve en la respuesta.)
+- **No probado / pendiente:** (1) el escenario «otro email desde la misma dirección»: Copilot usó un email que no tiene cuenta, así que aunque el límite no lo
+  hubiera afectado tampoco habría salido un link en el log; con esa prueba no se puede distinguir. Lo cubren el script de `/tmp` (clave con el email) y el
+  código; (2) tests automáticos del endpoint (requiere Postgres).
+- **Observación:** con `RESEND_API_KEY` sin configurar, los links de reseteo (con token válido) quedan escritos en los logs del contenedor; el log de arranque ya
+  avisa que eso «solo sirve para desarrollo local». Antes de producción hay que configurarla.
+- **Efecto de la prueba:** tras 3 pedidos con un email, ese email queda limitado 1 hora para ese /64 (se vacía al reiniciar la app).
+- **Con esto quedan los cuatro limitadores de contraseña/recuperación con clave por /64.** Sigue abierto: el comentario de `generalApiLimiter` (dice /64, es /56),
+  `maskEmail` con 2 letras, y no hay botón de desbloquear.
 
 **Limitadores de intentos: clave por /64 en IPv6 (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
 (`Limitadores de intentos: clave por /64 en IPv6 (login, biblioteca, sala)`). Para verlo en el servidor hace falta `git pull` y
