@@ -160,6 +160,28 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**CSP sin `'unsafe-inline'`, paso 4: `library.html` sin JS inline (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
+(`library.html: el script grande pasa a public/js/library.js`, commit `1fd63a0`). **La CSP NO cambió**: `scriptSrc` sigue con `'unsafe-inline'` (`room.html` conserva su script grande).
+
+- **Qué cambió:** el segundo `<script>` de `public/library.html` (inline, 25854 bytes, 573 líneas: desde `const cassetteIcon` hasta el `setInterval` del contador REC) pasó tal cual a
+  `public/js/library.js` (archivo nuevo). `library.html` lo carga con `<script src="/js/library.js" defer></script>` en el mismo lugar (antes de `</body>`). Ya no tiene código inline: solo `sw-register.js` y
+  `library.js`. Sin `nonce`, `integrity` ni `crossorigin`. (El prompt del paso decía que empezaba en `const params`; empieza en `const cassetteIcon`, y `const params` está en la línea 6 del script. No cambia nada.)
+- **No cambió:** CSP, `server.js`, `sw-register.js`, otras páginas, ningún nombre de función ni variable. Claves de storage intactas (`mn_host_<sala>` en `localStorage`, `mn_library_pw` en `sessionStorage`) y rutas
+  `fetch` relativas intactas (`/auth/*`, `/api/uploads/presign`, `/room/<sala>/change-video-from-upload`, `/create-room-from-upload`).
+- **Verificado por el asistente:** comparación byte a byte del `<script>` viejo (de `git show 38474cf:public/library.html`, líneas 76 a 648) contra `library.js`: idéntico, también en un clon fresco tras `git am`;
+  `node --check`; ningún bloque inline con código; no hay atributos `on*=`; `npm test` 111/111 y lint limpio.
+- **Probado, resultado pasado por la persona (y Copilot en el PC de la persona):** en el dominio público, `/library.html` pide la contraseña de biblioteca y `library.js` carga con 200, sin error de CSP ni 404 (solo el
+  beacon de Cloudflare conocido); en local, con sesión de admin, la lista de videos carga igual; contraseña incorrecta muestra el mensaje habitual y, tras varios intentos, «Demasiados intentos. Esperá 15 min.» (429);
+  `?fromRoom=<sala>` muestra «ELEGIR CINTA PARA LA SALA», el enlace de volver y los botones `USAR`. **El cambio de cinta de punta a punta lo probó la persona en el dominio público con la sala `12a142`
+  (host en el mismo navegador): funcionó y la sala mostró la cinta nueva.**
+- **Nota de la prueba:** un primer intento con la sala `d6ff8b` no pudo completarse (la sala estaba cerrada y `metrics-test.mp4` figuraba en la lista pero el servidor respondía «Ese archivo no existe»);
+  no es de esta extracción (el código es idéntico), sino una entrada de biblioteca sin archivo detrás tras reconstruir el contenedor.
+- **No verificado:** la subida de un video nuevo desde la propia biblioteca y el borrado de videos (no se ejercitaron en esta prueba); el modal de contraseña más allá del rechazo y del 429.
+- **Limpieza pendiente (no es del código):** la entrada `metrics-test.mp4` sin archivo en la biblioteca local y las salas de prueba (`d6ff8b`, `12a142`).
+- **Plan de conversión (decidido por la persona):** 1) `sw-register.js` ✔; 2) `admin.html` ✔; 3) `index.html` ✔; 4) `library.html` ✔ (este); 5) `room.html`; 6) recién entonces quitar `'unsafe-inline'` de
+  `scriptSrc`. Siguiente: `room.html`.
+- **Pendiente aparte (sin cambios):** la CSP bloquea `https://static.cloudflareinsights.com/beacon.min.js`; `admin.html` sigue sin confirmarse en el dominio real.
+
 **CSP sin `'unsafe-inline'`, paso 3: `index.html` sin JS inline (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
 (`index.html: el script grande pasa a public/js/index.js`). **La CSP NO cambió**: `scriptSrc` sigue con `'unsafe-inline'` (`library.html` y `room.html` conservan su script grande).
 

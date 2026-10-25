@@ -1,5 +1,18 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-24 — `library.html`: el script grande pasa a `public/js/library.js`
+
+- **Qué:** paso 4 de la conversión hacia una CSP sin `'unsafe-inline'`: el segundo `<script>` de `library.html` (25854 bytes, 573 líneas) se movió tal cual a `public/js/library.js` y la página lo carga con
+  `<script src="/js/library.js" defer></script>`. `library.html` ya no tiene código inline. La CSP no cambió.
+- **Parche** (sobre `origin/plan-produccion`): `public/library.html` y `public/js/library.js` (nuevo).
+- **Verificado por el asistente:** contenido idéntico byte a byte al original, `node --check`, claves de storage y rutas `fetch` intactas, `npm test` 111/111, lint limpio.
+- **Probado:** en el dominio, `library.js` con 200 y sin error de CSP ni 404, contraseña de biblioteca, mensaje del 429; en local, lista de videos y pantalla `fromRoom`; el cambio de cinta de punta a punta con la
+  sala `12a142` en el dominio público lo probó la persona y funcionó.
+- **No verificado:** subida de un video nuevo y borrado desde la biblioteca.
+- **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
+
+---
+
 ## 2026-10-24 — `index.html`: el script grande pasa a `public/js/index.js`
 
 - **Qué:** paso 3 de la conversión hacia una CSP sin `'unsafe-inline'`: el segundo `<script>` de `index.html` (22369 bytes, 501 líneas) se movió tal cual a `public/js/index.js` y la página lo carga con
