@@ -160,6 +160,29 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**CSP sin `'unsafe-inline'`, paso 1: `reset-password.html` sin JS inline (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
+(`reset-password.html: el script inline pasa a public/js/reset-password.js`). Es el primero de varios patches (uno por página); **la CSP NO cambió**:
+`scriptSrc` sigue con `'unsafe-inline'` porque las demás páginas siguen con JS inline.
+
+- **Qué cambió:** el único `<script>` inline de `public/reset-password.html` (1749 bytes) pasó tal cual a `public/js/reset-password.js` (archivo nuevo, carpeta nueva
+  `public/js/`); el HTML carga `<script src="/js/reset-password.js" defer></script>`. `defer` porque el script usa `getElementById` al cargar. Sin `nonce`,
+  `integrity` ni `crossorigin`. Extracción, no reescritura: comparada byte a byte contra el commit anterior, idéntica.
+- **No cambió:** CSP, `server.js`, `express.static` (sirve `public/` con `Cache-Control: no-store` para `.js`), `sw.js` (network-first, cachea el `.js` solo), otras páginas.
+  No hay atributos `on*=` en esa página.
+- **Verificado por el asistente:** `npm test` 111/111 antes y después, lint limpio, `node --check` del `.js`, los 6 ids que usa el script existen en el HTML, y el HTML ya no
+  tiene código inline.
+- **Probado por Copilot en el PC de la persona, con cuenta de prueba (no la admin), resultado pasado por la persona; la persona no lo marcó explícitamente como
+  confirmado:** tras `git am` y `docker compose up -d --build`: `/reset-password.html?token=algofalso` mostró el formulario; `/js/reset-password.js` respondió 200 y el navegador lo cargó
+  (`performance.getEntriesByType('resource')`); se registró una cuenta temporal, se pidió el reseteo, el link salió en los logs, se abrió, se cambió la contraseña y el login con la
+  nueva dio 200. La cuenta temporal se borró. Que el cambio real funcione prueba, de forma indirecta, que el script se cargó y se ejecutó bajo la CSP actual.
+- **No verificado:** (1) la consola del navegador: el chequeo que hizo la herramienta no capturaba mensajes (devolvía una lista vacía fija), así que «sin errores en consola»
+  no está comprobado; (2) el mensaje de error al enviar con un token inválido; (3) la pestaña Network en el dominio real, solo se probó en `localhost`.
+- **Hallazgo para el plan (no se tocó):** el plan hablaba de un `<script>` inline por página, pero el código real tiene más: `admin.html` también tiene JS inline
+  (2 bloques), `index.html` y `library.html` tienen 2 bloques inline cada una, y `room.html` tiene 2 bloques inline más `<script src="/socket.io/socket.io.js">`.
+  Quitar `'unsafe-inline'` exige convertir también `admin.html` y esos segundos bloques. `privacy.html` y `terms.html` no tienen scripts. Además `styleSrc` sigue con
+  `'unsafe-inline'` (hay `style="..."` en todas las páginas), que es un tema aparte.
+- **Siguiente:** `index.html`, `library.html`, `room.html` y `admin.html`, uno por sesión; recién entonces se quita `'unsafe-inline'` de `scriptSrc` en `server.js`.
+
 **`generalApiLimiter`: prefijo /64 explícito en IPv6 (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
 (`generalApiLimiter: prefijo /64 explicito en IPv6 (antes /56 por el default de la libreria)`). Una línea de `server.js` más su comentario.
 

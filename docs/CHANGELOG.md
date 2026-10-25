@@ -1,5 +1,20 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-24 — `reset-password.html`: el script inline pasa a `public/js/reset-password.js`
+
+- **Qué:** primer paso para poder quitar `'unsafe-inline'` de `scriptSrc`: el único `<script>` inline de `reset-password.html` (1749 bytes) se movió tal cual a
+  `public/js/reset-password.js` y el HTML lo carga con `<script src="/js/reset-password.js" defer>`. La CSP no cambió.
+- **Parche** (sobre `origin/plan-produccion`): `public/reset-password.html` y `public/js/reset-password.js` (nuevo).
+- **Verificado por el asistente:** contenido idéntico byte a byte al original, `node --check`, ids presentes, `npm test` 111/111, lint limpio.
+- **Probado por Copilot en el PC de la persona, con cuenta de prueba, resultado pasado por la persona:** el `.js` se sirve con 200, el formulario con token falso se ve, y el
+  flujo real (pedir link, abrirlo, cambiar la contraseña, entrar con la nueva) funcionó.
+- **No verificado:** consola del navegador, mensaje de error con token inválido, y el dominio real.
+- **Hallazgo:** `admin.html` (2 bloques), `index.html` (2), `library.html` (2) y `room.html` (2 más el de socket.io) también tienen JS inline; hay que convertirlos antes de
+  quitar `'unsafe-inline'`.
+- **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
+
+---
+
 ## 2026-10-24 — `generalApiLimiter`: prefijo /64 explícito en IPv6
 
 - **Qué:** `ipKeyGenerator(clientIp(req), 64)` en `generalApiLimiter`; antes el segundo argumento faltaba y la librería usaba /56 por defecto (el comentario decía /64).

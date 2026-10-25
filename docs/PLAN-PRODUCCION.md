@@ -255,6 +255,9 @@ secundario.
       resultado pasado por la persona). Detalle en `docs/MEMORIA.md`.
 - [x] `generalApiLimiter` con /64 explícito en IPv6 (2026-10-24): antes usaba el /56 por defecto de la librería (el comentario decía /64); ahora iguala a los otros cuatro
       limitadores. Arranque y uso normal comprobados por Copilot en el PC de la persona; el límite de 300 pedidos/5 min no se probó de punta a punta. Detalle en `docs/MEMORIA.md`.
+- [ ] CSP sin `'unsafe-inline'` en `scriptSrc` (en curso, una página por patch): `reset-password.html` ✔ (2026-10-24, JS en `public/js/reset-password.js`, probada por Copilot con una
+      cuenta de prueba). Faltan `index.html`, `library.html`, `room.html` y `admin.html` (todas con 2 o más bloques inline; `admin.html` no figuraba en el plan original). La CSP no se
+      toca hasta que estén las cinco. Detalle en `docs/MEMORIA.md`.
 
 ### 2.3 Identidad del host — reemplazada por Fase 2bis (cuentas reales)
 - ~~Endurecer el `hostToken` actual (expiración, JWT, cookie httpOnly)~~ — con
