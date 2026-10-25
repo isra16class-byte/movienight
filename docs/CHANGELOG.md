@@ -1,5 +1,19 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-24 — `admin.html`: el script grande pasa a `public/js/admin.js`
+
+- **Qué:** paso 2 de la conversión hacia una CSP sin `'unsafe-inline'`: el segundo `<script>` de `admin.html` (17934 bytes, 423 líneas) se movió tal cual a `public/js/admin.js` y la página lo carga con
+  `<script src="/js/admin.js" defer></script>`. `admin.html` ya no tiene código inline. La CSP no cambió.
+- **Parche** (sobre `origin/plan-produccion`): `public/admin.html` y `public/js/admin.js` (nuevo).
+- **Verificado por el asistente:** contenido idéntico byte a byte al original, `node --check`, ids presentes, `npm test` 111/111, lint limpio.
+- **Probado por Copilot en el PC de la persona (`localhost`), con la consola escuchada, resultado pasado por la persona:** `admin.js` con 200, panel completo, service worker registrado, sin errores de CSP,
+  404 ni JavaScript, y una acción real (cerrar la sala de prueba `f38d60`) de punta a punta.
+- **No verificado:** el dominio real; el refresco de 15 s esperando sin tocar nada.
+- **Pendiente aparte (no de esta serie):** la CSP bloquea `static.cloudflareinsights.com/beacon.min.js` (analíticas que inyecta Cloudflare); permitirlo en `server.js` o desactivarlo en Cloudflare.
+- **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
+
+---
+
 ## 2026-10-24 — Registro del service worker compartido en `public/js/sw-register.js`
 
 - **Qué:** el bloque inline que registra `/sw.js`, idéntico en `index.html`, `library.html`, `room.html` y `admin.html`, pasa a `public/js/sw-register.js` y las 4 páginas lo cargan con
@@ -7,7 +21,8 @@
 - **Parche** (sobre `origin/plan-produccion`): `public/js/sw-register.js` (nuevo) y las 4 páginas (6 líneas cada una).
 - **Verificado por el asistente:** copias idénticas antes de extraer, contenido nuevo idéntico byte a byte, `node --check`, `npm test` 111/111, lint limpio.
 - **Probado por Copilot en el PC de la persona, resultado pasado por la persona:** `sw-register.js` y `/sw.js` con 200 y el service worker registrado, con las 4 páginas cargando.
-- **No verificado:** consola del navegador y el dominio real.
+- **Confirmado por la persona en el dominio real, con un navegador real, en las 4 páginas** (`/`, `/library.html`, `/room/<id>`, `/admin.html`): `sw-register.js` cargó bien, el service worker quedó
+  registrado en `/sw.js` con scope `/` y las 4 páginas funcionaron normal (incluido el 401 esperado de la biblioteca). La consola solo mostró el bloqueo del `beacon.min.js` de Cloudflare Insights (pendiente aparte).
 - **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
 
 ---

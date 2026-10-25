@@ -160,6 +160,29 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**CSP sin `'unsafe-inline'`, paso 2: `admin.html` sin JS inline (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
+(`admin.html: el script grande pasa a public/js/admin.js`). **La CSP NO cambió**: `scriptSrc` sigue con `'unsafe-inline'` (`index.html`, `library.html` y `room.html` conservan su script grande).
+
+- **Qué cambió:** el segundo `<script>` de `public/admin.html` (inline, 17934 bytes, 423 líneas: desde `function escapeHtml` hasta el `setInterval` del contador REC) pasó tal cual a
+  `public/js/admin.js` (archivo nuevo). `admin.html` lo carga con `<script src="/js/admin.js" defer></script>` en el mismo lugar (al final del body). `admin.html` ya no tiene código inline:
+  solo `sw-register.js` y `admin.js`. Sin `nonce`, `integrity` ni `crossorigin`.
+- **Por qué `defer` es correcto:** el script hace `getElementById` al cargar, la página no tiene atributos `on*=` y nada depende de ejecutarse antes de terminar de parsear.
+- **No cambió:** CSP, `server.js`, `sw-register.js`, otras páginas, ningún nombre de función ni variable; las rutas `fetch` (`/auth/*`, `/admin/settings`, `/admin/stats`, `/admin/rooms`,
+  `/admin/security` y las acciones de `/admin/rooms/...`) son relativas al mismo origen y siguen igual.
+- **Verificado por el asistente:** comparación byte a byte del `<script>` viejo (de `git show 6b1e6f1:public/admin.html`) contra `admin.js`: idéntico (17934 contra 17934 bytes); `node --check`; ningún
+  bloque inline con código; los ids que usa el script existen en el HTML (`logoutBtn` lo crea el propio JS); `npm test` 111/111 y lint limpio, antes y después.
+- **Probado por Copilot en el PC de la persona (`localhost:3000`, tras `git am` y `docker compose up -d --build`, recarga forzada, con la sesión de admin ya abierta), resultado pasado por la
+  persona; la persona no lo marcó explícitamente como confirmado:** `admin.js` cargó con 200; el panel mantiene estadísticas, salas activas, «Bloqueados ahora» y acciones globales; el service
+  worker sigue registrado con `/sw.js`. Esta vez la herramienta SÍ escuchó la consola (`page.on('console')` y `pageerror` antes de recargar): sin errores de CSP, 404 ni JavaScript, ni avisos nuevos.
+  Acción de punta a punta: cerró la sala de prueba `f38d60` desde el panel (Cerrar → confirmar) y tras el refresco el panel mostró «No hay salas activas ahora mismo.» y «Nadie bloqueado ahora mismo.».
+- **No verificado:** el dominio real (solo `localhost`; allí el error del beacon de Cloudflare no aparece, porque lo inyecta el proxy); el refresco automático de 15 s esperando sin tocar nada.
+- **Plan de conversión (decidido por la persona):** 1) `sw-register.js` ✔ (confirmado en el dominio real); 2) `admin.html` ✔ (este); 3) `index.html`; 4) `library.html`; 5) `room.html`; 6) recién entonces
+  quitar `'unsafe-inline'` de `scriptSrc`. Siguiente: `index.html`.
+- **Pendiente aparte, sin relación con la conversión de CSP (no se toca en ningún parche de esta serie):** la CSP bloquea `https://static.cloudflareinsights.com/beacon.min.js`, el script de analíticas
+  que Cloudflare inyecta solo en los sitios que pasan por su proxy. Sale como error de consola en las 4 páginas verificadas en el dominio real; no rompe nada. Dos caminos si algún día se quiere resolver:
+  permitirlo agregando `https://static.cloudflareinsights.com` a `scriptSrc`/`connectSrc` en `server.js` (si interesan esas analíticas), o desactivar la inyección automática desde el panel de
+  Cloudflare (si no interesan). Ya figuraba como observación en una entrada anterior; queda como pendiente sin resolver.
+
 **CSP sin `'unsafe-inline'`, paso 1 (compartido): el registro del service worker sale de las 4 páginas (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
 (`Registro del service worker: de 4 bloques inline a public/js/sw-register.js`). **La CSP NO cambió**: `scriptSrc` sigue con `'unsafe-inline'`.
 
@@ -174,7 +197,10 @@ mover la barra de progreso — cualquier intento se revierte.
   explícitamente como confirmado:** `sw-register.js` con 200 en `/`, `/library.html`, `/room/<id>` y `/admin.html`; `/sw.js` con 200; el service worker aparece registrado (scope
   `http://localhost:3000/`, script `/sw.js`); cada página carga y funciona a simple vista (la biblioteca muestra las cintas, la sala muestra el diálogo de nombre). El registro de la herramienta
   muestra el detalle de `/` y de la sala; `library.html` y `admin.html` figuran solo en su resumen.
-- **No verificado:** la consola del navegador (la herramienta no la leyó; «sin errores relevantes» no está comprobado); el dominio real, solo se probó en `localhost`.
+- **Confirmado por la persona en el dominio real (`sala.movienight-palomitasjuntos.uk`), con un navegador real, en las 4 páginas (`/`, `/library.html`, `/room/<id>`, `/admin.html`):**
+  `sw-register.js` cargó bien en las 4, el service worker quedó registrado en `/sw.js` con scope `/`, y las 4 páginas funcionaron normal (incluido el 401 esperado de la biblioteca al pedir
+  contraseña). Esto reemplaza lo anterior de «solo localhost / sin verificar el dominio». La consola mostró un único error ajeno a este cambio: la CSP bloquea `beacon.min.js` de
+  Cloudflare Insights (ver el pendiente aparte, abajo).
 - **Plan de conversión (decidido por la persona):** 1) este paso; 2) `admin.html`; 3) `index.html`; 4) `library.html`; 5) `room.html`; 6) recién entonces quitar `'unsafe-inline'` de `scriptSrc`.
   Siguiente: `admin.html`.
 
