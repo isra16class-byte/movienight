@@ -210,14 +210,14 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      // 'unsafe-inline' hace falta porque HOY todo el JS de las 4 páginas (index.html, library.html,
-      // room.html, reset-password.html) vive en <script> inline en el propio HTML, sin nonces ni un
-      // bundle separado — no hay forma de permitir esos scripts con una CSP más estricta sin antes
-      // convertir esas páginas en plantillas renderizadas por request (hoy son archivos estáticos
-      // servidos tal cual por express.static). Queda anotado como posible mejora futura, no bloquea
-      // esta fase: la CSP igual corta XSS vía scripts inyectados desde OTRO origen o vía atributos
-      // on*= (scriptSrcAttr abajo), que es el vector más común en la práctica.
-      scriptSrc: ["'self'", "'unsafe-inline'"],
+      // Desde el paso 5 de la conversión (sacar todo el JS inline de las páginas a public/js/*.js),
+      // ninguna página necesita 'unsafe-inline' en scriptSrc: cada <script> de public/ es un
+      // <script src="..."> del propio origen (/js/*.js, o /socket.io/socket.io.js que sirve este
+      // mismo servidor). scriptSrcAttr sigue en 'none' (bloquea los atributos on*=).
+      // Si alguien agrega un <script> inline a una página nueva o existente, esta CSP lo va a
+      // bloquear: es intencional. La forma correcta de agregar JS nuevo es como archivo en
+      // public/js/ referenciado con <script src="/js/...">, no inline.
+      scriptSrc: ["'self'"],
       scriptSrcAttr: ["'none'"],
       // Mismo motivo que scriptSrc: hay estilos inline (style="...") en todas las páginas.
       // https://fonts.googleapis.com además, porque las 4 páginas cargan ahí la hoja de estilos de
