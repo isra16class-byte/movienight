@@ -160,6 +160,25 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**CSP sin `'unsafe-inline'`, paso 6: `scriptSrc` queda en `['self']` (2026-10-25)**: hecho y probado por la persona en el dominio público. Un parche sobre `origin/plan-produccion`
+(`CSP: scriptSrc sin 'unsafe-inline' (paso 6 de la conversion)`, solo `server.js`). **Con esto termina la serie de 6 pasos.**
+
+- **Qué cambió:** en `server.js`, `scriptSrc: ["'self'", "'unsafe-inline'"]` pasó a `scriptSrc: ["'self'"]`, y se reemplazó el comentario (ya falso) por uno que dice que ninguna página necesita `'unsafe-inline'`, que
+  `scriptSrcAttr` sigue en `'none'` y que un `<script>` inline nuevo se bloquea a propósito: el JS nuevo va como archivo en `public/js/`, referenciado con `<script src="/js/...">`.
+- **No cambió:** `scriptSrcAttr`, `styleSrc` (sigue con `'unsafe-inline'`: hay `style="..."` inline en todas las páginas; es un tema aparte), ninguna otra directiva, ningún archivo de `public/`.
+- **Verificado por el asistente:** `grep "<script" public/*.html` antes y después: cero `<script>` sin `src` (`privacy.html` y `terms.html` no tienen ninguno); sin `javascript:`, `eval` ni `new Function` en `public/` y `server.js`;
+  `node --check`; `npm test` 111/111, lint limpio; con el servidor en local (`DISABLE_REDIS=1`) la cabecera real manda `script-src 'self'` y `script-src-attr 'none'`, sin `'unsafe-inline'`; las 7 páginas y los `.js` responden 200.
+- **Probado por la persona en el dominio público (con la CSP nueva, confirmado porque el error del beacon de Cloudflare ahora dice `"script-src 'self'"` y antes decía `'self' 'unsafe-inline'`):** Copilot (sin sesión ni
+  contraseña) vio `/`, `/library.html` (diálogo de contraseña), `/reset-password.html?token=algofalso` y una sala, cada una con su `.js` cargado y sin error de CSP propio, 404 ni error JavaScript;
+  **`/admin.html` con sesión de admin carga sus datos (3 salas activas, parámetros)**, con `sw-register.js` y `admin.js` en 200; la persona probó crear una sala desde la portada, la biblioteca con la contraseña
+  correcta y una sala real con video y chat (sala `cf6d9c`: video reproduciéndose, chat, websocket 101), todo sin errores nuevos en la consola.
+- **Consola, solo avisos conocidos y ajenos al cambio:** beacon de Cloudflare bloqueado por la CSP, `apple-mobile-web-app-capable` obsoleta, 404 de `favicon.ico`.
+- **No verificado:** `privacy.html` y `terms.html` no se abrieron en el navegador (no tienen scripts, la cabecera es la misma); en móvil, rotación y teclado de Android de `room.html` (la persona lo hará después).
+- **Con esto queda resuelto** el pendiente viejo de confirmar `admin.html` en el dominio real.
+- **Pendientes aparte:** (1) la CSP bloquea `https://static.cloudflareinsights.com/beacon.min.js`: permitirlo en `server.js` (`scriptSrc`/`connectSrc`) o desactivar la inyección en el panel de Cloudflare;
+  (2) `favicon.ico` da 404 (no hay ícono); (3) `<meta name="apple-mobile-web-app-capable">` obsoleta: agregar `mobile-web-app-capable`; (4) `styleSrc` sigue con `'unsafe-inline'`, tema aparte;
+  (5) prueba en móvil de `room.html`; (6) limpieza de salas de prueba.
+
 **CSP sin `'unsafe-inline'`, paso 5: `room.html` sin JS inline (2026-10-25)**: hecho y probado por la persona en PC y en el dominio público; **queda pendiente solo la prueba en móvil** (ver abajo). Un parche sobre `origin/plan-produccion`
 (`room.html: el script grande pasa a public/js/room.js`). **La CSP NO cambió**: `scriptSrc` sigue con `'unsafe-inline'`. Con este paso ya no queda JS inline en ninguna página de `public/`.
 

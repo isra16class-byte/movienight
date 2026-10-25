@@ -1,5 +1,17 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-25 — CSP: `scriptSrc` sin `'unsafe-inline'` (paso 6, fin de la serie)
+
+- **Qué:** en `server.js`, `scriptSrc` pasó de `["'self'", "'unsafe-inline'"]` a `["'self'"]`, con el comentario actualizado. `scriptSrcAttr` (`'none'`) y `styleSrc` (con `'unsafe-inline'`) no cambiaron.
+- **Parche** (sobre `origin/plan-produccion`): solo `server.js`.
+- **Verificado por el asistente:** cero `<script>` inline en `public/`, `node --check`, `npm test` 111/111, lint limpio, y la cabecera real en local con `script-src 'self'` sin `'unsafe-inline'`.
+- **Probado por la persona en el dominio público:** `/`, biblioteca (con contraseña), recuperar contraseña, `/admin.html` con sesión (carga sus datos), crear sala y una sala real con video y chat; sin errores de CSP propios
+  (solo el beacon de Cloudflare, `apple-mobile-web-app-capable` y el 404 de `favicon.ico`, ya conocidos).
+- **No verificado:** `privacy.html` y `terms.html` en el navegador; en móvil, rotación y teclado de `room.html`.
+- **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
+
+---
+
 ## 2026-10-25 — `room.html`: el script grande pasa a `public/js/room.js`
 
 - **Qué:** paso 5 de la conversión hacia una CSP sin `'unsafe-inline'`: el tercer `<script>` de `room.html` (66633 bytes, 1194 líneas) se movió tal cual a `public/js/room.js` y la página lo carga con

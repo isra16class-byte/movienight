@@ -255,9 +255,9 @@ secundario.
       resultado pasado por la persona). Detalle en `docs/MEMORIA.md`.
 - [x] `generalApiLimiter` con /64 explícito en IPv6 (2026-10-24): antes usaba el /56 por defecto de la librería (el comentario decía /64); ahora iguala a los otros cuatro
       limitadores. Arranque y uso normal comprobados por Copilot en el PC de la persona; el límite de 300 pedidos/5 min no se probó de punta a punta. Detalle en `docs/MEMORIA.md`.
-- [ ] CSP sin `'unsafe-inline'` en `scriptSrc` (en curso, una página por patch): `reset-password.html` ✔ (2026-10-24, JS en `public/js/reset-password.js`, probada por Copilot con una
-      cuenta de prueba). El bloque del service worker, idéntico en `index.html`, `library.html`, `room.html` y `admin.html`, ya está en `public/js/sw-register.js` (2026-10-24, confirmado por la persona en el dominio real). `admin.html` ya está en `public/js/admin.js` (2026-10-24, probado por Copilot en local; `admin.html` no figuraba en el plan original). `index.html` ya está en `public/js/index.js` (2026-10-24, probado por Copilot en el dominio y en local; el camino de subida real no se comprobó con evidencia). `library.html` ya está en `public/js/library.js` (2026-10-24, probado en el dominio y en local; el cambio de cinta desde una sala lo confirmó la persona). `room.html` ya está en `public/js/room.js` (2026-10-25, probado por la persona en PC y en el dominio público; **pendiente solo la prueba en móvil**: rotación y teclado de Android). Ya no queda JS inline en ninguna página; solo falta quitar `'unsafe-inline'` de la CSP (paso 6). La CSP no se
-      toca hasta que estén las cinco. Detalle en `docs/MEMORIA.md`.
+- [x] CSP sin `'unsafe-inline'` en `scriptSrc` (hecho 2026-10-25, una página por patch y al final `scriptSrc: ['self']`; **queda pendiente solo la prueba en móvil de `room.html`**): `reset-password.html` ✔ (2026-10-24, JS en `public/js/reset-password.js`, probada por Copilot con una
+      cuenta de prueba). El bloque del service worker, idéntico en `index.html`, `library.html`, `room.html` y `admin.html`, ya está en `public/js/sw-register.js` (2026-10-24, confirmado por la persona en el dominio real). `admin.html` ya está en `public/js/admin.js` (2026-10-24, probado por Copilot en local; `admin.html` no figuraba en el plan original). `index.html` ya está en `public/js/index.js` (2026-10-24, probado por Copilot en el dominio y en local; el camino de subida real no se comprobó con evidencia). `library.html` ya está en `public/js/library.js` (2026-10-24, probado en el dominio y en local; el cambio de cinta desde una sala lo confirmó la persona). `room.html` ya está en `public/js/room.js` (2026-10-25, probado por la persona en PC y en el dominio público; **pendiente solo la prueba en móvil**: rotación y teclado de Android). Ya no queda JS inline en ninguna página, y el paso 6 (quitar `'unsafe-inline'` de `scriptSrc` en `server.js`) está hecho y probado por la persona en el dominio público, incluido `admin.html` con sesión.
+      `styleSrc` sigue con `'unsafe-inline'`: tema aparte. Detalle en `docs/MEMORIA.md`.
 - [ ] (Aparte, no es de la serie CSP) La CSP bloquea `https://static.cloudflareinsights.com/beacon.min.js`, el script de analíticas que inyecta Cloudflare; error de consola en las 4 páginas del dominio
       real, no rompe nada. Resolver permitiéndolo en `server.js` (`scriptSrc`/`connectSrc`) o desactivando la inyección en el panel de Cloudflare. Sin resolver.
 
@@ -309,7 +309,7 @@ secundario.
       no solo por ausencia de errores en consola, sino visualmente
       (screenshot de cada página) y por `document.fonts.check(...)`. Sin
       ningún mensaje de CSP/CORS en ninguna de las tres.
-- **Nota (no bloqueante, mejora futura)**: `'unsafe-inline'` en `script-src`/
+- **Nota (no bloqueante, mejora futura; ACTUALIZADO 2026-10-25: `script-src` ya no lleva `'unsafe-inline'`, lo de abajo vale hoy solo para `style-src`)**: `'unsafe-inline'` en `script-src`/
   `style-src` sigue siendo necesario porque `index.html`, `library.html`,
   `room.html` y `reset-password.html` tienen todo su JS/CSS inline, sin nonces
   — una CSP basada en nonces exigiría convertir esas páginas en plantillas
