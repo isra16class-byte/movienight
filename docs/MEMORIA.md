@@ -160,6 +160,34 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**CSP sin `'unsafe-inline'`, paso 5: `room.html` sin JS inline (2026-10-25)**: hecho en código; **las pruebas de navegador quedan parcialmente pendientes** (ver abajo). Un parche sobre `origin/plan-produccion`
+(`room.html: el script grande pasa a public/js/room.js`). **La CSP NO cambió**: `scriptSrc` sigue con `'unsafe-inline'`. Con este paso ya no queda JS inline en ninguna página de `public/`.
+
+- **Qué cambió:** el tercer `<script>` de `public/room.html` (inline, 66633 bytes, 1194 líneas: desde el comentario «Alto real de la sala» antes de `function setAppHeight()` hasta el último
+  `document.addEventListener('fullscreenchange', ...)`) pasó tal cual a `public/js/room.js` (archivo nuevo). `room.html` lo carga con `<script src="/js/room.js" defer></script>` en el mismo lugar (antes de
+  `</body>`), después de `/socket.io/socket.io.js` y `/js/sw-register.js`, que siguen en el `<head>` y sin `defer`. Sin `nonce`, `integrity` ni `crossorigin`. (El prompt decía que empezaba en `function setAppHeight() {`;
+  empieza en un comentario justo antes. No cambia nada.)
+- **No cambió:** CSP, `server.js`, el `<script>` de socket.io, `sw-register.js`, otras páginas, ningún nombre de función ni variable. Claves de storage intactas (`mn_uid` y `mn_host_<sala>` en `localStorage`,
+  `mn_username_<sala>` en `sessionStorage`) y rutas relativas intactas (`/api/room/<sala>`, `/room/<sala>/upload-subtitle`, socket). No se anotó ningún bug durante la copia.
+- **Por qué `defer` es seguro:** `io` ya existe porque socket.io es bloqueante en el `<head>`; el script era lo último del body (después solo `</body></html>`), así que con `defer` corre con el mismo DOM completo; el
+  script no usa `DOMContentLoaded`, `readyState`, `window.onload`, `load`, `currentScript` ni `document.write`. Único efecto posible: la página puede pintarse un instante antes de que corra (parpadeo del layout), sin riesgo funcional.
+- **Verificado por el asistente:** comparación byte a byte (con `cmp` y con Python) del `<script>` viejo (de `git show 127de40:public/room.html`, líneas 161 a 1354) contra `room.js`: idéntico, también en un clon fresco
+  tras `git am`; `node --check`; `room.html` con tres `<script src>` y ninguno con código; no hay atributos `on*=`; `npm test` 111/111 y lint limpio.
+- **Probado por Copilot en el PC de la persona (local, `docker compose up -d --build`), resultado pasado por la persona; la persona no lo marcó explícitamente como confirmado:** `room.js` responde HTTP 200 y carga
+  en la sala `d6ff8b` como host, sin error de CSP, 404, warning nuevo ni error JavaScript; se ven video, controles, chat y lista de espectadores; con una segunda pestaña (otro nombre) la lista pasa a `👥 2`, un
+  mensaje de chat y una reacción `😂` enviados desde el espectador llegan al host.
+- **PENDIENTE (no verificado, anotado a pedido de la persona):**
+  1. Sincronización del video entre host y espectador (play, pausa, seek ±10 s): los clics sobre `#playPauseBtn` fallaron en Playwright («Element is not visible», los controles solo aparecen al pasar el ratón por el video); sin resultado.
+  2. Probar con un espectador realmente independiente (ventana de incógnito): las dos pestañas compartían `localStorage`, así que el espectador también tenía el token de host.
+  3. Danmaku, panel de emojis, subtítulos, y pantalla completa con el panel de emojis abierto (que se cierre solo al salir: `fullscreenchange`).
+  4. Modo claro y oscuro.
+  5. Solo móvil: rotación (layout fila/columna, `setAppHeight`, `orientationchange`) y el fix del teclado de Android.
+  6. Probar en el dominio público (`sala.movienight-palomitasjuntos.uk`) que `room.js` carga con 200 sin error de CSP ni 404.
+- **Limpieza pendiente (no es del código):** salas de prueba y la entrada `metrics-test.mp4` de la biblioteca local.
+- **Plan de conversión (decidido por la persona):** 1) `sw-register.js` ✔; 2) `admin.html` ✔; 3) `index.html` ✔; 4) `library.html` ✔; 5) `room.html` ✔ en código (este, con pruebas pendientes); 6) quitar `'unsafe-inline'` de
+  `scriptSrc`. **Recomendación del asistente: no hacer el paso 6 hasta cerrar los pendientes 1 y 6 de arriba**, porque es el cambio que haría fallar cualquier script inline que se haya escapado.
+- **Pendiente aparte (sin cambios):** la CSP bloquea `https://static.cloudflareinsights.com/beacon.min.js`; `admin.html` sigue sin confirmarse en el dominio real.
+
 **CSP sin `'unsafe-inline'`, paso 4: `library.html` sin JS inline (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
 (`library.html: el script grande pasa a public/js/library.js`, commit `1fd63a0`). **La CSP NO cambió**: `scriptSrc` sigue con `'unsafe-inline'` (`room.html` conserva su script grande).
 

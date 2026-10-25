@@ -1,5 +1,18 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-25 — `room.html`: el script grande pasa a `public/js/room.js`
+
+- **Qué:** paso 5 de la conversión hacia una CSP sin `'unsafe-inline'`: el tercer `<script>` de `room.html` (66633 bytes, 1194 líneas) se movió tal cual a `public/js/room.js` y la página lo carga con
+  `<script src="/js/room.js" defer></script>`, después de socket.io y `sw-register.js` (ambos siguen en el `<head>`, sin `defer`). `room.html` ya no tiene código inline. La CSP no cambió.
+- **Parche** (sobre `origin/plan-produccion`): `public/room.html` y `public/js/room.js` (nuevo).
+- **Verificado por el asistente:** contenido idéntico byte a byte al original, `node --check`, claves de storage y rutas intactas, revisión del orden de ejecución con `defer`, `npm test` 111/111, lint limpio.
+- **Probado por Copilot en local, resultado pasado por la persona:** `room.js` con 200 y sin errores; video, controles, chat y espectadores visibles; segunda pestaña (`👥 2`), chat y reacción llegan al host.
+- **Pendiente (no verificado):** sincronización de play/pausa/seek con un espectador independiente; danmaku, panel de emojis, subtítulos, pantalla completa con el panel abierto; modo claro/oscuro; en móvil, rotación
+  y teclado de Android; carga de `room.js` en el dominio público.
+- **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
+
+---
+
 ## 2026-10-24 — `library.html`: el script grande pasa a `public/js/library.js`
 
 - **Qué:** paso 4 de la conversión hacia una CSP sin `'unsafe-inline'`: el segundo `<script>` de `library.html` (25854 bytes, 573 líneas) se movió tal cual a `public/js/library.js` y la página lo carga con
