@@ -1,5 +1,17 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-24 — Registro del service worker compartido en `public/js/sw-register.js`
+
+- **Qué:** el bloque inline que registra `/sw.js`, idéntico en `index.html`, `library.html`, `room.html` y `admin.html`, pasa a `public/js/sw-register.js` y las 4 páginas lo cargan con
+  `<script src="/js/sw-register.js"></script>`. La CSP no cambió. Es el paso 1 de la conversión hacia una CSP sin `'unsafe-inline'`.
+- **Parche** (sobre `origin/plan-produccion`): `public/js/sw-register.js` (nuevo) y las 4 páginas (6 líneas cada una).
+- **Verificado por el asistente:** copias idénticas antes de extraer, contenido nuevo idéntico byte a byte, `node --check`, `npm test` 111/111, lint limpio.
+- **Probado por Copilot en el PC de la persona, resultado pasado por la persona:** `sw-register.js` y `/sw.js` con 200 y el service worker registrado, con las 4 páginas cargando.
+- **No verificado:** consola del navegador y el dominio real.
+- **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
+
+---
+
 ## 2026-10-24 — `reset-password.html`: el script inline pasa a `public/js/reset-password.js`
 
 - **Qué:** primer paso para poder quitar `'unsafe-inline'` de `scriptSrc`: el único `<script>` inline de `reset-password.html` (1749 bytes) se movió tal cual a

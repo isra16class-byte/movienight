@@ -160,6 +160,24 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**CSP sin `'unsafe-inline'`, paso 1 (compartido): el registro del service worker sale de las 4 páginas (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
+(`Registro del service worker: de 4 bloques inline a public/js/sw-register.js`). **La CSP NO cambió**: `scriptSrc` sigue con `'unsafe-inline'`.
+
+- **Qué cambió:** `index.html`, `library.html`, `room.html` y `admin.html` tenían el MISMO bloque inline de registro del service worker (comprobado byte a byte antes de tocar: las
+  4 copias idénticas, 123 bytes). Pasó tal cual a `public/js/sw-register.js` (archivo nuevo) y cada página lo carga con `<script src="/js/sw-register.js"></script>`, en la misma
+  posición (el primer `<script>` de cada una; en `room.html`, justo después del de socket.io, que no se tocó). Sin `defer` ni `async`, para conservar el momento de ejecución.
+- **No cambió:** CSP, `server.js`, `public/sw.js` (el service worker en sí), `express.static` (sirve `.js` con `Cache-Control: no-store`) ni el segundo `<script>` de cada página.
+- **Qué inline queda:** un bloque grande por página (`index.html` ~línea 101, `library.html` ~75, `room.html` ~160, `admin.html` ~96); `reset-password.html` ya no tiene.
+- **Verificado por el asistente:** comparación byte a byte del bloque viejo (de cada una de las 4 páginas, en `HEAD`) contra `sw-register.js`: igual en las 4; ninguna página conserva
+  `serviceWorker.register` inline; `node --check`; `npm test` 111/111 y lint limpio, antes y después. Cada página cambia solo 6 líneas (ese bloque).
+- **Probado por Copilot en el PC de la persona (`localhost:3000`, tras `git am` y `docker compose up -d --build`, recarga forzada), resultado pasado por la persona; la persona no lo marcó
+  explícitamente como confirmado:** `sw-register.js` con 200 en `/`, `/library.html`, `/room/<id>` y `/admin.html`; `/sw.js` con 200; el service worker aparece registrado (scope
+  `http://localhost:3000/`, script `/sw.js`); cada página carga y funciona a simple vista (la biblioteca muestra las cintas, la sala muestra el diálogo de nombre). El registro de la herramienta
+  muestra el detalle de `/` y de la sala; `library.html` y `admin.html` figuran solo en su resumen.
+- **No verificado:** la consola del navegador (la herramienta no la leyó; «sin errores relevantes» no está comprobado); el dominio real, solo se probó en `localhost`.
+- **Plan de conversión (decidido por la persona):** 1) este paso; 2) `admin.html`; 3) `index.html`; 4) `library.html`; 5) `room.html`; 6) recién entonces quitar `'unsafe-inline'` de `scriptSrc`.
+  Siguiente: `admin.html`.
+
 **CSP sin `'unsafe-inline'`, paso 1: `reset-password.html` sin JS inline (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
 (`reset-password.html: el script inline pasa a public/js/reset-password.js`). Es el primero de varios patches (uno por página); **la CSP NO cambió**:
 `scriptSrc` sigue con `'unsafe-inline'` porque las demás páginas siguen con JS inline.
