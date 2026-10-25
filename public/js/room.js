@@ -1,0 +1,1194 @@
+// --- Alto real de la sala (fix: el teclado en Android empujaba el video fuera de la pantalla) ---
+// 100dvh ya cubre la mayoría de navegadores modernos, pero visualViewport es la fuente más confiable
+// del área realmente visible (se actualiza incluso donde dvh tarda en reaccionar o no está soportado).
+// El CSS de .room-scene usa esta variable como última capa: calc(var(--app-height, 100vh)).
+function setAppHeight() {
+  const h = (window.visualViewport ? window.visualViewport.height : window.innerHeight);
+  document.documentElement.style.setProperty('--app-height', h + 'px');
+}
+setAppHeight();
+window.addEventListener('resize', setAppHeight);
+window.addEventListener('orientationchange', setAppHeight);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', setAppHeight);
+  // 'scroll' también, no solo 'resize': en algunos Android+Chrome, al cerrarse el teclado
+  // visualViewport dispara un 'scroll' en vez de (o antes que) el 'resize' final, y sin este
+  // listener --app-height se queda pegado en el valor chico de cuando el teclado estaba abierto.
+  window.visualViewport.addEventListener('scroll', setAppHeight);
+}
+
+// --- Layout fila (video+chat al costado) vs. columna (video arriba, chat abajo) en celular ---
+// Fix: esto antes se decidía en CSS puro con max-height/min-height del viewport, pero abrir el
+// teclado también achica esa altura y hacía que, en pantalla vertical, se activara por error el
+// layout de fila pensado para landscape angosto (video comprimido, chat ocupando media pantalla).
+// Ahora se decide acá con la orientación REAL del dispositivo (no la altura visible), y solo se
+// vuelve a calcular en 'orientationchange' — que dispara una rotación física real del celular.
+// Abrir/cerrar el teclado dispara 'resize' / 'visualViewport.resize', pero NUNCA 'orientationchange',
+// así que ya no puede confundir esto. El CSS (style.css) lee la clase `device-landscape` en <html>.
+function updateOrientationClass() {
+  const isLandscape = window.matchMedia('(orientation: landscape)').matches;
+  document.documentElement.classList.toggle('device-landscape', isLandscape);
+}
+updateOrientationClass();
+window.addEventListener('orientationchange', updateOrientationClass);
+
+// --- Mover código de sala + botón Salir a la pestaña "Sala" solo en celular ---
+// En PC se quedan arriba de las pestañas (posición original). En celular se mudan dentro del
+// panel "Sala" para liberar espacio y que el chat (lo que la gente está escribiendo) tenga más
+// lugar visible en pantallas chicas. Es el mismo nodo del DOM movido de contenedor (no una copia:
+// así los ids (roomCodeText, copyBtn, leaveBtn) siguen siendo únicos y sus listeners no se pierden).
+// Se usa matchMedia sobre el ANCHO (no el alto) para que abrir el teclado (que solo achica el alto
+// visible) nunca dispare un movimiento de por medio — mismo criterio que updateOrientationClass().
+const codeSalirGroup = document.getElementById('codeSalirGroup');
+const sideHeaderDesktop = document.getElementById('sideHeaderDesktop');
+const codeSalirSlotMobile = document.getElementById('codeSalirSlotMobile');
+const mobileLayoutQuery = window.matchMedia('(max-width: 820px)');
+function placeCodeSalirGroup() {
+  const isMobile = mobileLayoutQuery.matches;
+  const target = isMobile ? codeSalirSlotMobile : sideHeaderDesktop;
+  if (codeSalirGroup.parentElement !== target) target.appendChild(codeSalirGroup);
+  // El contenedor que se queda sin el grupo (sideHeaderDesktop en celular, codeSalirSlotMobile en
+  // PC) debería colapsar solo por el CSS `.side-header:empty`, pero eso nunca dispara: al moverse
+  // el grupo con appendChild quedan nodos de texto (los saltos de línea/indentación del HTML) como
+  // hijos, así que el contenedor nunca es realmente ":empty" para el navegador. Resultado: quedaba
+  // una franja vacía con su padding y borde entre el video y las pestañas en celular. Se oculta a
+  // mano en vez de confiar en :empty.
+  sideHeaderDesktop.style.display = isMobile ? 'none' : '';
+  codeSalirSlotMobile.style.display = isMobile ? '' : 'none';
+}
+placeCodeSalirGroup();
+if (mobileLayoutQuery.addEventListener) {
+  mobileLayoutQuery.addEventListener('change', placeCodeSalirGroup);
+} else {
+  mobileLayoutQuery.addListener(placeCodeSalirGroup); // respaldo para navegadores viejos
+}
+
+// --- Achicar el video y ocultar los emojis/barra de volumen mientras se escribe en el chat (celular) ---
+// Pedido del usuario: con el teclado abierto solo se alcanzaba a ver el último mensaje (el que se
+// estaba escribiendo empujaba todo lo demás fuera de vista). Se ata al focus/blur del campo de
+// chat (no a la altura del viewport) porque es la señal más directa de "el teclado está abierto",
+// y measurements por visualViewport ya se usan para otra cosa (--app-height) — mezclarlas agrega
+// falsos positivos (p. ej. la barra de direcciones del navegador ocultándose también achica la
+// altura visible sin que haya teclado). El CSS (style.css, dentro del media query de celular)
+// reacciona a la clase `keyboard-open` en <html> para ocultar la fila de reacciones y bajarle un
+// poco el tope de altura al video (poco, a pedido — la prioridad es que el video se siga viendo
+// grande, no maximizar el chat).
+function setKeyboardOpen(isOpen) {
+  document.documentElement.classList.toggle('keyboard-open', isOpen);
+  updateLocalControlsVisibility();
+  if (isOpen) closeVolPopup();
+}
+
+// La barra de volumen/pantalla completa (solo para invitados, no-host) también se oculta mientras
+// el teclado está abierto en celular, mismo criterio que los emojis — ninguna de las dos hace
+// falta mientras se está escribiendo, y le dejan más aire al chat. Se maneja acá y no con CSS
+// puro porque el display de #localControls ya se controla por JS (host vs invitado, ver
+// `socket.on('host-status', ...)` más abajo) y una regla de CSS no le ganaría a ese inline style.
+function updateLocalControlsVisibility() {
+  const el = document.getElementById('localControls');
+  if (!el) return;
+  if (isHost) { el.style.display = 'none'; return; }
+  const hiddenForKeyboard = document.documentElement.classList.contains('keyboard-open')
+    && mobileLayoutQuery.matches
+    && !document.documentElement.classList.contains('device-landscape');
+  el.style.display = hiddenForKeyboard ? 'none' : 'flex';
+}
+
+const roomId = location.pathname.split('/').pop();
+
+function getPersistentUserId() {
+  let id = localStorage.getItem('mn_uid');
+  if (!id) {
+    id = (crypto.randomUUID ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(16).slice(2)));
+    localStorage.setItem('mn_uid', id);
+  }
+  return id;
+}
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
+}
+
+// --- Modal genérico: reemplaza prompt()/confirm()/alert() nativos del navegador ---
+// (ver nota en style.css junto a .mn-modal-overlay sobre por qué existe). Un solo diálogo en el DOM,
+// reutilizado para los 3 casos (prompt/confirm/alert) mostrando u ocultando el input y el botón cancelar.
+// Bug (V10): close() agenda `overlay.hidden = true` recién a los 150ms, para que se vea la
+// animación de fade-out. Si se abre un mnDialog() nuevo ANTES de que ese timeout dispare, el timer
+// viejo igual dispara después y oculta el modal recién abierto (overlay.hidden = true le gana a la
+// clase is-visible) — queda invisible con su Promise sin resolver. Se guarda el id del timeout en
+// una variable de módulo y se cancela al abrir un modal nuevo (ver misma nota en library.html).
+let mnModalHideTimer = null;
+function mnDialog({ title, message = '', showInput = false, inputType = 'text', placeholder = '',
+                     defaultValue = '', okLabel = 'Aceptar', cancelLabel = 'Cancelar', showCancel = true }) {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById('mnModalOverlay');
+    const titleEl = document.getElementById('mnModalTitle');
+    const messageEl = document.getElementById('mnModalMessage');
+    const input = document.getElementById('mnModalInput');
+    const errorEl = document.getElementById('mnModalError');
+    const okBtn = document.getElementById('mnModalOk');
+    const cancelBtn = document.getElementById('mnModalCancel');
+
+    titleEl.textContent = title;
+    messageEl.textContent = message;
+    messageEl.hidden = !message;
+    input.hidden = !showInput;
+    input.type = inputType;
+    input.placeholder = placeholder;
+    input.value = defaultValue;
+    errorEl.hidden = true;
+    okBtn.textContent = okLabel;
+    cancelBtn.textContent = cancelLabel;
+    cancelBtn.hidden = !showCancel;
+
+    if (mnModalHideTimer) { clearTimeout(mnModalHideTimer); mnModalHideTimer = null; }
+    overlay.hidden = false;
+    requestAnimationFrame(() => overlay.classList.add('is-visible'));
+    setTimeout(() => (showInput ? input : okBtn).focus(), 30);
+
+    function close(result) {
+      overlay.classList.remove('is-visible');
+      mnModalHideTimer = setTimeout(() => { overlay.hidden = true; mnModalHideTimer = null; }, 150);
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      input.removeEventListener('keydown', onKeydown);
+      resolve(result);
+    }
+    function onOk() { close(showInput ? input.value : true); }
+    function onCancel() { close(showInput ? null : false); }
+    function onKeydown(e) {
+      if (e.key === 'Enter') { e.preventDefault(); onOk(); }
+      else if (e.key === 'Escape' && showCancel) onCancel();
+    }
+
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+    input.addEventListener('keydown', onKeydown);
+  });
+}
+function mnAlert(message, title = 'MovieNight') {
+  return mnDialog({ title, message, showCancel: false, okLabel: 'OK' });
+}
+function mnConfirm(message, title = '¿Estás seguro?') {
+  return mnDialog({ title, message, okLabel: 'Sí', cancelLabel: 'Cancelar' });
+}
+function mnPrompt({ title, placeholder = '', type = 'text', defaultValue = '', okLabel = 'Aceptar', cancelLabel = 'Cancelar', showCancel = true }) {
+  return mnDialog({ title, showInput: true, inputType: type, placeholder, defaultValue, okLabel, cancelLabel, showCancel });
+}
+
+const myUserId = getPersistentUserId();
+let username = sessionStorage.getItem('mn_username_' + roomId);
+let hostToken = localStorage.getItem('mn_host_' + roomId) || null;
+let roomPassword = null;
+
+const socket = io({ autoConnect: false });
+const player = document.getElementById('player');
+let isHost = false;
+let ignoreSync = false;
+let myId = null;
+let lastKnownTime = 0;
+
+document.getElementById('roomCodeText').textContent = roomId;
+document.getElementById('copyBtn').onclick = () => {
+  navigator.clipboard.writeText(location.href);
+  const btn = document.getElementById('copyBtn');
+  const original = btn.textContent;
+  btn.textContent = 'LISTO';
+  setTimeout(() => btn.textContent = original, 1500);
+};
+
+document.getElementById('leaveBtn').onclick = async () => {
+  if (await mnConfirm('¿Salir de la sala y volver al inicio?')) {
+    socket.disconnect();
+    location.href = '/';
+  }
+};
+
+// --- Confirmación al salir con el botón "atrás" (gesto o botón físico de Android, no solo leaveBtn) ---
+// Pedido del usuario: a alguien se le fue el pulgar dos veces sobre el botón de atrás del teléfono y
+// salió de la sala sin querer, mientras miraba la peli — tuvo que volver a entrar con el link. El
+// botón "Salir" de arriba ya pedía confirmación, pero el botón/gesto de atrás del navegador nunca
+// pasaba por acá: simplemente descartaba room.html y volvía a la página anterior en el historial (o
+// cerraba la pestaña directamente, si entró por un link directo sin nada antes en su historial —
+// justo el caso de la amiga).
+//
+// La técnica es el truco estándar para interceptar "atrás" en una página sin backend de rutas: al
+// entrar a la sala se empuja un estado extra al historial con la misma URL actual. Cuando el usuario
+// aprieta atrás, el navegador hace "pop" de ese estado extra en vez de salir de la página — eso
+// dispara 'popstate', que volvemos a interceptar re-empujando el mismo estado guardia de inmediato
+// (por eso funciona incluso con dos "atrás" seguidos, como le pasó a la amiga: el segundo también cae
+// en el mismo guardia) y recién ahí se pregunta lo mismo que ya preguntaba "Salir". Si confirma, se
+// sale de verdad; si cancela, se queda exactamente donde estaba, sin haber navegado a ningún lado.
+history.pushState({ mnRoomGuard: true }, '', location.href);
+let leaveConfirmOpen = false;
+window.addEventListener('popstate', async () => {
+  history.pushState({ mnRoomGuard: true }, '', location.href);
+  if (leaveConfirmOpen) return; // ya hay un diálogo esperando respuesta (doble "atrás" rápido); no abrir uno encima del otro
+  leaveConfirmOpen = true;
+  const confirmed = await mnConfirm('¿Salir de la sala y volver al inicio?');
+  leaveConfirmOpen = false;
+  if (confirmed) {
+    socket.disconnect();
+    location.href = '/';
+  }
+});
+
+// "Cambiar cinta" también navega fuera de room.html (a la biblioteca) y de vuelta, igual que
+// leaveBtn arriba — pero a diferencia de leaveBtn, antes no llamaba a socket.disconnect() primero:
+// dejaba que el navegador cerrara la conexión sola al descargar la página. Eso deja un socket
+// "fantasma" del lado del servidor durante una ventana breve (hasta que Socket.io detecta el corte,
+// que no es instantáneo con todos los transportes/redes — p. ej. por Cloudflare Tunnel), y en esa
+// ventana: (a) el traspaso automático de host puede dispararse igual, y (b) al reconectar con la
+// nueva pestaña antes de que el servidor haya limpiado la vieja, la lista de espectadores muestra
+// dos entradas con el mismo nombre del host (una viva, una fantasma) hasta que expira. Cerrando el
+// socket a mano acá, igual que en "Salir", el servidor se entera al instante y no queda ventana.
+document.getElementById('changeVideoLink').addEventListener('click', () => {
+  socket.disconnect();
+});
+
+// --- Entrada a la sala: nombre (si no lo tenemos ya) → chequeo de existencia/contraseña → conectar socket ---
+async function enterRoom() {
+  if (!username) {
+    username = (await mnPrompt({ title: '¿Cómo te llamas?', placeholder: 'Tu nombre', showCancel: false })).trim() || 'Anónimo';
+    sessionStorage.setItem('mn_username_' + roomId, username);
+  }
+
+  let data;
+  try {
+    data = await fetch(`/api/room/${roomId}`).then(r => r.json());
+  } catch (err) {
+    await mnAlert('No se pudo conectar con el servidor.');
+    return;
+  }
+  if (data.error) { await mnAlert('Sala no encontrada'); location.href = '/'; return; }
+
+  if (data.passwordProtected) {
+    roomPassword = await mnPrompt({ title: 'Esta sala tiene contraseña', placeholder: 'Contraseña', type: 'password', okLabel: 'Entrar' });
+    if (roomPassword === null) { location.href = '/'; return; }
+  }
+  socket.connect();
+}
+enterRoom();
+
+socket.on('connect', () => {
+  myId = socket.id;
+  socket.emit('join-room', { roomId, username, hostToken, userId: myUserId, password: roomPassword });
+  // Si se reconectó después de un reinicio, el banner de abajo ya cumplió su función — Socket.io
+  // reconecta solo por default, así que este 'connect' también dispara en cada reconexión, no solo
+  // en la entrada inicial a la sala.
+  document.getElementById('restartBanner').style.display = 'none';
+});
+
+// Graceful shutdown del server (Fase 1.4 del plan de producción, ver server.js): el server manda
+// este evento a todos los conectados justo antes de cerrar, con un margen de unos segundos antes de
+// cortar el socket de verdad. No hace nada más que mostrar el aviso — Socket.io ya reconecta solo
+// cuando el server vuelva a estar arriba (dispara 'connect' de nuevo, que oculta el banner), y el
+// `join-room` en ese reconnect ya trae de vuelta la posición/estado de la sala.
+socket.on('server-restarting', () => {
+  document.getElementById('restartBanner').style.display = 'block';
+});
+
+socket.on('room-error', async (msg) => {
+  if (msg && msg.includes('Contraseña')) {
+    const pw = await mnPrompt({ title: 'Contraseña incorrecta', placeholder: 'Intenta de nuevo', type: 'password', okLabel: 'Reintentar', cancelLabel: 'Volver al inicio' });
+    if (pw === null) { location.href = '/'; return; }
+    roomPassword = pw;
+    socket.emit('join-room', { roomId, username, hostToken, userId: myUserId, password: roomPassword });
+    return;
+  }
+  await mnAlert(msg);
+  location.href = '/';
+});
+
+// V18 — fix del reinicio a minuto 0: ver nota en server.js (makeRoom/videoPosition) para la causa
+// completa. Acá, la clave es reusar la MISMA condición que ya decidía si hay que (re)cargar el
+// <video> (`player.src.indexOf(videoFile) === -1`): eso es true únicamente en una carga fresca de
+// la página (primer join, o volver a entrar después de haber salido) — nunca en una reconexión de
+// socket mientras la pestaña sigue abierta (ej. un tropiezo de wifi de un segundo), porque en ese
+// caso el <video> nunca se destruyó y ya sigue reproduciendo desde el minuto correcto por su cuenta;
+// forzar un seek ahí de nuevo solo metería un salto innecesario. Por eso el seek a `position` vive
+// adentro del mismo `if`, no en un listener aparte.
+socket.on('room-data', ({ videoFile, subtitleFile, position }) => {
+  if (player.src.indexOf(videoFile) === -1) {
+    player.src = videoFile;
+    if (position) {
+      const applyInitialPosition = () => {
+        ignoreSync = true;
+        player.currentTime = position.time;
+        if (!position.paused) player.play().catch(() => {});
+        lastKnownTime = position.time;
+        setTimeout(() => ignoreSync = false, 300);
+      };
+      player.addEventListener('loadedmetadata', applyInitialPosition, { once: true });
+    }
+  }
+  updateSubtitleTrack(subtitleFile);
+});
+
+// El host cambió la cinta desde la biblioteca o subiendo un archivo nuevo (change-video /
+// change-video-from-upload en server.js). El host se entera porque esa acción lo manda y trae de
+// vuelta a /room/:id (recarga completa, ve el video nuevo vía 'room-data' al reconectar), pero
+// hasta V10 nadie más escuchaba este evento del lado del cliente: el servidor lo emitía a toda la
+// sala, pero los invitados, que nunca navegan a ningún lado, se quedaban con el <video> apuntando al
+// archivo viejo. Sin este listener, "cambiar cinta" solo cambiaba la película para el host.
+socket.on('video-changed', ({ videoFile }) => {
+  ignoreSync = true;
+  player.pause();
+  player.removeAttribute('src');
+  player.src = videoFile;
+  player.load();
+  lastKnownTime = 0;
+  setTimeout(() => ignoreSync = false, 300);
+});
+
+function updateSubtitleTrack(subtitleFile) {
+  const existing = document.getElementById('subsTrack');
+  if (existing) existing.remove();
+  if (subtitleFile) {
+    const track = document.createElement('track');
+    track.id = 'subsTrack';
+    track.kind = 'subtitles';
+    track.label = 'Subtítulos';
+    track.srclang = 'es';
+    track.src = subtitleFile;
+    track.default = true;
+    player.appendChild(track);
+  }
+}
+socket.on('subtitle-changed', ({ subtitleFile }) => updateSubtitleTrack(subtitleFile));
+
+socket.on('host-status', ({ isHost: host, hostToken: token }) => {
+  isHost = host;
+  if (host && token) {
+    hostToken = token;
+    localStorage.setItem('mn_host_' + roomId, token);
+  }
+  // Antes: player.controls = isHost (el host veía la barra nativa del navegador, que desentona
+  // con el resto de la interfaz "videoclub" y se ve distinta en cada navegador). Ahora el <video>
+  // nunca muestra sus controles nativos — el host tiene su propia barra (#hostControlsWrap: play/
+  // pausa, seek, tiempo, ±10s, pantalla completa), ver más abajo.
+  player.controls = false;
+  document.getElementById('hostBadge').style.display = isHost ? 'block' : 'none';
+  updateLocalControlsVisibility();
+  document.getElementById('hostControlsWrap').style.display = isHost ? 'flex' : 'none';
+  document.getElementById('hostPanelWrap').style.display = isHost ? 'block' : 'none';
+  document.getElementById('changeVideoLink').href = `/library.html?fromRoom=${roomId}`;
+  // Al volverse host recién ahora (p. ej. traspaso de control remoto), se muestra el overlay un
+  // momento en celular para que la persona se dé cuenta de que ahí están el badge y los botones
+  // de salto — si no, como arrancan ocultos, podría no descubrirlos nunca sin tocar el video antes.
+  if (isHost && mobileLayoutQuery.matches) showControlsOverlay();
+});
+
+socket.on('viewer-count', n => document.getElementById('viewers').textContent = `👥 ${n}`);
+
+socket.on('kicked', async () => { await mnAlert('Te expulsaron de la sala 🚪'); location.href = '/'; });
+socket.on('mute-status', ({ muted }) => {
+  document.getElementById('mutedBanner').style.display = muted ? 'block' : 'none';
+  const chatInputEl = document.getElementById('chatInput');
+  chatInputEl.contentEditable = muted ? 'false' : 'true';
+  chatInputEl.classList.toggle('is-disabled', muted);
+});
+
+// --- Lista de espectadores (solo el host ve botones) ---
+socket.on('viewer-list', (list) => {
+  const el = document.getElementById('viewerList');
+  el.innerHTML = '';
+  list.forEach(v => {
+    const row = document.createElement('div');
+    row.className = 'viewer-item';
+    let actions = '';
+    if (isHost && v.id !== myId && !v.isHost) {
+      actions = `<span class="actions">
+        <button class="make-host" data-id="${v.id}">Hacer host</button>
+        <button class="mute" data-id="${v.id}">${v.muted ? 'Desilenciar' : 'Silenciar'}</button>
+        <button class="kick" data-id="${v.id}">Expulsar</button>
+      </span>`;
+    }
+    row.innerHTML = `<span>${v.isHost ? '🎛 ' : ''}<span style="color:${usernameColor(v.username, v.isHost)}">${escapeHtml(v.username)}</span>${v.buffering ? ' ⏳' : ''}${v.muted ? ' 🔇' : ''}</span>${actions}`;
+    el.appendChild(row);
+  });
+  el.querySelectorAll('.mute').forEach(b => b.onclick = () => socket.emit('toggle-mute', b.dataset.id));
+  el.querySelectorAll('.kick').forEach(b => b.onclick = async () => { if (await mnConfirm('¿Expulsar a este usuario?')) socket.emit('kick-user', b.dataset.id); });
+  el.querySelectorAll('.make-host').forEach(b => b.onclick = async () => { if (await mnConfirm('¿Darle el control remoto a este usuario?')) socket.emit('make-host', b.dataset.id); });
+});
+
+// --- Tabs ---
+document.querySelectorAll('.tabs button').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+  };
+});
+
+// --- Sincronización (solo se emite si soy host) ---
+player.addEventListener('play', () => { if (isHost && !ignoreSync) socket.emit('sync', { type: 'play', time: player.currentTime }); });
+player.addEventListener('pause', () => { if (isHost && !ignoreSync) socket.emit('sync', { type: 'pause', time: player.currentTime }); });
+player.addEventListener('seeked', () => { if (isHost && !ignoreSync) socket.emit('sync', { type: 'seek', time: player.currentTime }); });
+
+socket.on('sync', (data) => {
+  if (data.type === 'heartbeat') {
+    const drift = data.time - player.currentTime;
+    const absDrift = Math.abs(drift);
+
+    if (absDrift > 4) {
+      // Desvío grande: no queda otra que saltar.
+      ignoreSync = true;
+      player.currentTime = data.time;
+      player.playbackRate = 1;
+      setTimeout(() => ignoreSync = false, 300);
+    } else if (absDrift > 0.5) {
+      // Desvío chico: en vez de saltar (lo que corta el buffer y causa el "se queda cargando"),
+      // se acelera/frena un poquito la reproducción hasta emparejar sola, sin re-pedir nada al servidor.
+      player.playbackRate = drift > 0 ? 1.06 : 0.94;
+    } else {
+      player.playbackRate = 1;
+    }
+
+    if (data.paused && !player.paused) { ignoreSync = true; player.pause(); setTimeout(() => ignoreSync = false, 300); }
+    if (!data.paused && player.paused) { ignoreSync = true; player.play(); setTimeout(() => ignoreSync = false, 300); }
+    lastKnownTime = data.time;
+    return;
+  }
+  ignoreSync = true;
+  player.playbackRate = 1;
+  if (Math.abs(player.currentTime - data.time) > 1) player.currentTime = data.time;
+  if (data.type === 'play') player.play();
+  if (data.type === 'pause') player.pause();
+  lastKnownTime = data.time;
+  setTimeout(() => ignoreSync = false, 300);
+});
+
+// El host manda su posición cada 4s para corregir cualquier desvío
+setInterval(() => {
+  if (isHost) socket.emit('sync', { type: 'heartbeat', time: player.currentTime, paused: player.paused });
+}, 4000);
+
+// Bloquea cualquier intento de adelantar/atrasar manual en los no-host
+player.addEventListener('timeupdate', () => {
+  if (!isHost && !ignoreSync) lastKnownTime = player.currentTime;
+});
+player.addEventListener('seeking', () => {
+  if (!isHost && !ignoreSync) {
+    ignoreSync = true;
+    player.currentTime = lastKnownTime;
+    setTimeout(() => ignoreSync = false, 200);
+  }
+});
+
+// --- Botones de salto rápido (solo host) ---
+document.getElementById('skipBackBtn').onclick = () => { player.currentTime = Math.max(0, player.currentTime - 10); };
+document.getElementById('skipFwdBtn').onclick = () => { player.currentTime = Math.min(player.duration || Infinity, player.currentTime + 10); };
+
+// --- Barra de controles propia (solo host): play/pausa + seek + tiempo ---
+// Reemplaza a los controles nativos del navegador (antes player.controls = isHost). Los nativos
+// se ven distinto en cada navegador (Chrome/Firefox/Safari) y no combinan con la estética
+// "videoclub" del resto de la sala — esta barra usa los mismos colores/fuentes que el resto de
+// los controles (skip-btn, osd-counter, etc.).
+const playPauseBtn = document.getElementById('playPauseBtn');
+const playPauseIcon = document.getElementById('playPauseIcon');
+const seekBar = document.getElementById('seekBar');
+const seekFill = document.getElementById('seekFill');
+const seekBuffered = document.getElementById('seekBuffered');
+const seekThumb = document.getElementById('seekThumb');
+const timeLabel = document.getElementById('timeLabel');
+// Barra de solo lectura para invitados (mismo formato de tiempo, sin thumb ni drag)
+const guestSeekFill = document.getElementById('guestSeekFill');
+const guestSeekBuffered = document.getElementById('guestSeekBuffered');
+const guestTimeLabel = document.getElementById('guestTimeLabel');
+
+function formatTime(sec) {
+  if (!isFinite(sec) || sec < 0) sec = 0;
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  const mm = h > 0 ? String(m).padStart(2, '0') : m;
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+// El ícono de play/pausa se actualiza con los eventos reales del <video> (no con el click del
+// botón): así queda correcto también cuando el estado cambia por otra vía (heartbeat, atajos de
+// teclado nativos que el navegador todavía dispara aunque controls esté en false, etc.).
+player.addEventListener('play', () => { playPauseIcon.textContent = '❚❚'; });
+player.addEventListener('pause', () => { playPauseIcon.textContent = '▶'; });
+playPauseBtn.onclick = () => { if (player.paused) player.play(); else player.pause(); };
+
+// Arrastre de la barra de progreso: mientras se arrastra (mouse o dedo) solo se mueve el visual
+// (seekFill/seekThumb) y el tiempo mostrado, sin tocar player.currentTime todavía — recién al
+// soltar se aplica el salto real. Si se moviera currentTime en cada pixel de arrastre, dispararía
+// un evento 'seeked' (y por lo tanto un 'sync' de red) por cada frame, saturando de mensajes.
+let draggingSeek = false;
+function seekRatioFromEvent(e) {
+  const rect = seekBar.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const ratio = (clientX - rect.left) / rect.width;
+  return Math.min(1, Math.max(0, ratio));
+}
+function paintSeek(ratio, previewTime) {
+  seekFill.style.width = (ratio * 100) + '%';
+  seekThumb.style.left = (ratio * 100) + '%';
+  if (player.duration) timeLabel.textContent = `${formatTime(previewTime)} / ${formatTime(player.duration)}`;
+}
+function startDrag(e) {
+  if (!isHost || !player.duration) return;
+  draggingSeek = true;
+  paintSeek(seekRatioFromEvent(e), seekRatioFromEvent(e) * player.duration);
+  e.preventDefault();
+}
+function moveDrag(e) {
+  if (!draggingSeek) return;
+  const ratio = seekRatioFromEvent(e);
+  paintSeek(ratio, ratio * player.duration);
+}
+function endDrag(e) {
+  if (!draggingSeek) return;
+  draggingSeek = false;
+  const ratio = seekRatioFromEvent(e.changedTouches ? { touches: e.changedTouches } : e);
+  player.currentTime = ratio * player.duration; // dispara 'seeked' -> emite 'sync' (ver arriba)
+}
+seekBar.addEventListener('mousedown', startDrag);
+document.addEventListener('mousemove', moveDrag);
+document.addEventListener('mouseup', endDrag);
+seekBar.addEventListener('touchstart', startDrag, { passive: false });
+document.addEventListener('touchmove', moveDrag, { passive: true });
+document.addEventListener('touchend', endDrag);
+
+// Progreso, buffer y tiempo: se actualizan solos mientras no se está arrastrando la barra.
+// La barra de invitado (guestSeekFill/guestTimeLabel) se actualiza siempre en paralelo a la del
+// host, aunque solo una de las dos esté visible según el rol (ver updateLocalControlsVisibility
+// y el display de #hostControlsWrap/#localControls) — así no depende de quién sea host en cada
+// momento (traspaso de control remoto incluido) y no hace falta duplicar el listener.
+player.addEventListener('timeupdate', () => {
+  if (!player.duration) return;
+  const ratio = player.currentTime / player.duration;
+  const timeText = `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`;
+  if (!draggingSeek) {
+    seekFill.style.width = (ratio * 100) + '%';
+    seekThumb.style.left = (ratio * 100) + '%';
+    timeLabel.textContent = timeText;
+  }
+  guestSeekFill.style.width = (ratio * 100) + '%';
+  guestTimeLabel.textContent = timeText;
+});
+function updateBufferedBar() {
+  if (!player.duration || player.buffered.length === 0) return;
+  const bufferedPct = Math.min(100, (player.buffered.end(player.buffered.length - 1) / player.duration) * 100);
+  seekBuffered.style.width = bufferedPct + '%';
+  guestSeekBuffered.style.width = bufferedPct + '%';
+}
+player.addEventListener('progress', updateBufferedBar);
+player.addEventListener('loadedmetadata', updateBufferedBar);
+
+// --- Overlay de host (badge "CONTROL REMOTO" + botones ±10s) oculto hasta tocar el video, en
+// celular / mover el mouse, en escritorio dentro de pantalla completa ---
+// En celular (fuera y dentro de pantalla completa) tapaban buena parte del video todo el tiempo,
+// así que imitan a cualquier reproductor: aparecen al tocar la pantalla y se esconden solos a los
+// pocos segundos de no volver a tocarlos. En escritorio, FUERA de pantalla completa se quedan
+// siempre visibles como antes (no estorban, hay mouse y espacio de sobra) — pero DENTRO de
+// pantalla completa tapan la experiencia "cine" igual que en celular, así que también se ocultan
+// solas a los pocos segundos sin mover el mouse y reaparecen al primer movimiento (como
+// YouTube/Netflix en fullscreen).
+//
+// Hay DOS grupos con temporizador propio, no uno solo (antes eran uno solo a 3s, pero eso causaba
+// un bug: si alguien tardaba más de 3s eligiendo un emoji, todo el desplegable desaparecía de
+// golpe en pleno uso):
+// - Grupo "controles" (3s, `controls-visible`): #hostControlsWrap (host, la barra de progreso +
+//   ±10s) y #localControls (invitado: barra de solo lectura + volumen + pantalla completa),
+//   además de `.host-badge`. Nunca se muestran host-controls y local-controls a la vez porque
+//   `isHost` decide cuál de los dos está en el DOM con `display` distinto de `none` (ver
+//   `host-status` más arriba).
+// - Grupo "aside" (5s, `aside-visible`): `.viewers-badge` (contador de espectadores) y `.fs-emoji`
+//   (desplegable de reacciones) — se pidió más tiempo que el grupo de controles porque leer la
+//   lista de emojis o el contador lleva más que un vistazo rápido a la barra de progreso.
+//
+// Mientras el panel de emojis está ABIERTO (`.fs-emoji-panel.open`), `.fs-emoji` se fija visible
+// sin importar ningún temporizador (ver `setEmojiPanelOpen` más abajo) — así se resuelve el bug de
+// raíz: no es que ahora dure más, es que directamente no corre ningún reloj mientras se está
+// interactuando con el panel. Además, mientras el panel está abierto se oculta la barra de
+// progreso (`.host-controls`/`.local-controls`) para no competir por espacio/atención con el panel.
+// El CSS (style.css) es el que realmente oculta/muestra cada grupo vía sus clases en `.screen-wrap`
+// (opacity + pointer-events) — acá solo se decide CUÁNDO agregar/quitar esas clases.
+const screenWrap = document.querySelector('.screen-wrap');
+let overlayHideTimer = null; // grupo "controles", 3s
+let asideHideTimer = null;   // grupo "aside" (espectadores + emojis), 5s
+function showControlsOverlay() {
+  // No mostrar la barra de progreso mientras el panel de emojis está abierto (pedido explícito) —
+  // el CSS ya la fuerza oculta con `.emoji-panel-open`, pero cortar acá evita además que quede
+  // corriendo un temporizador de 3s de fondo sin sentido mientras tanto.
+  if (screenWrap.classList.contains('emoji-panel-open')) return;
+  screenWrap.classList.add('controls-visible');
+  clearTimeout(overlayHideTimer);
+  overlayHideTimer = setTimeout(() => screenWrap.classList.remove('controls-visible'), 3000);
+}
+function showAsideOverlay() {
+  screenWrap.classList.add('aside-visible');
+  clearTimeout(asideHideTimer);
+  asideHideTimer = setTimeout(() => screenWrap.classList.remove('aside-visible'), 5000);
+}
+screenWrap.addEventListener('click', (e) => {
+  if (!mobileLayoutQuery.matches) return;
+  // Tocar el badge o la barra de progreso (host o invitado) no debe "apagar" el overlay de golpe
+  // (el botón ya ejecuta su propia acción con este mismo click) — solo hay que refrescarle el
+  // temporizador de autoescondido para que no desaparezca mientras el dedo todavía está ahí.
+  if (e.target.closest('.host-controls') || e.target.closest('.host-badge') || e.target.closest('.local-controls')) {
+    showControlsOverlay();
+    return;
+  }
+  // Ídem para el contador de espectadores y el desplegable de reacciones, pero con el grupo
+  // "aside" — importante manejarlos aparte del branch de "tocar el video" de abajo: antes no
+  // estaban contemplados acá, así que tocar el botón de emojis caía en ese branch y podía cerrar
+  // todo el overlay de un tap en vez de solo abrir/cerrar el panel (ver `fsEmojiToggle.onclick`).
+  if (e.target.closest('.viewers-badge') || e.target.closest('.fs-emoji')) {
+    showAsideOverlay();
+    return;
+  }
+  // Tocar el video (fuera de cualquier overlay): alterna los dos grupos juntos, como el
+  // tap-to-toggle de cualquier reproductor.
+  if (screenWrap.classList.contains('controls-visible') || screenWrap.classList.contains('aside-visible')) {
+    screenWrap.classList.remove('controls-visible', 'aside-visible');
+    clearTimeout(overlayHideTimer);
+    clearTimeout(asideHideTimer);
+  } else {
+    showControlsOverlay();
+    showAsideOverlay();
+  }
+});
+// Equivalente en escritorio, pero por mouse en vez de touch, y solo dentro de pantalla completa
+// (fuera de fullscreen el CSS los deja siempre visibles sin importar estas clases, ver style.css) —
+// cualquier movimiento del mouse reinicia ambos temporizadores, sin necesidad de distinguir si
+// tocó un control o el video (a diferencia del click de celular, mover el mouse nunca "ejecuta"
+// nada por sí solo, así que no hace falta el toggle ni el chequeo de `closest`).
+screenWrap.addEventListener('mousemove', () => {
+  if (mobileLayoutQuery.matches) return; // celular ya se maneja arriba por touch
+  if (!screenWrap.classList.contains('is-fullscreen')) return;
+  showControlsOverlay();
+  showAsideOverlay();
+});
+
+// --- Buffering compartido: aviso visible en la lista de espectadores mientras alguien está cargando ---
+let bufferingState = false;
+function setBuffering(state) {
+  if (state === bufferingState) return;
+  bufferingState = state;
+  socket.emit('buffering-status', state);
+}
+player.addEventListener('waiting', () => setBuffering(true));
+player.addEventListener('playing', () => setBuffering(false));
+player.addEventListener('canplaythrough', () => setBuffering(false));
+
+// --- Controles locales (no-host): volumen y pantalla completa ---
+// La barrita de volumen antes estaba siempre visible y se veía tosca ocupando espacio sobre el
+// video de forma permanente. Ahora, como en varios reproductores, el control deslizante solo
+// aparece al tocar el ícono del parlante (y se vuelve a esconder si se toca afuera o se vuelve a
+// tocar el ícono) — el botón de pantalla completa sigue siendo siempre visible aparte.
+const volControl = document.getElementById('volControl');
+const volToggleBtn = document.getElementById('volToggleBtn');
+function closeVolPopup() {
+  volControl.classList.remove('open');
+  document.removeEventListener('click', handleOutsideVolClick, true);
+}
+function handleOutsideVolClick(e) {
+  if (!volControl.contains(e.target)) closeVolPopup();
+}
+volToggleBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const willOpen = !volControl.classList.contains('open');
+  volControl.classList.toggle('open', willOpen);
+  if (willOpen) {
+    document.addEventListener('click', handleOutsideVolClick, true);
+  } else {
+    document.removeEventListener('click', handleOutsideVolClick, true);
+  }
+});
+document.getElementById('volSlider').addEventListener('input', (e) => player.volume = e.target.value);
+// Pantalla completa sobre .screen-wrap (no sobre el <video> solo): así los overlays que viven
+// como hermanos del video (badges, banner de silenciado y los comentarios flotantes del chat,
+// ver más abajo) se siguen viendo dentro de la pantalla completa. Si el navegador no soporta
+// pantalla completa sobre un div cualquiera (Safari/iOS viejo), se cae al comportamiento anterior
+// (pantalla completa nativa del video) para no romper el botón, aunque ahí los overlays no se vean
+// — es una limitación del navegador, no hay forma de dibujar HTML encima del <video> nativo de iOS.
+// Un solo botón para invitado (fsBtn) y host (hostFsBtn): el host también tiene el fullscreen
+// nativo del navegador vía sus controles de video (player.controls = true), pero ese pide
+// fullscreen sobre el <video> puro y ahí no se ven ni los badges ni el chat flotante — este botón
+// evita que el host tenga que usar el nativo para que el danmaku también le funcione a él.
+// Es un toggle (entra y sale): antes solo pedía fullscreen y para salir había que usar ESC o el
+// control nativo del navegador, que no siempre es obvio en celular.
+function toggleAppFullscreen() {
+  const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+  if (fsEl) {
+    if (document.exitFullscreen) document.exitFullscreen();
+    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    return;
+  }
+  const target = (screenWrap.requestFullscreen || screenWrap.webkitRequestFullscreen) ? screenWrap : player;
+  if (target.requestFullscreen) target.requestFullscreen();
+  else if (target.webkitRequestFullscreen) target.webkitRequestFullscreen();
+}
+document.getElementById('fsBtn').onclick = toggleAppFullscreen;
+document.getElementById('hostFsBtn').onclick = toggleAppFullscreen;
+
+// --- Fix: layout deformado al salir de pantalla completa ---
+// Al pedir pantalla completa sobre el <video> (no sobre toda la página), algunos navegadores
+// (sobre todo Chrome/Android) fuerzan una rotación a landscape mientras dura la pantalla completa
+// aunque el celular esté físicamente en vertical, y al salir la revierten — pero esa rotación
+// "de mentiras" no siempre dispara 'orientationchange', y el 'resize' que sí llega puede traer
+// un valor intermedio de la animación (mismo problema que ya se documentó para el teclado, ver
+// el listener de 'blur' de chatInput más abajo). Sin este fix, --app-height y la clase
+// `device-landscape` se quedaban pegados en el valor de cuando estaba en pantalla completa, y la
+// sala ya no volvía a su layout normal aunque el celular siguiera en vertical.
+function resyncLayoutAfterFullscreen() {
+  [0, 50, 150, 300, 500].forEach((delay) => setTimeout(() => {
+    setAppHeight();
+    updateOrientationClass();
+  }, delay));
+}
+// Clase `is-fullscreen` en .screen-wrap: solo se activa cuando el elemento en pantalla completa
+// es el propio .screen-wrap (ver toggleAppFullscreen más arriba) — si por algún motivo terminó
+// siendo el <video> (respaldo de navegadores viejos), se deja apagada a propósito: ahí no hay
+// forma de mostrar los comentarios flotantes encima del video nativo, así que mejor no mostrarlos
+// a medias. También cambia el ícono/título de los botones de pantalla completa para que quede
+// claro que, estando adentro, un segundo toque sirve para salir.
+const fsBtn = document.getElementById('fsBtn');
+const hostFsBtn = document.getElementById('hostFsBtn');
+
+// --- Forzar horizontal al entrar en pantalla completa (Screen Orientation API) ---
+// Antes, al pedir pantalla completa sobre el <video> (comportamiento viejo), Chrome/Android hacía
+// este giro automáticamente por su cuenta como un truco interno específico de <video> — pero eso
+// se perdió al mover la pantalla completa a .screen-wrap (necesario para que el chat flotante se
+// vea encima del video, ver commit anterior). Sin ese truco, la sala se quedaba en pantalla
+// completa vertical, obligando a activar el giro automático del celular a mano — y al salir, si el
+// celular volvía a estar parado antes de que el navegador terminara de revertir el giro, el layout
+// quedaba atascado en horizontal (bug reportado: video angosto + chat ocupando media pantalla).
+// La Screen Orientation API resuelve esto de raíz: 'landscape' bloquea la pantalla completa en
+// horizontal (dejando girar libremente entre las dos variantes, izquierda o derecha) sin depender
+// de que el giro automático del sistema esté activado, y unlock() la libera prolijamente al salir
+// para que el celular vuelva a mostrar la orientación física real. Solo tiene efecto en celulares:
+// la API está pensada para dispositivos con sensor de orientación, así que en PC el navegador
+// simplemente rechaza la promesa de lock() sin hacer nada (por eso no hace falta distinguir PC vs
+// celular a mano acá) — y Safari/iOS, que no implementa `.lock`, cae en el chequeo de más abajo.
+function setLandscapeLock(shouldLock) {
+  if (!screen.orientation || !screen.orientation.lock) return; // Safari/iOS no lo soporta: no hace nada
+  if (shouldLock) {
+    screen.orientation.lock('landscape').catch(() => {}); // rechaza sola en PC/tablets sin sensor; no es un error real
+  } else if (screen.orientation.unlock) {
+    screen.orientation.unlock();
+  }
+}
+
+function updateFullscreenState() {
+  const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+  const isFs = fsEl === screenWrap;
+  screenWrap.classList.toggle('is-fullscreen', isFs);
+  setLandscapeLock(isFs);
+  // Al salir, se limpian los comentarios flotantes que hayan quedado a mitad de animación (ver
+  // clearDanmaku más abajo) — si no, quedan "congelados" en el layer oculto y revientan todos
+  // juntos, chocando con los nuevos, la próxima vez que se entre en pantalla completa.
+  if (!isFs) clearDanmaku();
+  // En escritorio: al entrar en pantalla completa, mostrar ambos grupos del overlay de una (si no,
+  // quedarían ocultos hasta el primer movimiento de mouse, que puede tardar). Al salir, se apagan
+  // los dos temporizadores y se sacan las dos clases — aunque el CSS de escritorio solo oculta con
+  // `.is-fullscreen` presente (así que ya no haría nada visualmente), evita arrancar la próxima
+  // entrada a pantalla completa con temporizadores viejos corriendo de fondo. En celular no se
+  // toca nada acá: ese overlay se maneja aparte por touch, sin relación con el estado de fullscreen.
+  if (!mobileLayoutQuery.matches) {
+    if (isFs) {
+      showControlsOverlay();
+      showAsideOverlay();
+    } else {
+      clearTimeout(overlayHideTimer);
+      clearTimeout(asideHideTimer);
+      screenWrap.classList.remove('controls-visible', 'aside-visible');
+    }
+  }
+  const icon = isFs ? '✕' : '⛶';
+  const title = isFs ? 'Salir de pantalla completa' : 'Pantalla completa';
+  fsBtn.textContent = icon;
+  fsBtn.title = title;
+  hostFsBtn.querySelector('.skip-icon').textContent = icon;
+  hostFsBtn.title = title;
+}
+// 'fullscreenchange' cubre Chrome/Firefox/Safari desktop y Android modernos; 'webkitfullscreenchange'
+// es el respaldo para Safari/iOS más viejos que todavía no exponen el evento sin prefijo.
+document.addEventListener('fullscreenchange', () => { resyncLayoutAfterFullscreen(); updateFullscreenState(); });
+document.addEventListener('webkitfullscreenchange', () => { resyncLayoutAfterFullscreen(); updateFullscreenState(); });
+// iOS Safari no soporta pantalla completa "real" en <video> vía la Fullscreen API estándar —
+// usa su propio reproductor nativo con estos eventos en vez de fullscreenchange.
+player.addEventListener('webkitbeginfullscreen', resyncLayoutAfterFullscreen);
+player.addEventListener('webkitendfullscreen', resyncLayoutAfterFullscreen);
+
+// Señal extra de resync: cuando el giro automático del sistema está ACTIVADO, compite con el
+// bloqueo de orientación de arriba (setLandscapeLock) — Chrome/Android a veces tarda en resolver
+// ese forcejeo y el layout queda un instante desincronizado (reportado como "se buguea" con el
+// giro automático activo, algo que no pasa con el giro automático apagado, donde no hay con qué
+// competir). `screen.orientation.onchange` es la señal MÁS confiable para esto: a diferencia de
+// `orientationchange` (evento viejo, basado en el ángulo físico del dispositivo), este dispara
+// específicamente cuando cambia `screen.orientation.type` — que es el valor que en definitiva
+// decide cómo se pinta la página — así que resincroniza justo cuando el forcejeo recién se resolvió,
+// en vez de solo confiar en los reintentos con delay fijo de resyncLayoutAfterFullscreen.
+if (screen.orientation && screen.orientation.addEventListener) {
+  screen.orientation.addEventListener('change', resyncLayoutAfterFullscreen);
+}
+
+// --- Subir subtítulos (host) ---
+document.getElementById('subtitleFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById('subtitleStatus');
+  statusEl.textContent = 'Subiendo subtítulos...';
+  const form = new FormData();
+  form.append('subtitle', file);
+  form.append('hostToken', hostToken);
+  try {
+    const res = await fetch(`/room/${roomId}/upload-subtitle`, { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.error) { statusEl.textContent = 'Error: ' + data.error; return; }
+    statusEl.textContent = '✅ Subtítulos activados para todos';
+    setTimeout(() => statusEl.textContent = '', 3000);
+  } catch (err) {
+    statusEl.textContent = 'No se pudo subir el archivo.';
+  }
+});
+
+// --- Colores de nombre de usuario ---
+// Cada nombre se hashea a un color fijo de esta paleta — mismo nombre, mismo color siempre, sin
+// importar reconexiones ni recargas — elegida para que se lea bien sobre el fondo oscuro de la app
+// y quede dentro de la misma familia "VHS/vaporwave" que ya usan --pink/--cyan/--sun/--violet (el
+// violeta y el naranja de acá son versiones más claras/vivas que las variables de tema, pensadas
+// para leerse como texto chico, no como fondo). El host tiene un color aparte reservado — el mismo
+// cyan de los acentos de la app, el mismo que ya usa el ícono 🎛 en la lista de espectadores — para
+// que siempre se distinga quién tiene el control remoto en ese momento; no entra en el hash de los
+// demás para que ningún invitado "le pise" el color por casualidad.
+const USERNAME_COLORS = ['#ff2e9a', '#b18aff', '#ff7a45', '#4dff9e', '#ffe066', '#5ec8ff', '#ff5c72'];
+const HOST_NAME_COLOR = '#00e5ff';
+function hashUsername(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) | 0;
+  return Math.abs(hash);
+}
+function usernameColor(name, isHost) {
+  if (isHost) return HOST_NAME_COLOR;
+  return USERNAME_COLORS[hashUsername(name || '') % USERNAME_COLORS.length];
+}
+
+// --- Chat ---
+const messages = document.getElementById('messages');
+function addMessage(html, cls, dataset) {
+  const div = document.createElement('div');
+  div.className = cls;
+  div.innerHTML = html;
+  if (dataset) Object.entries(dataset).forEach(([k, v]) => { div.dataset[k] = v; });
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+}
+function renderChatMessage(data) {
+  if (data.system) { addMessage(escapeHtml(data.text), 'system'); return; }
+  const color = usernameColor(data.user, data.isHost);
+  const quoteHtml = data.replyTo
+    ? `<div class="reply-quote"><span class="reply-quote-user" style="color:${usernameColor(data.replyTo.user, data.replyTo.isHost)}">${escapeHtml(data.replyTo.user)}</span>${escapeHtml(data.replyTo.text)}</div>`
+    : '';
+  const html = `${quoteHtml}<span class="msg-text"><b style="color:${color}">${escapeHtml(data.user)}:</b> ${escapeHtml(data.text)}</span>` +
+    `<button class="reply-icon" title="Responder" aria-label="Responder a este mensaje">↩</button>`;
+  // "Mío" se decide por userId (persistente por navegador, ver getPersistentUserId), no por nombre:
+  // dos personas pueden elegir el mismo nombre al unirse (no hay validación de unicidad), así que
+  // comparar por `user` daría falsos positivos. Fallback a comparar por nombre solo para mensajes
+  // que ya estuvieran en el historial de la sala ANTES de este cambio (sin userId todavía) — se
+  // pierde en cuanto se reinicia el server, que es cuando el chat en memoria se vacía igual.
+  const isOwn = data.userId ? data.userId === myUserId : data.user === username;
+  // data-user/data-text/data-ishost quedan en el div para poder armar la respuesta (click en el
+  // ícono o swipe, ver más abajo) sin tener que volver a parsear el HTML ya escapado. isHost viaja
+  // como string ('true'/'false') porque los dataset del DOM solo guardan strings.
+  addMessage(html, isOwn ? 'msg own' : 'msg', { user: data.user, text: data.text, ishost: !!data.isHost });
+}
+socket.on('chat-message', (data) => {
+  renderChatMessage(data);
+  if (!data.system) spawnDanmaku(data.user, data.text, data.isHost);
+});
+
+// Historial de chat que manda el servidor al conectarse (join-room), para que sobreviva a recargas
+// de página — antes, cambiar de cinta (que recarga room.html al volver de la biblioteca) le vaciaba
+// el chat al host, ya que el chat vivía solo en el DOM y nunca se guardaba en ningún lado. Se limpia
+// el contenedor antes de volver a pintarlo: el socket de Socket.io puede reconectarse solo (ej. wifi
+// que se corta un segundo) sin que la página se recargue, y en ese caso este evento llega de nuevo
+// con el historial completo — sin este limpiado, los mensajes que ya estaban en pantalla quedarían
+// duplicados debajo de sí mismos.
+socket.on('chat-history', (history) => {
+  messages.innerHTML = '';
+  (history || []).forEach(renderChatMessage);
+});
+
+// --- Responder a un mensaje ---
+// Dos formas de armar una respuesta: tocar/clickear el ícono ↩ de un mensaje, o deslizarlo hacia la
+// derecha (gesto típico de apps de mensajería tipo WhatsApp). Ambas terminan en startReply(), que
+// arma el banner de "respondiendo a…" arriba de la caja de texto; el texto citado viaja junto al
+// mensaje al enviarlo (ver sendChatMessage) y el servidor lo adjunta tal cual en el chat-message que
+// reenvía a todos, sin necesitar IDs de mensaje ni tabla de referencias — es una cita de texto plano,
+// no un link al mensaje original.
+let replyingTo = null;
+const replyPreview = document.getElementById('replyPreview');
+const replyPreviewText = document.getElementById('replyPreviewText');
+function startReply(user, text, isHost) {
+  if (!user || !text) return;
+  replyingTo = { user, text, isHost: !!isHost };
+  replyPreviewText.innerHTML = `<b>${escapeHtml(user)}</b>: ${escapeHtml(text)}`;
+  replyPreview.style.display = 'flex';
+  chatInput.focus();
+}
+function cancelReply() {
+  replyingTo = null;
+  replyPreview.style.display = 'none';
+}
+document.getElementById('replyPreviewCancel').addEventListener('click', cancelReply);
+
+// Click en el ícono ↩ de cualquier mensaje (delegado en #messages porque los mensajes se van
+// agregando dinámicamente, no existen todavía cuando se cargó la página).
+messages.addEventListener('click', (e) => {
+  const btn = e.target.closest('.reply-icon');
+  if (!btn) return;
+  const row = btn.closest('.msg');
+  if (!row) return;
+  startReply(row.dataset.user, row.dataset.text, row.dataset.ishost === 'true');
+});
+
+// Gesto de swipe = responder un mensaje. La dirección depende de si el mensaje es propio o ajeno:
+// los ajenos (alineados a la izquierda, ver CSS .msg vs .msg.own) se deslizan hacia la DERECHA, como
+// siempre; los propios (alineados a la derecha) se deslizan hacia la IZQUIERDA — el sentido "natural"
+// en cada caso es tirar del mensaje hacia el centro del chat, no siempre hacia el mismo lado de la
+// pantalla. `dir` (+1 o -1) generaliza toda la lógica de abajo: `pull` es cuánto se deslizó EN la
+// dirección correcta (siempre positivo mientras se cumple), sin importar el signo real de `dx`.
+// Umbral chico de "zona muerta" al principio del gesto para no interferir con un tap normal ni con
+// el scroll vertical del chat: recién se decide si es un swipe horizontal (y se bloquea) una vez que
+// el dedo se movió lo suficiente Y en dirección más horizontal que vertical; si no, se suelta el
+// gesto (swipeState = null) y el navegador sigue haciendo scroll normal solo, gracias a
+// `touch-action: pan-y` en CSS (evita pelear a mano con preventDefault, que además tendría que
+// declarar los listeners como no-pasivos).
+let swipeState = null;
+const SWIPE_DEAD_ZONE = 8;
+const SWIPE_MAX_PULL = 70;
+const SWIPE_REPLY_THRESHOLD = 46;
+
+messages.addEventListener('touchstart', (e) => {
+  const row = e.target.closest('.msg');
+  if (!row) return;
+  const t = e.touches[0];
+  const dir = row.classList.contains('own') ? -1 : 1;
+  swipeState = { row, dir, startX: t.clientX, startY: t.clientY, pull: 0, locked: null, iconEl: null };
+}, { passive: true });
+
+messages.addEventListener('touchmove', (e) => {
+  if (!swipeState) return;
+  const t = e.touches[0];
+  const dx = t.clientX - swipeState.startX;
+  const dy = t.clientY - swipeState.startY;
+  const pull = dx * swipeState.dir; // positivo solo mientras se desliza en la dirección correcta para este mensaje
+  if (swipeState.locked === null) {
+    if (Math.abs(dx) < SWIPE_DEAD_ZONE && Math.abs(dy) < SWIPE_DEAD_ZONE) return;
+    swipeState.locked = Math.abs(dx) > Math.abs(dy) && pull > 0;
+    if (!swipeState.locked) { swipeState = null; return; } // vertical o hacia el lado que no corresponde: no es swipe de responder
+    const icon = document.createElement('span');
+    icon.className = 'swipe-reply-icon';
+    icon.textContent = '↩';
+    swipeState.row.style.transition = 'none';
+    swipeState.row.appendChild(icon);
+    swipeState.iconEl = icon;
+  }
+  if (!swipeState.locked) return;
+  const clamped = Math.max(0, Math.min(pull, SWIPE_MAX_PULL));
+  swipeState.pull = clamped;
+  swipeState.row.style.transform = `translateX(${clamped * swipeState.dir}px)`;
+  if (swipeState.iconEl) swipeState.iconEl.style.opacity = Math.min(1, clamped / SWIPE_REPLY_THRESHOLD);
+}, { passive: true });
+
+function endSwipe(triggerReply) {
+  if (!swipeState) return;
+  const { row, pull, iconEl, locked } = swipeState;
+  if (locked) {
+    row.style.transition = 'transform .18s ease';
+    row.style.transform = '';
+    if (iconEl) {
+      iconEl.style.transition = 'opacity .15s ease';
+      iconEl.style.opacity = '0';
+      setTimeout(() => iconEl.remove(), 200);
+    }
+    if (triggerReply && pull >= SWIPE_REPLY_THRESHOLD) {
+      startReply(row.dataset.user, row.dataset.text, row.dataset.ishost === 'true');
+      if (navigator.vibrate) navigator.vibrate(12);
+    }
+  }
+  swipeState = null;
+}
+messages.addEventListener('touchend', () => endSwipe(true), { passive: true });
+messages.addEventListener('touchcancel', () => endSwipe(false), { passive: true });
+
+// --- Comentarios flotantes del chat sobre el video (estilo "danmaku"), solo en pantalla completa ---
+// Los mensajes de sistema (alguien entró/salió) se quedan afuera a propósito: solo interesa lo
+// que la gente escribe.
+// IMPORTANTE — por qué se chequea `is-fullscreen` ANTES de crear el elemento (y no solo ocultar
+// el layer por CSS como se hacía antes): un elemento con una animación CSS dentro de un ancestro
+// con `display:none` no anima — queda "pausado" desde el instante en que se crea. Antes se seguían
+// creando los `.danmaku-item` en cada mensaje aunque no se estuviera en pantalla completa (el layer
+// entero tenía display:none y listo, sin chequear nada acá) — así que se iban acumulando, quietos,
+// dentro del layer oculto. Al entrar recién ahí en pantalla completa, el layer pasaba a
+// display:block de golpe y TODOS esos mensajes acumulados arrancaban su animación al mismo tiempo,
+// todos compitiendo por las mismas 6 pistas — de ahí el bug reportado de mensajes viejos saliendo
+// todos juntos y chocando entre sí. Ahora, si no se está en pantalla completa, directamente no se
+// crea el elemento (no hace falta ocultarlo: no existe).
+const danmakuLayer = document.getElementById('danmakuLayer');
+const DANMAKU_LANES = 6;
+const laneFreeAt = new Array(DANMAKU_LANES).fill(0); // próximo momento (Date.now()) en que cada carril queda libre
+// Se llama al SALIR de pantalla completa (ver updateFullscreenState más arriba): borra cualquier
+// comentario que haya quedado a mitad de animación en vez de dejarlo "congelado" en el layer
+// oculto — si no, al volver a entrar en pantalla completa esos mensajes viejos reinician su
+// animación desde cero (así maneja Chrome las animaciones CSS dentro de un ancestro con
+// display:none) y chocan con los mensajes nuevos que sí llegan en tiempo real.
+function clearDanmaku() {
+  laneFreeAt.fill(0);
+  danmakuLayer.innerHTML = '';
+}
+function pickDanmakuLane() {
+  const now = Date.now();
+  let lane = laneFreeAt.findIndex(t => t <= now);
+  if (lane === -1) lane = laneFreeAt.indexOf(Math.min(...laneFreeAt)); // todos ocupados: fuerza el que se libera antes
+  laneFreeAt[lane] = now + 1300; // margen chico antes de reusar el carril, para no encimar el arranque del siguiente
+  return lane;
+}
+function spawnDanmaku(user, text, isHost) {
+  if (!screenWrap.classList.contains('is-fullscreen')) return; // ver nota arriba: nunca se crea fuera de pantalla completa
+  const lane = pickDanmakuLane();
+  const el = document.createElement('div');
+  el.className = 'danmaku-item';
+  el.innerHTML = `<b style="color:${usernameColor(user, isHost)}">${escapeHtml(user)}:</b> ${escapeHtml(text)}`;
+  el.style.setProperty('--danmaku-top', (10 + lane * 7.5) + '%');
+  // Mensajes largos cruzan la pantalla un poco más lento, para que alcancen a leerse.
+  const duration = Math.min(15, Math.max(7, text.length / 10 + 6));
+  el.style.animationDuration = duration + 's';
+  danmakuLayer.appendChild(el);
+  el.addEventListener('animationend', () => el.remove());
+}
+
+const chatInput = document.getElementById('chatInput');
+// Extraído a función aparte (antes vivía inline en el keydown de Enter) para poder llamarlo
+// también desde el botón de enviar (chatSendBtn) sin duplicar la lógica.
+function sendChatMessage() {
+  const text = chatInput.textContent.trim();
+  if (text) {
+    socket.emit('chat-message', { text, replyTo: replyingTo });
+    chatInput.textContent = '';
+    cancelReply();
+  }
+}
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    // preventDefault: en un contenteditable, Enter por default inserta un salto de línea
+    // (<br> o <div>) en vez de "enviar" como en un <input> normal — hay que interceptarlo.
+    e.preventDefault();
+    sendChatMessage();
+  }
+});
+const chatSendBtn = document.getElementById('chatSendBtn');
+// mousedown (no click) con preventDefault: evita que el botón le robe el foco al chatInput.
+// Sin esto, en celular cada tap en "Enviar" cerraría el teclado de golpe (blur -> setKeyboardOpen(false))
+// justo antes de mandar el mensaje, en vez de dejar el teclado abierto para seguir escribiendo.
+chatSendBtn.addEventListener('mousedown', (e) => e.preventDefault());
+chatSendBtn.addEventListener('click', sendChatMessage);
+
+// Al ser contenteditable, un paste normal puede traer HTML/formato con estilos pegados —
+// se fuerza a texto plano para que el chat quede consistente.
+chatInput.addEventListener('paste', (e) => {
+  e.preventDefault();
+  const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+  document.execCommand('insertText', false, text);
+});
+
+chatInput.addEventListener('focus', () => setKeyboardOpen(true));
+chatInput.addEventListener('blur', () => {
+  setKeyboardOpen(false);
+  // Fix: al cerrar el teclado, el video se quedaba más chico de lo que debía (no volvía a su
+  // tamaño original). Causa: en algunos Android + Chrome, el evento final de
+  // `visualViewport.resize`/`scroll` no llega a tiempo, o llega con un valor intermedio de la
+  // animación de cierre del teclado — y `--app-height` se queda pegado en ese valor chico. Se
+  // refuerza el recálculo varias veces mientras dura esa animación (unos ~300-500ms en la
+  // mayoría de los dispositivos), en vez de confiar en un solo evento.
+  [50, 150, 300, 500].forEach((delay) => setTimeout(setAppHeight, delay));
+});
+
+// --- Indicador de "escribiendo..." ---
+let typingThrottle = false;
+chatInput.addEventListener('input', () => {
+  if (typingThrottle) return;
+  typingThrottle = true;
+  socket.emit('typing');
+  setTimeout(() => typingThrottle = false, 1500);
+});
+const typingIndicator = document.getElementById('typingIndicator');
+const remoteTypingTimers = {};
+socket.on('typing', ({ username: who }) => {
+  typingIndicator.textContent = `${who} está escribiendo...`;
+  clearTimeout(remoteTypingTimers[who]);
+  remoteTypingTimers[who] = setTimeout(() => {
+    if (typingIndicator.textContent === `${who} está escribiendo...`) typingIndicator.textContent = '';
+  }, 2500);
+});
+
+// --- Reacciones ---
+document.querySelectorAll('.reactions button').forEach(btn => {
+  btn.onclick = () => socket.emit('reaction', btn.dataset.e);
+});
+socket.on('reaction', (emoji) => {
+  const el = document.createElement('div');
+  el.className = 'float-emoji';
+  el.textContent = emoji;
+  el.style.left = Math.random() * 80 + '%';
+  document.querySelector('.screen-wrap').appendChild(el);
+  setTimeout(() => el.remove(), 2500);
+});
+
+// --- Desplegable de reacciones para pantalla completa ---
+// La barra `.reactions` de siempre vive en el panel de chat, que queda AFUERA de `.screen-wrap` —
+// y la Fullscreen API solo muestra al elemento puesto en pantalla completa y sus hijos (ver
+// toggleAppFullscreen más arriba), así que en pantalla completa esa barra directamente no se ve.
+// En vez de mantener la lista de emojis escrita dos veces en el HTML (una fácil de desincronizar
+// si mañana se agrega/saca un emoji en un solo lado), este panel se arma clonando los botones que
+// ya existen en `.reactions` — agregar o quitar un emoji ahí alcanza para que también aparezca acá.
+const fsEmoji = document.getElementById('fsEmoji');
+const fsEmojiToggle = document.getElementById('fsEmojiToggle');
+const fsEmojiPanel = document.getElementById('fsEmojiPanel');
+document.querySelectorAll('.reactions button').forEach(btn => {
+  const clone = document.createElement('button');
+  clone.textContent = btn.dataset.e;
+  // A propósito NO se cierra el panel al elegir un emoji: el usuario pidió que se quede abierto
+  // hasta que se vuelva a tocar el botón toggle, para poder mandar varias reacciones seguidas sin
+  // tener que reabrirlo cada vez.
+  clone.onclick = () => socket.emit('reaction', btn.dataset.e);
+  fsEmojiPanel.appendChild(clone);
+});
+fsEmojiToggle.onclick = () => setEmojiPanelOpen(!fsEmojiPanel.classList.contains('open'));
+// Centraliza abrir/cerrar el panel para que, además de la clase `open` (que ya controlaba el CSS
+// de mostrar/ocultar la grilla de emojis), se sincronice `.emoji-panel-open` en `.screen-wrap` —
+// eso es lo que el CSS usa para (mientras el panel está abierto): fijar `.fs-emoji` visible sin
+// importar el temporizador de 5s (arregla el bug reportado: antes, si tardabas más de unos
+// segundos eligiendo un emoji, el desplegable entero desaparecía en pleno uso) y, a la vez, ocultar
+// la barra de progreso (`.host-controls`/`.local-controls`), a pedido, para no competir con el
+// panel. Al cerrar, se reinicia el temporizador de 5s normal del grupo "aside" — si no, `.fs-emoji`
+// se quedaría visible para siempre después de la primera vez que se abrió el panel.
+function setEmojiPanelOpen(open) {
+  const wasOpen = fsEmojiPanel.classList.contains('open');
+  if (open === wasOpen) return; // ya estaba en ese estado: no hay nada que sincronizar ni timer que tocar
+  fsEmojiPanel.classList.toggle('open', open);
+  screenWrap.classList.toggle('emoji-panel-open', open);
+  if (open) {
+    clearTimeout(overlayHideTimer);
+    clearTimeout(asideHideTimer);
+    screenWrap.classList.remove('controls-visible'); // el CSS ya la fuerza oculta; esto es prolijidad
+  } else {
+    showAsideOverlay();
+  }
+}
+// Si se sale de pantalla completa con el panel abierto, que no quede abierto "fantasma" la próxima
+// vez que se vuelva a entrar (reusa el mismo evento que ya sincroniza el resto del layout, ver
+// resyncLayoutAfterFullscreen más arriba). Esto no contradice el pedido original de que el panel no
+// se cierre solo: es al SALIR de pantalla completa (donde el panel ya no se ve igual), no al elegir
+// un emoji estando adentro.
+document.addEventListener('fullscreenchange', () => setEmojiPanelOpen(false));
