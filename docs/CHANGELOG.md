@@ -6,9 +6,9 @@
   `<script src="/js/room.js" defer></script>`, después de socket.io y `sw-register.js` (ambos siguen en el `<head>`, sin `defer`). `room.html` ya no tiene código inline. La CSP no cambió.
 - **Parche** (sobre `origin/plan-produccion`): `public/room.html` y `public/js/room.js` (nuevo).
 - **Verificado por el asistente:** contenido idéntico byte a byte al original, `node --check`, claves de storage y rutas intactas, revisión del orden de ejecución con `defer`, `npm test` 111/111, lint limpio.
-- **Probado por Copilot en local, resultado pasado por la persona:** `room.js` con 200 y sin errores; video, controles, chat y espectadores visibles; segunda pestaña (`👥 2`), chat y reacción llegan al host.
-- **Pendiente (no verificado):** sincronización de play/pausa/seek con un espectador independiente; danmaku, panel de emojis, subtítulos, pantalla completa con el panel abierto; modo claro/oscuro; en móvil, rotación
-  y teclado de Android; carga de `room.js` en el dominio público.
+- **Probado por la persona (PC y dominio público):** sincronización de video con un espectador independiente (incógnito), danmaku, panel de emojis, subtítulos, pantalla completa con el panel abierto, modo claro/oscuro
+  (todo con resultado positivo, sin más detalle); en el dominio, `/js/room.js` con 200 con recarga forzada, sin error de CSP ni 404 (solo avisos conocidos: beacon de Cloudflare, `apple-mobile-web-app-capable`, `favicon.ico`).
+- **Pendiente (no verificado):** solo en móvil, rotación y teclado de Android.
 - **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
 
 ---
