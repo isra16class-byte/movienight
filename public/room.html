@@ -15,11 +15,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Monoton&family=Space+Grotesk:wght@400;500;600;700&family=VT323&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
 <script src="/socket.io/socket.io.js"></script>
-<script>
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
-}
-</script>
+<script src="/js/sw-register.js"></script>
 </head>
 <body>
 <div class="room-scene">
