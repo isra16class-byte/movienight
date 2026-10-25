@@ -253,6 +253,8 @@ secundario.
 - [x] Recuperar contraseña por /64 en IPv6 (2026-10-24): `POST /auth/forgot-password` usa `rateLimitKeyFromIp` en su clave; con esto los cuatro limitadores de
       contraseña/recuperación quedan por /64. Rotación probada por Copilot en el dominio real (el 4.º pedido desde otra dirección del mismo bloque no generó link;
       resultado pasado por la persona). Detalle en `docs/MEMORIA.md`.
+- [x] `generalApiLimiter` con /64 explícito en IPv6 (2026-10-24): antes usaba el /56 por defecto de la librería (el comentario decía /64); ahora iguala a los otros cuatro
+      limitadores. Arranque y uso normal comprobados por Copilot en el PC de la persona; el límite de 300 pedidos/5 min no se probó de punta a punta. Detalle en `docs/MEMORIA.md`.
 
 ### 2.3 Identidad del host — reemplazada por Fase 2bis (cuentas reales)
 - ~~Endurecer el `hostToken` actual (expiración, JWT, cookie httpOnly)~~ — con

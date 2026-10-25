@@ -160,6 +160,25 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**`generalApiLimiter`: prefijo /64 explícito en IPv6 (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
+(`generalApiLimiter: prefijo /64 explicito en IPv6 (antes /56 por el default de la libreria)`). Una línea de `server.js` más su comentario.
+
+- **Qué cambió:** `keyGenerator` pasa de `ipKeyGenerator(clientIp(req))` a `ipKeyGenerator(clientIp(req), 64)`. Sin el segundo argumento, `express-rate-limit`
+  v8.7.0 trunca a /56 (`ipv6Subnet = 56`, verificado en `node_modules/express-rate-limit/dist/index.cjs`), no a /64 como decía el comentario. El comentario ahora
+  deja escrito el porqué. Decisión de la persona: igualar a los otros cuatro limitadores (que usan `lib/ipKey.js`), que sí van por /64.
+- **No cambió:** `windowMs` (5 min), `max` (300), el `skip` de `/health`, `/healthz` y `/metrics`, el mensaje, `lib/ipKey.js`, los otros limitadores. IPv4 e IPv4-mapeadas
+  dan el mismo resultado que antes (`::ffff:172.18.0.1` → `172.18.0.1`).
+- **Efecto:** dos direcciones del mismo /56 pero de /64 distintos ahora cuentan por separado (antes compartían cupo). IPv4 no cambia.
+- **Verificado por el asistente:** `npm test` 111/111 antes y después, lint limpio, `node --check`; un script en `/tmp` con `ipKeyGenerator(ip, 64)`: dos IPv6 del mismo
+  /64 dan la misma clave (`2800:bf0:8163:1234::/64`), una de otro /64 (`...:1235:...`) da otra; con el valor por defecto las dos últimas compartían `...1200::/56`.
+- **Probado por Copilot en el PC de la persona, resultado pasado por la persona; la persona no lo marcó explícitamente como confirmado:** con el cambio en el
+  repo local (`git am` no tuvo nada que aplicar porque ya estaba presente), `docker compose up -d --build` arrancó sin errores de `express-rate-limit` ni `ERR_ERL`
+  (log «MovieNight corriendo en http://localhost:3000»); `/health` y `/` respondieron 200 y `library.html` cargó con las cintas. Esto cubre que el servidor arranca
+  y que el uso normal no se rompe.
+- **No probado:** el límite de 300 pedidos en 5 minutos de punta a punta (haría falta superarlo desde dos direcciones del mismo bloque). No era parte del paso.
+- **Con esto queda cerrada la observación del comentario de `generalApiLimiter`.** Siguen abiertos: `maskEmail` con 2 letras antes de la `@` las muestra enteras, no hay botón de
+  desbloquear, y (de pasos anteriores) configurar `RESEND_API_KEY` antes de producción.
+
 **Recuperar contraseña: clave del límite por /64 en IPv6 (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
 (`forgot-password: clave del limite por /64 en IPv6`). Una sola línea de `server.js`. Para verlo en el servidor hace falta `git pull` y
 `docker compose up -d --build`.

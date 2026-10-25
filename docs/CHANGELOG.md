@@ -1,5 +1,17 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-24 — `generalApiLimiter`: prefijo /64 explícito en IPv6
+
+- **Qué:** `ipKeyGenerator(clientIp(req), 64)` en `generalApiLimiter`; antes el segundo argumento faltaba y la librería usaba /56 por defecto (el comentario decía /64).
+  Ahora queda igual que los otros cuatro limitadores. Comentario actualizado con el porqué.
+- **Parche** (sobre `origin/plan-produccion`): solo `server.js`, una línea y su comentario. `windowMs`, `max`, `skip` y mensaje sin cambios.
+- **Verificado por el asistente:** `npm test` 111/111, lint limpio; script en `/tmp`: mismo /64 → misma clave, otro /64 → otra.
+- **Probado por Copilot en el PC de la persona, resultado pasado por la persona:** arranque sin `ERR_ERL`, `/health` y `/` en 200, biblioteca carga.
+- **No probado:** el límite de 300 pedidos/5 min de punta a punta.
+- **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
+
+---
+
 ## 2026-10-24 — Recuperar contraseña: clave del límite por /64 en IPv6
 
 - **Qué:** `POST /auth/forgot-password` arma su clave con `rateLimitKeyFromIp(clientIp(req))` (una línea de `server.js`), igual que login. Cambiar de dirección dentro del
