@@ -1,5 +1,19 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-24 — `index.html`: el script grande pasa a `public/js/index.js`
+
+- **Qué:** paso 3 de la conversión hacia una CSP sin `'unsafe-inline'`: el segundo `<script>` de `index.html` (22369 bytes, 501 líneas) se movió tal cual a `public/js/index.js` y la página lo carga con
+  `<script src="/js/index.js" defer></script>`. `index.html` ya no tiene código inline. La CSP no cambió.
+- **Parche** (sobre `origin/plan-produccion`): `public/index.html` y `public/js/index.js` (nuevo).
+- **Verificado por el asistente:** contenido idéntico byte a byte al original, `node --check`, rutas `fetch`/XHR intactas, `npm test` 111/111, lint limpio.
+- **Probado por Copilot en el PC de la persona, con la consola escuchada, resultado pasado por la persona:** en el dominio, `index.js` con 200 desde el propio dominio, sin error de CSP ni 404 (solo el beacon de
+  Cloudflare conocido); en local, con sesión abierta, seleccionar un video, «Subiendo cinta... 0%», crear la sala `d6ff8b` y abrirla.
+- **No verificado:** camino de subida real (R2 o servidor), arrastre con el ratón y barra de progreso más allá del 0%, login/registro/recuperar contraseña desde la portada, una subida nueva en el dominio con la
+  contraseña de la biblioteca.
+- **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
+
+---
+
 ## 2026-10-24 — `admin.html`: el script grande pasa a `public/js/admin.js`
 
 - **Qué:** paso 2 de la conversión hacia una CSP sin `'unsafe-inline'`: el segundo `<script>` de `admin.html` (17934 bytes, 423 líneas) se movió tal cual a `public/js/admin.js` y la página lo carga con

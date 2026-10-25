@@ -160,6 +160,32 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**CSP sin `'unsafe-inline'`, paso 3: `index.html` sin JS inline (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
+(`index.html: el script grande pasa a public/js/index.js`). **La CSP NO cambió**: `scriptSrc` sigue con `'unsafe-inline'` (`library.html` y `room.html` conservan su script grande).
+
+- **Qué cambió:** el segundo `<script>` de `public/index.html` (inline, 22369 bytes, 501 líneas: desde `const btn = document.getElementById...` hasta el `setInterval` del contador REC) pasó tal cual a
+  `public/js/index.js` (archivo nuevo). `index.html` lo carga con `<script src="/js/index.js" defer></script>` en el mismo lugar (antes de `</body>`). Ya no tiene código inline: solo `sw-register.js` e
+  `index.js`. Sin `nonce`, `integrity` ni `crossorigin`. (El prompt del paso decía que empezaba en `const dropLabel`; empieza en `const btn`, no cambia nada.)
+- **No cambió:** CSP, `server.js`, `sw-register.js`, otras páginas, ningún nombre de función ni variable. Rutas `fetch`/XHR intactas, todas relativas al mismo origen: `/api/uploads/presign`,
+  `/create-room-from-upload`, `/create-room`, `/auth/me`, `/auth/login`, `/auth/register`, `/auth/logout`, `/auth/forgot-password` y `/api/room/<código>`. La subida directa a R2 hace `PUT` a la URL prefirmada
+  que devuelve el servidor en el momento: no hay host fijo dentro del script.
+- **Verificado por el asistente:** comparación byte a byte del `<script>` viejo (de `git show ac20290:public/index.html`) contra `index.js`: idéntico (22369 contra 22369 bytes); `node --check`; ningún bloque inline con
+  código; no hay atributos `on*=`; los ids que usa el script existen en el HTML salvo `loginBtn`, `logoutBtn` y `registerBtn`, que crea el propio script al pintar la barra de cuenta; `npm test` 111/111 y
+  lint limpio, antes y después.
+- **Probado por Copilot en el PC de la persona (tras `git am` y `docker compose up -d --build`), resultado pasado por la persona; la persona no lo marcó explícitamente como confirmado.**
+  En el dominio público (`sala.movienight-palomitasjuntos.uk`, que apunta al mismo contenedor), con recarga forzada y la consola escuchada (`page.on('console')` y `pageerror` antes de recargar): `index.js` cargó
+  desde el propio dominio, sin error de CSP ni 404; el único error de consola fue el beacon de Cloudflare ya conocido; la portada permite elegir un archivo. Al pulsar «GRABAR SALA» sin sesión apareció el aviso esperado
+  «Subida protegida — Subir una cinta nueva necesita la contraseña de la biblioteca»; se canceló sin introducir ninguna contraseña. En el contenedor local, con una sesión ya abierta: se eligió `metrics-test.mp4`,
+  se vio «Subiendo cinta... 0%», se creó la sala `d6ff8b`, redirigió a ella y la sala abrió con el diálogo para poner el nombre.
+- **No verificado:** (1) cuál fue el camino de subida real (directo a R2 o por el servidor): el registro no muestra la petición `presign`/`PUT`, solo que la sala se creó; el camino más sensible a una URL mal copiada
+  sigue sin comprobarse con evidencia; (2) el arrastrar y soltar con el ratón (se usó `setInputFiles`, no un arrastre real) y la barra de progreso más allá del 0% inicial; (3) login, registro y recuperar contraseña
+  desde la portada; (4) una subida nueva en el dominio con la contraseña de la biblioteca (no se introdujo); (5) que `admin.html` ya esté confirmada en el dominio real (el paso 2 sigue sin confirmarse allí; es
+  independiente de este).
+- **Limpieza pendiente (no es del código):** la sala de prueba `d6ff8b` y, probablemente, el video `metrics-test.mp4` que quedó en la biblioteca local.
+- **Plan de conversión (decidido por la persona):** 1) `sw-register.js` ✔ (confirmado en el dominio real); 2) `admin.html` ✔ (probado por Copilot en local); 3) `index.html` ✔ (este); 4) `library.html`; 5) `room.html`;
+  6) recién entonces quitar `'unsafe-inline'` de `scriptSrc`. Siguiente: `library.html`.
+- **Pendiente aparte (sin cambios):** la CSP bloquea `https://static.cloudflareinsights.com/beacon.min.js` (ver la entrada anterior).
+
 **CSP sin `'unsafe-inline'`, paso 2: `admin.html` sin JS inline (2026-10-24)**: hecho. Un parche sobre `origin/plan-produccion`
 (`admin.html: el script grande pasa a public/js/admin.js`). **La CSP NO cambió**: `scriptSrc` sigue con `'unsafe-inline'` (`index.html`, `library.html` y `room.html` conservan su script grande).
 
