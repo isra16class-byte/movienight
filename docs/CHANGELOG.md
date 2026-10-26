@@ -1,5 +1,15 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-25 — CSP: `styleSrc` sin `'unsafe-inline'` (fin de la serie de conversión)
+
+- **Qué:** en `server.js`, `styleSrc` pasó de `["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com']` a `["'self'", 'https://fonts.googleapis.com']`, con el comentario actualizado. Con `scriptSrc` ya resuelto, la CSP no lleva `'unsafe-inline'` en ningún lado.
+- **Parche** (sobre `origin/plan-produccion`, commit `7d6008a`): solo `server.js`.
+- **Verificado por el asistente:** 0 `style="` en `public/`, sin otros caminos de estilo inline, `node --check`, `npm test` 111/111, lint limpio y la cabecera real en local con `style-src 'self' https://fonts.googleapis.com`.
+- **Probado por la persona:** las 7 páginas sin errores de `style-src` en la consola ni deformaciones visuales (sin más detalle por página).
+- **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
+
+---
+
 ## 2026-10-25 — Colores de usuario de `room.js` a `--user-color` (paso 2 de 2 para `styleSrc`)
 
 - **Qué:** los 4 `style="color:${usernameColor(...)}"` de `room.js` pasaron a clases + `style.setProperty('--user-color', ...)`. `addMessage()` devuelve el `div`. Ya no queda ningún `style="..."` en `public/`. La CSP no cambió.

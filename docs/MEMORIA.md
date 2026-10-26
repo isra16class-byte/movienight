@@ -160,6 +160,20 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**CSP sin `'unsafe-inline'` en `styleSrc`, paso final: `styleSrc` queda en `['self', 'https://fonts.googleapis.com']` (2026-10-25)**: hecho y probado por la persona. Un parche sobre `origin/plan-produccion`
+(`CSP: styleSrc sin 'unsafe-inline' (ultimo paso de la conversion de CSP)`, commit `7d6008a`, solo `server.js`). **Con esto queda cerrada la serie de conversión de la CSP: ni `scriptSrc` ni `styleSrc` llevan `'unsafe-inline'`.**
+
+- **Qué cambió:** en `server.js`, `styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com']` pasó a `["'self'", 'https://fonts.googleapis.com']`; se reemplazó la primera línea del comentario (ya falsa) por una que explica que
+  no queda ningún `style="..."` ni `<style>` en `public/`, que uno nuevo se bloquea a propósito y que lo correcto es una clase en `public/style.css` o `setProperty` desde JS. La explicación de por qué sigue `fonts.googleapis.com` quedó igual.
+- **No cambió:** `fontSrc` (sigue con `fonts.gstatic.com`), `scriptSrc`, `scriptSrcAttr`, `imgSrc`, `connectSrc`, `mediaSrc` ni ningún archivo de `public/`.
+- **Verificado por el asistente:** `grep 'style="'` en `public/*.html` y `public/js/*.js` da 0 antes y después; sin `<style>`, `setAttribute('style', ...)`, `cssText` ni `insertAdjacentHTML`, ni `style=` en `server.js`, `sw.js` ni `lib/`;
+  `node --check`; `npm test` 111/111 y lint limpio; con el servidor en local (`DISABLE_REDIS=1`), la cabecera real manda `style-src 'self' https://fonts.googleapis.com` (sin `'unsafe-inline'`, con Google Fonts), `font-src 'self' https://fonts.gstatic.com`,
+  `script-src 'self'` y `script-src-attr 'none'`; las 7 páginas y `/style.css` responden 200.
+- **Probado por la persona en el navegador (las 7 páginas, una por una, con la consola abierta):** informó que todas las pruebas salieron bien, sin ningún error de `style-src` en la consola y sin deformaciones visuales (sin más detalle por página).
+- **Estado de la CSP al cerrar la serie:** `scriptSrc: ['self']`, `scriptSrcAttr: 'none'`, `styleSrc: ['self', 'https://fonts.googleapis.com']`. Cualquier `<script>` o `style` inline nuevo se bloquea a propósito.
+- **Pendientes aparte (sin cambios, no son de esta serie):** el beacon de Cloudflare bloqueado por `script-src`; `favicon.ico` 404; `<meta apple-mobile-web-app-capable>` obsoleta; `escapeHtml` no escapa `"` y sus 4 copias sin unificar; prueba en móvil de `room.html`
+  (rotación y teclado de Android); limpieza de salas de prueba.
+
 **CSP sin `'unsafe-inline'` en `styleSrc`, paso 2 de 2: los 4 colores dinámicos de `room.js` pasan a `--user-color` (2026-10-25)**: hecho y probado por la persona. Un parche sobre `origin/plan-produccion`
 (`style: los 4 color:usernameColor() de room.js pasan a --user-color via setProperty`, commit `8c73b7f`; solo `room.js` y `style.css`). **La CSP NO cambió todavía**: `styleSrc` sigue con `'unsafe-inline'`.
 **Con esto ya no queda ningún `style="..."` en `public/`** (`grep` da 0).
