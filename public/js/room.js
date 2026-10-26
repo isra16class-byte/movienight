@@ -405,7 +405,8 @@ socket.on('viewer-list', (list) => {
         <button class="kick" data-id="${v.id}">Expulsar</button>
       </span>`;
     }
-    row.innerHTML = `<span>${v.isHost ? '🎛 ' : ''}<span style="color:${usernameColor(v.username, v.isHost)}">${escapeHtml(v.username)}</span>${v.buffering ? ' ⏳' : ''}${v.muted ? ' 🔇' : ''}</span>${actions}`;
+    row.innerHTML = `<span>${v.isHost ? '🎛 ' : ''}<span class="viewer-name">${escapeHtml(v.username)}</span>${v.buffering ? ' ⏳' : ''}${v.muted ? ' 🔇' : ''}</span>${actions}`;
+    row.querySelector('.viewer-name').style.setProperty('--user-color', usernameColor(v.username, v.isHost));
     el.appendChild(row);
   });
   el.querySelectorAll('.mute').forEach(b => b.onclick = () => socket.emit('toggle-mute', b.dataset.id));
@@ -882,14 +883,15 @@ function addMessage(html, cls, dataset) {
   if (dataset) Object.entries(dataset).forEach(([k, v]) => { div.dataset[k] = v; });
   messages.appendChild(div);
   messages.scrollTop = messages.scrollHeight;
+  return div;
 }
 function renderChatMessage(data) {
   if (data.system) { addMessage(escapeHtml(data.text), 'system'); return; }
   const color = usernameColor(data.user, data.isHost);
   const quoteHtml = data.replyTo
-    ? `<div class="reply-quote"><span class="reply-quote-user" style="color:${usernameColor(data.replyTo.user, data.replyTo.isHost)}">${escapeHtml(data.replyTo.user)}</span>${escapeHtml(data.replyTo.text)}</div>`
+    ? `<div class="reply-quote"><span class="reply-quote-user">${escapeHtml(data.replyTo.user)}</span>${escapeHtml(data.replyTo.text)}</div>`
     : '';
-  const html = `${quoteHtml}<span class="msg-text"><b style="color:${color}">${escapeHtml(data.user)}:</b> ${escapeHtml(data.text)}</span>` +
+  const html = `${quoteHtml}<span class="msg-text"><b class="msg-user">${escapeHtml(data.user)}:</b> ${escapeHtml(data.text)}</span>` +
     `<button class="reply-icon" title="Responder" aria-label="Responder a este mensaje">↩</button>`;
   // "Mío" se decide por userId (persistente por navegador, ver getPersistentUserId), no por nombre:
   // dos personas pueden elegir el mismo nombre al unirse (no hay validación de unicidad), así que
@@ -900,7 +902,11 @@ function renderChatMessage(data) {
   // data-user/data-text/data-ishost quedan en el div para poder armar la respuesta (click en el
   // ícono o swipe, ver más abajo) sin tener que volver a parsear el HTML ya escapado. isHost viaja
   // como string ('true'/'false') porque los dataset del DOM solo guardan strings.
-  addMessage(html, isOwn ? 'msg own' : 'msg', { user: data.user, text: data.text, ishost: !!data.isHost });
+  const div = addMessage(html, isOwn ? 'msg own' : 'msg', { user: data.user, text: data.text, ishost: !!data.isHost });
+  div.querySelector('.msg-user').style.setProperty('--user-color', color);
+  if (data.replyTo) {
+    div.querySelector('.reply-quote-user').style.setProperty('--user-color', usernameColor(data.replyTo.user, data.replyTo.isHost));
+  }
 }
 socket.on('chat-message', (data) => {
   renderChatMessage(data);
@@ -1059,7 +1065,8 @@ function spawnDanmaku(user, text, isHost) {
   const lane = pickDanmakuLane();
   const el = document.createElement('div');
   el.className = 'danmaku-item';
-  el.innerHTML = `<b style="color:${usernameColor(user, isHost)}">${escapeHtml(user)}:</b> ${escapeHtml(text)}`;
+  el.innerHTML = `<b class="danmaku-user">${escapeHtml(user)}:</b> ${escapeHtml(text)}`;
+  el.querySelector('.danmaku-user').style.setProperty('--user-color', usernameColor(user, isHost));
   el.style.setProperty('--danmaku-top', (10 + lane * 7.5) + '%');
   // Mensajes largos cruzan la pantalla un poco más lento, para que alcancen a leerse.
   const duration = Math.min(15, Math.max(7, text.length / 10 + 6));
