@@ -160,6 +160,27 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**CSP sin `'unsafe-inline'` en `styleSrc`, paso 2 de 2: los 4 colores dinámicos de `room.js` pasan a `--user-color` (2026-10-25)**: hecho y probado por la persona. Un parche sobre `origin/plan-produccion`
+(`style: los 4 color:usernameColor() de room.js pasan a --user-color via setProperty`, commit `8c73b7f`; solo `room.js` y `style.css`). **La CSP NO cambió todavía**: `styleSrc` sigue con `'unsafe-inline'`.
+**Con esto ya no queda ningún `style="..."` en `public/`** (`grep` da 0).
+
+- **Qué cambió:** los 4 `style="color:${usernameColor(...)}"` de `room.js` (lista de espectadores, cita de respuesta, autor del mensaje y danmaku) pasan a clases (`viewer-name`, `reply-quote-user`, `msg-user`, `danmaku-user`)
+  y a `elemento.style.setProperty('--user-color', ...)` justo después del `innerHTML`. `addMessage()` ahora termina con `return div;` (único cambio de lógica) y `renderChatMessage` lo captura para colorear el autor y,
+  solo si existe `data.replyTo`, la cita.
+- **Desvío respecto del prompt (necesario para que los colores sean los mismos):** agregar una regla `color: var(--user-color)` a una clase sola habría perdido contra reglas ya existentes que antes perdían contra el `style` inline:
+  `#messages .msg b { color: var(--pink) }` (todos los autores habrían salido rosa), `.danmaku-item b { color: var(--cyan) }` (todos los danmaku cian) y `#messages .msg .reply-quote .reply-quote-user { color: var(--cyan) }` (la cita).
+  Por eso los selectores son más específicos (`#messages .msg .msg-user`, `.danmaku-item .danmaku-user`) y la regla existente de la cita ahora usa `color: var(--user-color, var(--cyan))`. `.viewer-name` queda como clase sola (ninguna regla le compite).
+- **No cambió:** `usernameColor()`, `USERNAME_COLORS` (7 colores), `HOST_NAME_COLOR` (`#00e5ff`) ni `hashUsername()` (comparados por contenido contra `fa2760a`: idénticos); `server.js` y la CSP.
+- **Verificado por el asistente:** 0 `style="` en `public/`; `node --check`; `npm test` 111/111 y lint limpio; lectura del flujo de `renderChatMessage` (un mensaje de sistema sale antes del código nuevo; sin cita no se busca `.reply-quote-user`;
+  con cita, el elemento siempre existe y el texto de otra persona va escapado).
+- **Probado:** Copilot en local (sala de prueba con dos pestañas): colores distintos por usuario en lista, chat, cita y danmaku en pantalla completa, mensaje de sistema sin color de usuario, sin errores de CSP ni JavaScript. Reporte de Copilot
+  con un dato incoherente: decía que el host tenía el cian especial pero sus datos mostraban a «HostColor» en naranja y a «ViewerColor» en cian (probablemente las dos pestañas compartían `localStorage` y la segunda heredó el token de host).
+  **La persona lo repitió en el dominio público y informó que todos los resultados fueron positivos** (sala `e6e87b`, captura de DevTools con chat de autores en colores distintos, sin errores de CSP; solo los avisos conocidos).
+- **No verificado:** la salida de pantalla completa con el panel de emojis abierto en el navegador integrado de Copilot (limitación del entorno; ese comportamiento no lo toca este parche y ya se había probado antes).
+- **Siguiente (último paso de la serie `styleSrc`):** quitar `'unsafe-inline'` de `styleSrc` en `server.js` (hoy: `["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com']`) y actualizar su comentario. Antes de hacerlo conviene un `grep` final de
+  `style=`, `<style`, `setAttribute('style'` y `cssText` en `public/` (los dos últimos ya daban 0 en la auditoría), y probar las 7 páginas en el dominio, porque afecta a todas a la vez.
+- **Pendientes aparte (sin cambios):** beacon de Cloudflare, `favicon.ico` 404, `<meta apple-mobile-web-app-capable>` obsoleta, unificar `escapeHtml` y escapar `"`, prueba en móvil de `room.html`, limpieza de salas de prueba.
+
 **CSP sin `'unsafe-inline'` en `styleSrc`, paso 1 de 2: los 58 `style="..."` estáticos pasan a clases (2026-10-25)**: hecho y probado por la persona. Un parche sobre `origin/plan-produccion`
 (`style: los 58 style="..." estaticos pasan a clases en public/style.css`, commit `4534f15`). **La CSP NO cambió**: `styleSrc` sigue con `'unsafe-inline'`. Quedan 4 `style="..."` dinámicos, todos en `room.js`.
 

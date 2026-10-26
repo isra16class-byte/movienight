@@ -1,5 +1,17 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-25 — Colores de usuario de `room.js` a `--user-color` (paso 2 de 2 para `styleSrc`)
+
+- **Qué:** los 4 `style="color:${usernameColor(...)}"` de `room.js` pasaron a clases + `style.setProperty('--user-color', ...)`. `addMessage()` devuelve el `div`. Ya no queda ningún `style="..."` en `public/`. La CSP no cambió.
+- **Parche** (sobre `origin/plan-produccion`, commit `8c73b7f`): `public/js/room.js` y `public/style.css`.
+- **Detalle importante:** los selectores nuevos son más específicos que lo que dice el prompt original (`#messages .msg .msg-user`, `.danmaku-item .danmaku-user`) y la regla existente de la cita lee `var(--user-color, var(--cyan))`, porque reglas previas ponían rosa o cian y antes les ganaba el inline.
+- **Verificado por el asistente:** 0 `style="`, `node --check`, `npm test` 111/111, lint limpio, paleta y `usernameColor()` idénticos.
+- **Probado:** Copilot en local y la persona en el dominio público (todos positivos, sin más detalle).
+- **Siguiente:** quitar `'unsafe-inline'` de `styleSrc` en `server.js`.
+- **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
+
+---
+
 ## 2026-10-25 — `style="..."` estáticos a clases en `public/style.css` (paso 1 de 2 para `styleSrc`)
 
 - **Qué:** los 58 `style="..."` estáticos (8 `display:none`, 3 `max-height/overflow`, 5 `font-size:clamp`, 3 de margen, 1 `overflow-wrap`, 2 del SVG `cassetteIcon`, 36 flotadores) pasaron a clases al final de `style.css`. Quedan 4 `style="..."` dinámicos en `room.js`. La CSP no cambió.
