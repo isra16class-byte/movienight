@@ -160,6 +160,38 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Auditoría de `innerHTML` en `public/js/*.js` (2026-10-25)**: hecha, **sin hallazgos que corregir; no hubo cambios de código**. Trabajada sobre `c348fa0`. Solo documentación.
+
+- **Alcance:** los 47 usos de `innerHTML` en `admin.js` (14), `index.js` (11), `library.js` (14) y `room.js` (8); `sw-register.js` y `reset-password.js` tienen 0. El asistente leyó cada sitio con su contexto y rastreó el origen del dato
+  (criterio: ¿puede el valor contener algo escrito por otra persona, o venir de un `fetch`, un evento de socket o la URL, sin pasar por `escapeHtml`?). Con el repo sin cambios, `npm test` 111/111 y lint limpio.
+- **Qué confirmó la persona:** NO revisó los 47 sitios. Hizo dos verificaciones puntuales propias: (a) que `escapeHtml` no escapa las comillas dobles y (b) el alfabeto de `socket.id`. El resto de la tabla es lectura del asistente, no confirmada sitio por sitio por la persona.
+  El único dato del servidor que no se leyó en su definición: las claves de parámetros (`ROOM_TTL_HOURS`, `MAX_LIBRARY_VIDEOS`) se dedujeron de `SETTINGS_META` y de lo que muestra el panel.
+- **Tabla (archivo:línea, qué inserta, origen, escapado):**
+
+| Archivo:línea | Qué inserta | Origen del dato | ¿Escapado? / ¿arreglar? |
+|---|---|---|---|
+| `admin.js:4`, `index.js:354`, `library.js:40`, `room.js:110` | `div.innerHTML` dentro de la propia función de escapado | Es el mecanismo de escapado | n/a / No |
+| `admin.js:74,159,276,307`, `library.js:271,289`, `room.js:396,918,1048` | `''` para vaciar | Literal | n/a / No |
+| `admin.js:154,246,266,272,304`, `library.js:280,286` | Mensajes fijos de error o vacío | Literales | n/a / No |
+| `admin.js:75`, `index.js:332`, `library.js:170` | Email de la cuenta | `currentUser.email`, de `/auth/me` | Sí (`escapeHtml`; `escapeHtmlLocal` en `index.js`) / No |
+| `index.js:339`, `library.js:177` | Botones de login y registro | Literales | n/a / No |
+| `admin.js:166` | Fila de parámetros: etiqueta, descripción, origen, valor, clave | Etiqueta y descripción: `SETTINGS_META` (constantes). Origen y valor: `/api/admin/settings` | Sí, todo con `escapeHtml`; `sourceClass` y `placeholder` son constantes / No |
+| `admin.js:284` | Fila de bloqueados: fuente, email enmascarado, sala, IP, minutos | Lista de bloqueados del servidor; minutos de `Math.ceil` sobre `Number` | Sí / No |
+| `admin.js:314` | Fila de sala: id, video, host, dueño, viewers, actividad, botón | `/api/admin/rooms`; `viewerCount` número; `formatLastActivity` texto de fecha local | Sí (el host, al armar `hostLabel`) / No |
+| `index.js:172,199,225,247,263,278,307,443`, `library.js:313,433,472,494,511,526` | `cassetteIcon` más texto fijo o `pct` | Constante SVG, literales y `Math.round` | n/a (constantes y números) / No |
+| `library.js:293` | Fila de cinta: nombre, tamaño, fecha, etiqueta del botón | `tape.displayName` de `/api/uploads` (nombre que puso quien subió el video); tamaño y fecha: texto calculado de números; `useLabel`: constante | Sí, el nombre con `escapeHtml` / No |
+| `room.js:408` | Fila de espectador: nombre, color, `id` en botones | Nombre del evento `viewer-list`; color de una paleta fija de 7; `id` = `socket.id` (Socket.IO, servidor) | Sí, el nombre / No |
+| `room.js:881` | `div.innerHTML = html` en `addMessage` (sumidero) | Llamadores: `room.js:887` (sistema) y `room.js:903` (chat) | Ambos llamadores escapan todo texto de otra persona; colores de paleta fija / No |
+| `room.js:935` | Vista previa de respuesta: usuario y texto | Del mensaje respondido | Sí, ambos / No |
+| `room.js:1062` | Danmaku: usuario, texto, color | Evento de chat | Sí, ambos / No |
+
+- **Valores dentro de atributos** (`data-key`, `data-room`, `data-id`, `value=`): todos controlados por el servidor, no por otra persona (`roomId` = 6 hex de `makeRoomId`; `socket.id` lo genera Socket.IO; claves de parámetros fijas; valor numérico).
+- **Nota aclaratoria (no es pendiente):** los valores de `dataset` en `room.js` (`user`, `text`, `ishost`) se asignan con la API del DOM (`div.dataset[k] = v`), no con `innerHTML`, así que no necesitan escapado.
+- **Pendientes a decidir aparte (no tocados):**
+  1. **`escapeHtml` no escapa las comillas dobles** (usa `textContent` seguido de `innerHTML`: escapa `&`, `<` y `>`, no `"`). Hoy no es explotable porque ningún valor de otra persona entra en un atributo, pero si en el futuro alguien
+     pone texto de usuario dentro de un atributo con `escapeHtml`, podría salirse de las comillas. Posible paso: unificar la función y escapar también `"` y `'`.
+  2. **Cuatro copias de la función:** tres `escapeHtml` (la de `room.js` además tolera `null`) y una `escapeHtmlLocal` en `index.js`. Unificarlas en un archivo compartido, si se decide que vale la pena.
+
 **CSP sin `'unsafe-inline'`, paso 6: `scriptSrc` queda en `['self']` (2026-10-25)**: hecho y probado por la persona en el dominio público. Un parche sobre `origin/plan-produccion`
 (`CSP: scriptSrc sin 'unsafe-inline' (paso 6 de la conversion)`, solo `server.js`). **Con esto termina la serie de 6 pasos.**
 

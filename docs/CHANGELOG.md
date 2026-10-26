@@ -1,5 +1,15 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-25 — Auditoría de `innerHTML` en `public/js/*.js` (sin hallazgos)
+
+- **Qué:** revisión de los 47 usos de `innerHTML` (`admin.js` 14, `index.js` 11, `library.js` 14, `room.js` 8) sobre `c348fa0`, rastreando el origen de cada dato. Sin hallazgos: no hubo cambios de código.
+- **Verificado:** lectura de cada sitio por el asistente; `npm test` 111/111 y lint limpio con el repo sin cambios. La persona NO revisó los 47: confirmó dos puntos con verificaciones propias (que `escapeHtml` no escapa
+  comillas dobles, y el alfabeto de `socket.id`).
+- **Pendientes a decidir aparte:** escapar también `"` y `'` en `escapeHtml`; unificar las 4 copias de la función. Nota aclaratoria: `dataset` en `room.js` no necesita escapado (API del DOM).
+- **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
+
+---
+
 ## 2026-10-25 — CSP: `scriptSrc` sin `'unsafe-inline'` (paso 6, fin de la serie)
 
 - **Qué:** en `server.js`, `scriptSrc` pasó de `["'self'", "'unsafe-inline'"]` a `["'self'"]`, con el comentario actualizado. `scriptSrcAttr` (`'none'`) y `styleSrc` (con `'unsafe-inline'`) no cambiaron.
