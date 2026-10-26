@@ -6,7 +6,7 @@ const fileNameText = document.getElementById('fileNameText');
 const progressWrap = document.getElementById('progressWrap');
 const progressBar = document.getElementById('progressBar');
 
-const cassetteIcon = `<svg class="cassette-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="color:var(--cyan)">
+const cassetteIcon = `<svg class="cassette-spin cassette-spin-cyan" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
   <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3"/>
   <circle cx="12" cy="12" r="2.5" fill="currentColor"/>
 </svg>`;

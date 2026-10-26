@@ -1751,3 +1751,65 @@ video { width: 100%; height: 100%; display: block; background: black; }
 }
 .legal-cross-link { color: var(--cyan); text-decoration: none; }
 .legal-cross-link:hover { text-decoration: underline; }
+
+/* ---------- Estilos que antes eran style="..." inline en el HTML y en las plantillas de JS ----------
+   Se movieron acá para poder quitar 'unsafe-inline' de styleSrc en la CSP. Van al FINAL del archivo a
+   propósito: con la misma especificidad que la regla base de cada elemento, gana la que viene después
+   (antes ganaba el style inline). El efecto visual es el mismo que antes. */
+
+/* Elementos que empiezan ocultos y que JS muestra con elemento.style.display = '...' (una asignación
+   directa desde JS le gana a esta clase). Tiene que ir después de .host-controls y .local-controls,
+   que declaran display:flex. NO usar !important: taparía las asignaciones de JS. */
+.hidden-by-default { display: none; }
+
+.marquee-title-admin { font-size: clamp(22px, 4.6vw, 30px); }
+.marquee-title-library { font-size: clamp(24px, 5vw, 34px); }
+.marquee-title-legal { font-size: clamp(20px, 4.5vw, 28px); }
+.marquee-title-reset { font-size: clamp(22px, 5vw, 30px); }
+
+.tape-list-expanded { max-height: none; overflow: visible; }
+
+.back-link-below-12 { display: block; margin-top: 12px; text-align: center; }
+.back-link-below-16 { display: block; margin-top: 16px; text-align: center; }
+
+/* Más específico a propósito: .deck:not(.deck-wide) .eyebrow-osd (margin-bottom) le ganaba por
+   especificidad a una clase sola, y antes el style inline le ganaba a esa regla. */
+.eyebrow-osd.eyebrow-code,
+.deck .eyebrow-osd.eyebrow-code { color: var(--pink); margin-bottom: 10px; }
+
+.tape-item-meta-wrap { overflow-wrap: anywhere; }
+
+.cassette-spin-cyan { color: var(--cyan); }
+
+/* Flotadores decorativos: cada uno con su posición, tamaño y animación. admin.html y library.html
+   comparten los mismos 6 valores (floaters-vhs). */
+.floaters-vhs .floater:nth-child(1) { left: 4%; font-size: 40px; animation-duration: 9s; animation-delay: -2s; }
+.floaters-vhs .floater:nth-child(2) { left: 14%; font-size: 26px; animation-duration: 11s; animation-delay: -6s; }
+.floaters-vhs .floater:nth-child(3) { left: 88%; font-size: 44px; animation-duration: 8s; animation-delay: -1s; }
+.floaters-vhs .floater:nth-child(4) { left: 94%; font-size: 28px; animation-duration: 12s; animation-delay: -4s; }
+.floaters-vhs .floater:nth-child(5) { left: 8%; font-size: 30px; animation-duration: 10s; animation-delay: -8s; }
+.floaters-vhs .floater:nth-child(6) { left: 78%; font-size: 34px; animation-duration: 9.5s; animation-delay: -3s; }
+.floaters-index .floater:nth-child(1) { left: 2%; font-size: 48px; animation-duration: 8s; animation-delay: -1s; }
+.floaters-index .floater:nth-child(2) { left: 9%; font-size: 32px; animation-duration: 11s; animation-delay: -6s; }
+.floaters-index .floater:nth-child(3) { left: 16%; font-size: 42px; animation-duration: 9.5s; animation-delay: -3s; }
+.floaters-index .floater:nth-child(4) { left: 23%; font-size: 29px; animation-duration: 13s; animation-delay: -8s; }
+.floaters-index .floater:nth-child(5) { left: 31%; font-size: 54px; animation-duration: 7s; animation-delay: -2s; }
+.floaters-index .floater:nth-child(6) { left: 38%; font-size: 35px; animation-duration: 10s; animation-delay: -5s; }
+.floaters-index .floater:nth-child(7) { left: 45%; font-size: 26px; animation-duration: 12s; animation-delay: -9s; }
+.floaters-index .floater:nth-child(8) { left: 52%; font-size: 45px; animation-duration: 8.5s; animation-delay: -4s; }
+.floaters-index .floater:nth-child(9) { left: 59%; font-size: 32px; animation-duration: 9s; animation-delay: -7s; }
+.floaters-index .floater:nth-child(10) { left: 66%; font-size: 50px; animation-duration: 11.5s; animation-delay: -1.5s; }
+.floaters-index .floater:nth-child(11) { left: 73%; font-size: 29px; animation-duration: 7.5s; animation-delay: -6.5s; }
+.floaters-index .floater:nth-child(12) { left: 80%; font-size: 38px; animation-duration: 10.5s; animation-delay: -3.5s; }
+.floaters-index .floater:nth-child(13) { left: 87%; font-size: 48px; animation-duration: 9s; animation-delay: -8.5s; }
+.floaters-index .floater:nth-child(14) { left: 94%; font-size: 30px; animation-duration: 12.5s; animation-delay: -2.5s; }
+.floaters-index .floater:nth-child(15) { left: 5%; font-size: 35px; animation-duration: 10s; animation-delay: -10s; }
+.floaters-index .floater:nth-child(16) { left: 62%; font-size: 26px; animation-duration: 8s; animation-delay: -11s; }
+.floaters-index .floater:nth-child(17) { left: 40%; font-size: 42px; animation-duration: 13.5s; animation-delay: -4.5s; }
+.floaters-index .floater:nth-child(18) { left: 97%; font-size: 35px; animation-duration: 9.5s; animation-delay: -6s; }
+.floaters-room .floater:nth-child(1) { left: 6%; font-size: 18px; animation-duration: 9s; animation-delay: -2s; }
+.floaters-room .floater:nth-child(2) { left: 22%; font-size: 14px; animation-duration: 11s; animation-delay: -5s; }
+.floaters-room .floater:nth-child(3) { left: 40%; font-size: 20px; animation-duration: 8s; animation-delay: -7s; }
+.floaters-room .floater:nth-child(4) { left: 58%; font-size: 15px; animation-duration: 10s; animation-delay: -3s; }
+.floaters-room .floater:nth-child(5) { left: 75%; font-size: 18px; animation-duration: 12s; animation-delay: -6s; }
+.floaters-room .floater:nth-child(6) { left: 90%; font-size: 16px; animation-duration: 9.5s; animation-delay: -1s; }

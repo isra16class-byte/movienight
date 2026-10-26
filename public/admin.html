@@ -19,13 +19,13 @@
 <body>
 <div class="vhs-scene">
   <div class="horizon"><div class="sun"></div><div class="grid"></div></div>
-  <div class="floaters">
-    <span class="floater" style="left:4%;  font-size:40px; animation-duration:9s;  animation-delay:-2s;">🛠️</span>
-    <span class="floater" style="left:14%; font-size:26px; animation-duration:11s; animation-delay:-6s;">💿</span>
-    <span class="floater" style="left:88%; font-size:44px; animation-duration:8s;  animation-delay:-1s;">📼</span>
-    <span class="floater" style="left:94%; font-size:28px; animation-duration:12s; animation-delay:-4s;">🎞️</span>
-    <span class="floater" style="left:8%;  font-size:30px; animation-duration:10s; animation-delay:-8s;">🎞️</span>
-    <span class="floater" style="left:78%; font-size:34px; animation-duration:9.5s; animation-delay:-3s;">📼</span>
+  <div class="floaters floaters-vhs">
+    <span class="floater">🛠️</span>
+    <span class="floater">💿</span>
+    <span class="floater">📼</span>
+    <span class="floater">🎞️</span>
+    <span class="floater">🎞️</span>
+    <span class="floater">📼</span>
   </div>
 
   <main class="deck deck-wide">
@@ -39,10 +39,10 @@
 
     <a href="/library.html" class="back-link">◂ Volver a la biblioteca</a>
     <p class="eyebrow-osd">▸ SOLO PERSONAL AUTORIZADO ◂</p>
-    <h1 class="marquee-title" style="font-size:clamp(22px, 4.6vw, 30px);">PANEL DE ADMIN</h1>
+    <h1 class="marquee-title marquee-title-admin">PANEL DE ADMIN</h1>
     <p class="tagline">Parámetros de comportamiento de la app y control de salas activas.</p>
 
-    <div id="adminBody" style="display:none;">
+    <div id="adminBody" class="hidden-by-default">
 
       <h2 class="admin-section-title">📊 Estado del servidor</h2>
       <div class="admin-stats-grid" id="statsGrid">
@@ -53,17 +53,17 @@
       </div>
 
       <h2 class="admin-section-title">⚙️ Parámetros</h2>
-      <ul class="tape-list" id="settingsList" style="max-height:none; overflow:visible;">
+      <ul class="tape-list tape-list-expanded" id="settingsList">
         <li class="library-loading">Cargando parámetros...</li>
       </ul>
 
       <h2 class="admin-section-title">📼 Salas activas</h2>
-      <ul class="tape-list" id="roomsList" style="max-height:none; overflow:visible;">
+      <ul class="tape-list tape-list-expanded" id="roomsList">
         <li class="library-loading">Cargando salas...</li>
       </ul>
 
       <h2 class="admin-section-title">🔒 Bloqueados ahora (intentos fallidos)</h2>
-      <ul class="tape-list" id="securityList" style="max-height:none; overflow:visible;">
+      <ul class="tape-list tape-list-expanded" id="securityList">
         <li class="library-loading">Cargando...</li>
       </ul>
 

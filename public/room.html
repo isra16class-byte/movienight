@@ -23,14 +23,14 @@
     <div class="main">
       <div class="screen-wrap">
         <div class="viewers-badge" id="viewers">👥 0</div>
-        <div class="host-badge" id="hostBadge" style="display:none;">🎛 CONTROL REMOTO</div>
+        <div class="host-badge hidden-by-default" id="hostBadge">🎛 CONTROL REMOTO</div>
         <div class="fs-emoji" id="fsEmoji">
           <button class="fs-emoji-toggle" id="fsEmojiToggle" title="Reacciones" aria-label="Reacciones">😊</button>
           <div class="fs-emoji-panel" id="fsEmojiPanel"></div>
         </div>
         <video id="player" playsinline webkit-playsinline disablepictureinpicture></video>
         <div class="danmaku-layer" id="danmakuLayer" aria-hidden="true"></div>
-        <div class="host-controls" id="hostControlsWrap" style="display:none;">
+        <div class="host-controls hidden-by-default" id="hostControlsWrap">
           <button id="playPauseBtn" class="play-pause-btn" title="Reproducir / Pausar">
             <span id="playPauseIcon">▶</span>
           </button>
@@ -46,7 +46,7 @@
           <button id="skipFwdBtn" class="skip-btn" title="Adelantar 10s"><span class="skip-icon">↻</span><span class="skip-label">10</span></button>
           <button id="hostFsBtn" class="skip-btn" title="Pantalla completa"><span class="skip-icon">⛶</span><span class="skip-label">FULL</span></button>
         </div>
-        <div class="local-controls" id="localControls" style="display:none;">
+        <div class="local-controls hidden-by-default" id="localControls">
           <!-- Solo lectura: los invitados ven cuánto dura la peli y por dónde va, pero no pueden
                tocar la barra (sin thumb arrastrable, sin listeners de mouse/touch, ver room.html) -->
           <div class="seek-bar seek-bar--readonly" id="guestSeekBar">
@@ -62,19 +62,19 @@
           </div>
           <button id="fsBtn" title="Pantalla completa">⛶</button>
         </div>
-        <div class="muted-banner" id="mutedBanner" style="display:none;">🔇 Te silenciaron el chat</div>
-        <div class="restart-banner" id="restartBanner" style="display:none;">🔄 El servidor se está reiniciando — la conexión se corta unos segundos y vuelve sola</div>
+        <div class="muted-banner hidden-by-default" id="mutedBanner">🔇 Te silenciaron el chat</div>
+        <div class="restart-banner hidden-by-default" id="restartBanner">🔄 El servidor se está reiniciando — la conexión se corta unos segundos y vuelve sola</div>
       </div>
     </div>
 
     <div class="side">
-      <div class="floaters">
-        <span class="floater" style="left:6%;  font-size:18px; animation-duration:9s;  animation-delay:-2s;">📼</span>
-        <span class="floater" style="left:22%; font-size:14px; animation-duration:11s; animation-delay:-5s;">🎞️</span>
-        <span class="floater" style="left:40%; font-size:20px; animation-duration:8s;  animation-delay:-7s;">💿</span>
-        <span class="floater" style="left:58%; font-size:15px; animation-duration:10s; animation-delay:-3s;">📀</span>
-        <span class="floater" style="left:75%; font-size:18px; animation-duration:12s; animation-delay:-6s;">📼</span>
-        <span class="floater" style="left:90%; font-size:16px; animation-duration:9.5s; animation-delay:-1s;">🎞️</span>
+      <div class="floaters floaters-room">
+        <span class="floater">📼</span>
+        <span class="floater">🎞️</span>
+        <span class="floater">💿</span>
+        <span class="floater">📀</span>
+        <span class="floater">📼</span>
+        <span class="floater">🎞️</span>
       </div>
       <div class="side-header" id="sideHeaderDesktop">
         <div class="code-salir-group" id="codeSalirGroup">
@@ -130,7 +130,7 @@
              En PC se quedan arriba de las pestañas, tal como estaban. -->
         <div class="side-header" id="codeSalirSlotMobile"></div>
         <div id="viewerList"></div>
-        <div class="host-panel" id="hostPanelWrap" style="display:none;">
+        <div class="host-panel hidden-by-default" id="hostPanelWrap">
           <a class="change-video-link" id="changeVideoLink" href="#">📼 Cambiar cinta</a>
           <div class="subtitle-upload">
             <label for="subtitleFile">🗣️ Subir subtítulos (.srt)</label>

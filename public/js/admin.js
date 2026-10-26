@@ -285,7 +285,7 @@ function renderSecurity(items) {
       <span class="tape-item-icon">🔒</span>
       <div class="tape-item-info">
         <div class="tape-item-name">${escapeHtml(item.source)}${extra}</div>
-        <div class="tape-item-meta" style="overflow-wrap:anywhere;">${escapeHtml(item.ip)} · vence en ${escapeHtml(String(minLeft))} min</div>
+        <div class="tape-item-meta tape-item-meta-wrap">${escapeHtml(item.ip)} · vence en ${escapeHtml(String(minLeft))} min</div>
       </div>
     `;
     securityList.appendChild(li);

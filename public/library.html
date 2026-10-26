@@ -19,13 +19,13 @@
 <body>
 <div class="vhs-scene">
   <div class="horizon"><div class="sun"></div><div class="grid"></div></div>
-  <div class="floaters">
-    <span class="floater" style="left:4%;  font-size:40px; animation-duration:9s;  animation-delay:-2s;">📼</span>
-    <span class="floater" style="left:14%; font-size:26px; animation-duration:11s; animation-delay:-6s;">💿</span>
-    <span class="floater" style="left:88%; font-size:44px; animation-duration:8s;  animation-delay:-1s;">📀</span>
-    <span class="floater" style="left:94%; font-size:28px; animation-duration:12s; animation-delay:-4s;">🎞️</span>
-    <span class="floater" style="left:8%;  font-size:30px; animation-duration:10s; animation-delay:-8s;">🎞️</span>
-    <span class="floater" style="left:78%; font-size:34px; animation-duration:9.5s; animation-delay:-3s;">📼</span>
+  <div class="floaters floaters-vhs">
+    <span class="floater">📼</span>
+    <span class="floater">💿</span>
+    <span class="floater">📀</span>
+    <span class="floater">🎞️</span>
+    <span class="floater">🎞️</span>
+    <span class="floater">📼</span>
   </div>
 
   <main class="deck deck-wide">
@@ -39,10 +39,10 @@
 
     <a href="/" class="back-link" id="backLink">◂ Volver</a>
     <p class="eyebrow-osd">▸ REWIND · PLAY · REC ◂</p>
-    <h1 class="marquee-title" style="font-size:clamp(24px, 5vw, 34px);" id="libTitle">BIBLIOTECA DE CINTAS</h1>
+    <h1 class="marquee-title marquee-title-library" id="libTitle">BIBLIOTECA DE CINTAS</h1>
     <p class="tagline" id="libTagline">Videos ya subidos en este servidor. Usa uno para crear una sala sin volver a subirlo.</p>
 
-    <div class="new-upload" id="newUploadWrap" style="display:none;">
+    <div class="new-upload hidden-by-default" id="newUploadWrap">
       <label class="tape-slot tracking-glitch" for="newTapeFile">
         <span class="tape-slot-icon">📼</span>
         <span id="newTapeFileName">O inserta una cinta nueva para esta sala</span>
