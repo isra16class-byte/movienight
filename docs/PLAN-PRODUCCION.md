@@ -262,6 +262,8 @@ secundario.
       alfabeto de `socket.id`). Tabla completa en `docs/MEMORIA.md`.
 - [ ] (Decidir aparte) `escapeHtml` no escapa `"`: hoy no es explotable (ningún valor de otra persona va en un atributo), pero conviene escapar también `"` y `'` si se agrega texto de usuario en atributos.
 - [ ] (Decidir aparte) Unificar las 4 copias de la función de escapado (`escapeHtml` x3 y `escapeHtmlLocal` en `index.js`) en un archivo compartido.
+- [ ] CSP sin `'unsafe-inline'` en `styleSrc` (en curso, 2 pasos): paso 1 hecho y probado por la persona (2026-10-25): los 58 `style="..."` estáticos pasaron a clases en `public/style.css`. Falta el paso 2: los 4 `style="color:${usernameColor(...)}"`
+      de `room.js` con `style.setProperty('--user-color', ...)`; después, quitar `'unsafe-inline'` de `styleSrc` en `server.js`. Detalle en `docs/MEMORIA.md`.
 - [ ] (Aparte, no es de la serie CSP) La CSP bloquea `https://static.cloudflareinsights.com/beacon.min.js`, el script de analíticas que inyecta Cloudflare; error de consola en las 4 páginas del dominio
       real, no rompe nada. Resolver permitiéndolo en `server.js` (`scriptSrc`/`connectSrc`) o desactivando la inyección en el panel de Cloudflare. Sin resolver.
 

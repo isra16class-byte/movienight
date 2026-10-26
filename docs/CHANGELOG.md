@@ -1,5 +1,16 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-25 — `style="..."` estáticos a clases en `public/style.css` (paso 1 de 2 para `styleSrc`)
+
+- **Qué:** los 58 `style="..."` estáticos (8 `display:none`, 3 `max-height/overflow`, 5 `font-size:clamp`, 3 de margen, 1 `overflow-wrap`, 2 del SVG `cassetteIcon`, 36 flotadores) pasaron a clases al final de `style.css`. Quedan 4 `style="..."` dinámicos en `room.js`. La CSP no cambió.
+- **Parche** (sobre `origin/plan-produccion`, commit `4534f15`): `admin.html`, `index.html`, `library.html`, `privacy.html`, `reset-password.html`, `room.html`, `terms.html`, `admin.js`, `index.js`, `library.js`, `style.css`.
+- **Verificado por el asistente:** 4 `style="` restantes, comparación de los 36 flotadores sin diferencias, `node --check`, `npm test` 111/111, lint limpio.
+- **Probado por la persona:** resultados positivos en el navegador (sin más detalle).
+- **Siguiente:** los 4 dinámicos de `room.js` con `style.setProperty('--user-color', ...)`, y después quitar `'unsafe-inline'` de `styleSrc`.
+- **Solo documentación en este commit:** `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-PRODUCCION.md`; sin cambios de código.
+
+---
+
 ## 2026-10-25 — Auditoría de `innerHTML` en `public/js/*.js` (sin hallazgos)
 
 - **Qué:** revisión de los 47 usos de `innerHTML` (`admin.js` 14, `index.js` 11, `library.js` 14, `room.js` 8) sobre `c348fa0`, rastreando el origen de cada dato. Sin hallazgos: no hubo cambios de código.

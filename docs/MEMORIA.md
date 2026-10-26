@@ -160,6 +160,24 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**CSP sin `'unsafe-inline'` en `styleSrc`, paso 1 de 2: los 58 `style="..."` estáticos pasan a clases (2026-10-25)**: hecho y probado por la persona. Un parche sobre `origin/plan-produccion`
+(`style: los 58 style="..." estaticos pasan a clases en public/style.css`, commit `4534f15`). **La CSP NO cambió**: `styleSrc` sigue con `'unsafe-inline'`. Quedan 4 `style="..."` dinámicos, todos en `room.js`.
+
+- **Qué cambió:** 11 archivos: `admin.html`, `index.html`, `library.html`, `privacy.html`, `reset-password.html`, `room.html`, `terms.html`, `admin.js`, `index.js`, `library.js` y `style.css`. No se tocó `room.js`, `server.js` ni la CSP.
+  Desglose real de los 58: 8 `display:none`, 3 `max-height:none; overflow:visible`, 5 `font-size:clamp(...)`, 3 de margen (`index.html:74` y `:81`, `reset-password.html:38`), 1 `overflow-wrap`, 2 `color:var(--cyan)` del SVG `cassetteIcon` y 36 flotadores.
+  (La auditoría previa, hecha en el chat y no guardada en docs, tenía mal sumado ese desglose: decía 11 `display:none` y 4 `clamp`.)
+- **Clases nuevas (todas al final de `style.css`):** `hidden-by-default` (8 elementos que JS muestra con `style.display`), `marquee-title-admin/-library/-legal/-reset`, `tape-list-expanded`, `back-link-below-12/-16`,
+  `eyebrow-code`, `tape-item-meta-wrap`, `cassette-spin-cyan`, y las reglas `:nth-child` de los flotadores: `floaters-vhs` (compartida por `admin.html` y `library.html`, un solo bloque de 6), `floaters-index` (18) y `floaters-room` (6).
+- **Por qué importa el orden y la especificidad:** `.hidden-by-default` va AL FINAL de `style.css` y sin `!important`, porque `.host-controls` y `.local-controls` declaran `display:flex` (gana la regla que viene después a igual especificidad) y un `!important` taparía las
+  asignaciones `elemento.style.display = '...'` del JS. `eyebrow-code` usa también el selector `.deck .eyebrow-osd.eyebrow-code` porque `.deck:not(.deck-wide) .eyebrow-osd` (`margin-bottom`) le ganaría por especificidad a una clase sola.
+- **Verificado por el asistente:** `grep 'style="'` da exactamente 4 (`room.js:408,890,892,1062`); comparación con un script de los 4 valores de cada flotador contra la regla CSS: 30 reglas únicas (cubren los 36 flotadores), 0 diferencias;
+  los contenedores `.floaters` tienen solo hijos `.floater` en las 4 páginas (`:nth-child` seguro); nadie usa `style.display = ''`; sin otras reglas CSS con `display` sobre esos elementos; `node --check` de los 3 JS; `npm test` 111/111 y lint limpio.
+- **Probado por la persona en el navegador:** la persona informó que todas las pruebas dieron resultados positivos (flotadores de las páginas, elementos que empiezan ocultos en la sala y el panel de admin, títulos y enlaces, ícono de subida, consola),
+  sin más detalle por prueba.
+- **Siguiente:** paso 2 de 2: los 4 `style="color:${usernameColor(...)}"` de `room.js` (líneas 408, 890, 892, 1062) con `elemento.style.setProperty('--user-color', ...)` y reglas en `style.css`
+  (propuestas: `.viewer-name`, `.reply-quote-user`, `.msg-user`, `.danmaku-user`); recién después, quitar `'unsafe-inline'` de `styleSrc`. `usernameColor()` devuelve 1 de 8 valores fijos (paleta de 7 más el color del host).
+- **Pendientes aparte (sin cambios):** beacon de Cloudflare, `favicon.ico` 404, `<meta apple-mobile-web-app-capable>` obsoleta, unificar `escapeHtml` y escapar `"`, prueba en móvil de `room.html`, limpieza de salas de prueba.
+
 **Auditoría de `innerHTML` en `public/js/*.js` (2026-10-25)**: hecha, **sin hallazgos que corregir; no hubo cambios de código**. Trabajada sobre `c348fa0`. Solo documentación.
 
 - **Alcance:** los 47 usos de `innerHTML` en `admin.js` (14), `index.js` (11), `library.js` (14) y `room.js` (8); `sw-register.js` y `reset-password.js` tienen 0. El asistente leyó cada sitio con su contexto y rastreó el origen del dato
