@@ -219,14 +219,19 @@ app.use(helmet({
       // public/js/ referenciado con <script src="/js/...">, no inline.
       scriptSrc: ["'self'"],
       scriptSrcAttr: ["'none'"],
-      // Mismo motivo que scriptSrc: hay estilos inline (style="...") en todas las páginas.
+      // Desde los 2 pasos de conversión de style="..." (los 58 estáticos pasaron a clases en
+      // public/style.css y los 4 colores dinámicos de room.js a elemento.style.setProperty('--user-color', ...)),
+      // ninguna página necesita 'unsafe-inline' en styleSrc: no queda ningún style="..." ni <style> en public/.
+      // Si alguien agrega un style="..." o un <style> inline, esta CSP lo va a bloquear: es intencional.
+      // Lo correcto es una clase en public/style.css; y para un valor dinámico, setProperty desde JS
+      // (la API del DOM está permitida; un atributo style escrito en un string de HTML, no).
       // https://fonts.googleapis.com además, porque las 4 páginas cargan ahí la hoja de estilos de
       // Google Fonts (<link rel="stylesheet" href="https://fonts.googleapis.com/css2?...">) — sin
       // esto, la CSP bloqueaba esa hoja entera y con ella las 3 tipografías reales del proyecto
       // (Monoton/Space Grotesk/VT323), cayendo todo a la fuente por default del navegador. Hallazgo
       // real probando en un navegador de verdad (no se veía con curl/headers solos, hacía falta la
       // consola del navegador) — ver docs/CHANGELOG.md.
-      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      styleSrc: ["'self'", 'https://fonts.googleapis.com'],
       // 'data:' hace falta porque style.css usa un SVG de ruido como fondo vía data URL.
       imgSrc: ["'self'", 'data:'],
       // https://fonts.gstatic.com: ahí es donde vive el archivo real de cada fuente (.woff2) que la
