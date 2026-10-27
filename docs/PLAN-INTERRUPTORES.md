@@ -1,10 +1,11 @@
 # Plan: interruptores de acceso en el panel de admin
 
-Fecha: 2026-10-27. Rama: `plan-produccion`. Estado: **plan acordado, sin código todavía**.
+Fecha: 2026-10-27. Rama: `plan-produccion`. Estado: **plan acordado y reordenado en 5 fases, sin código todavía**.
 
-Este documento recoge lo decidido en la conversación previa a tocar código. Lo
-escrito en la sección 6 («Por verificar») sale de lo que se leyó de `server.js`
-en otra sesión y **no se ha comprobado aún contra el código**.
+Este documento recoge lo decidido antes de tocar código. La sección 4 («Fases») sustituye
+al reparto en 4 parches de la primera versión: al medir el código se vio que el parche 2
+original tocaba 8 puntos de `server.js` y el cliente a la vez, y se dividió. La sección 6
+separa lo ya comprobado contra el código de lo que sigue pendiente de leer.
 
 ---
 
@@ -98,26 +99,55 @@ Cuentan como «exigen cuenta»:
 El choque solo puede darse por valores fijados en el `.env`, porque el panel
 necesita Postgres para guardar cualquier valor.
 
-## 4. Parches, en orden
+## 4. Fases, en orden
 
-Cada parche sigue el flujo del repo: commit local, `git format-patch`, y quien
-mantiene el repo lo aplica con `git am` y hace el push.
+Cada fase es una sesión y un patch: commit local, `git format-patch`, y quien mantiene el
+repo lo aplica con `git am` y hace el push. Cada patch deja tests y lint en verde y
+actualiza `MEMORIA.md` y `CHANGELOG.md` en el mismo commit (en la fase 5 también
+`PLAN-PRODUCCION.md`). Este documento se entregó como patch 0002; las fases se aplican
+una tras otra.
 
-- [ ] **Parche 1 — tipo `bool` en `lib/settings.js`.** Hoy solo existen `int` y
-  `float`. Validación y tests.
-- [ ] **Parche 2 — interruptores en el servidor.** Crear sala, unirse, registro,
-  contraseña de biblioteca, bloque `disconnect`, regla de sala sin host y
-  validación de arranque (3.4). Actualizar `test/hostAuth.test.js` y añadir
-  tests nuevos.
-- [ ] **Parche 3 — panel.** Selector sí/no en `public/admin.html` y
-  `public/js/admin.js` en lugar de la caja de texto (hoy se pinta siempre un
-  campo de texto).
-- [ ] **Parche 4 — documentación.** `MEMORIA.md`, `CHANGELOG.md` y
-  `PLAN-PRODUCCION.md`.
+**Regla de orden:** cada clave se agrega al catálogo de `lib/settings.js` en la fase en
+que ya hace algo. Así el panel nunca muestra un interruptor sin efecto.
+
+| Fase | Contenido | Tamaño |
+|---|---|---|
+| **1. Infraestructura** | Tipo `bool` en `lib/settings.js` y `lib/envValidation.js`, selector sí/no en el panel (`public/admin.html` y `public/js/admin.js`), y `HOST_AUTO_TRANSFER` como primer interruptor (un `if` en `disconnect`) | Chico-medio |
+| **2. `ALLOW_ANONYMOUS_ROOMS`** | Exigir sesión en `/create-room` y `/create-room-from-upload` (ver 6.1, punto 1), mensaje en `public/js/index.js`, y validación de arranque (3.4), escrita de forma genérica para que la reusen las demás fases | Medio |
+| **3. Control temporal** | Regla de sala sin host en `join-room` (3.2), apoyada en la fase 2, con tests, incluida la sala restaurada tras un reinicio | Medio |
+| **4. Registro y biblioteca** | `ALLOW_REGISTRATION` y `ALLOW_LIBRARY_PASSWORD`: condiciones en `/auth/register`, `requireLibraryAuth` y `requireUploadAuth` | Chico-medio |
+| **5. `REQUIRE_ACCOUNT_TO_JOIN`** | Rechazo en `join-room` y pantalla de «necesitas cuenta» en `room.js`. Si hace falta, se parte en 5a (servidor) y 5b (cliente) | **Pesada** |
+
+### 4.1 Por qué la fase 5 es la pesada
+
+Los otros interruptores son condicionales de pocas líneas. `REQUIRE_ACCOUNT_TO_JOIN` no:
+`public/js/room.js` no tiene nada de login (el login vive en `index.js`), así que hay que
+decidir **qué ve quien abre un link de sala sin cuenta**: redirigir al inicio con el
+link guardado para volver, un formulario de login dentro de la sala, o solo un aviso.
+Esa decisión de producto queda abierta hasta empezar la fase 5.
+
+### 4.2 Decisiones que cambia el código (de la medición del 2026-10-27)
+
+1. **La contraseña de biblioteca sola alcanza para crear una sala.** `requireUploadAuth`
+   deja pasar con `LIBRARY_PASSWORD` sin sesión. Si se apaga `ALLOW_ANONYMOUS_ROOMS` sin
+   cubrir eso, el interruptor se esquiva. Hay que exigir sesión al crear sala aunque la
+   contraseña sea correcta. Las rutas que cuelgan de `requireUploadAuth` son
+   `/create-room`, `/create-room-from-upload`, `/api/uploads/presign` y
+   `/room/:id/change-video`; hay que decidir en la fase 2 cuáles de ellas cuentan como
+   «crear sala» y cuáles siguen aceptando la contraseña.
+2. **El selector del panel va primero, no último** (regla de orden de arriba).
+3. **La validación de arranque (opción B de 3.4) es viable.** `settings.init()` funciona
+   sin Postgres (cae a `.env` y valor por defecto), así que puede leer el valor efectivo.
+   Solo saltaría por valores fijados en el `.env`.
+4. **`hostSocketId` no se guarda en Redis.** Tras un reinicio toda sala vuelve sin host.
+   Con la regla del control temporal, el primero que entre a una sala restaurada lo
+   recibe si cumple el criterio de 3.2. Esto va a tests en la fase 3.
+5. **`envValidation` ya trata los booleanos con `=== '1'`.** Los interruptores nuevos
+   aceptarán `1/true` y `0/false`, y se registran ahí para que un typo avise.
 
 ## 5. Otros pendientes, en el orden elegido
 
-- [ ] 1. `hostToken` anónimo: lo cubren los parches 1 a 3, con el matiz de 3.3.
+- [ ] 1. `hostToken` anónimo: lo cubren las fases 1 a 5, con el matiz de 3.3.
 - [ ] 2. Unificar `escapeHtml()` (hoy hay 4 copias) y que escape `"` y `'`.
   Cierra lo anotado en la auditoría de `innerHTML`.
 - [ ] 3. Prueba en móvil de `room.html`: rotación y teclado de Android. No
@@ -131,20 +161,28 @@ mantiene el repo lo aplica con `git am` y hace el push.
 - [ ] 6. Beacon de Cloudflare (se desactiva en el panel de Cloudflare),
   `favicon.ico` (404) y la meta `apple-mobile-web-app-capable` obsoleta.
 
-## 6. Por verificar antes del parche 1
+## 6. Verificación contra el código
 
-Leer, antes de escribir código:
+### 6.1 Ya comprobado (2026-10-27, `server.js` de 2780 líneas)
 
-- `lib/settings.js`: cómo se define el catálogo y cómo se validan los tipos.
-- `lib/hostAuth.js`: `isRoomOwner()` y `setHost()`.
-- `server.js`: los bloques de `join-room` y `disconnect` (la sesión anterior
-  citó aproximadamente las líneas ~2165-2175, ~2347-2360 y ~2397; pueden haber
-  cambiado).
+- `requireUploadAuth` protege `/create-room` (~l. 1664), `/create-room-from-upload`
+  (~l. 1695), `/api/uploads/presign` (~l. 1644) y `/room/:id/change-video` (~l. 1719).
+  `requireLibraryAuth` protege listar y borrar en `/api/uploads` (~l. 1953 y 1981).
+- `lib/roomStore.js` no persiste `hostSocketId` (queda en `null` al restaurar).
+- `lib/settings.js` solo define los tipos `int` y `float`; el catálogo es `SETTINGS`.
+- `lib/envValidation.js` lee los flags booleanos con `=== '1'`.
+- `public/js/room.js` no contiene lógica de login ni llamadas a `/auth`.
+
+### 6.2 Por leer antes de cada fase
+
+- `lib/settings.js`: cómo `validate()` y `listAll()` usan `type`, para añadir `bool` (fase 1).
+- `lib/hostAuth.js`: `isRoomOwner()` y `setHost()` (fase 3).
+- `server.js`: los bloques `join-room` y `disconnect`. La sesión anterior citó
+  aproximadamente las líneas ~2165-2175, ~2347-2360 y ~2397; pueden haber cambiado.
 
 Comprobar en particular:
 
-- Que la regla del control temporal no abra un hueco con
-  `ALLOW_ANONYMOUS_ROOMS` encendido (caso nuevo: sala vacía con el link
-  filtrado).
-- Que `ROOM_TTL_HOURS` siga siendo `nullable` y qué ocurre con las salas
-  anónimas vivas si se pone en `null`.
+- Que la regla del control temporal no abra un hueco con `ALLOW_ANONYMOUS_ROOMS`
+  encendido (caso nuevo: sala vacía con el link filtrado).
+- Que `ROOM_TTL_HOURS` siga siendo `nullable` y qué ocurre con las salas anónimas vivas
+  si se pone en `null`.
