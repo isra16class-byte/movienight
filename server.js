@@ -2113,7 +2113,7 @@ function broadcastViewerList(roomId) {
 // sistema de roles aislado de Socket.io (con un `io` de mentira). Comportamiento sin cambios — acá se
 // deja `setHost` con la misma firma de siempre (sin el parámetro `io`) para no tocar los call sites,
 // pasándole el `io` real de este módulo por clausura.
-const { isRoomOwner, setHost: setHostWithIo } = require('./lib/hostAuth');
+const { isRoomOwner, setHost: setHostWithIo, assignHostOnJoin } = require('./lib/hostAuth');
 function setHost(room, roomId, socket) {
   return setHostWithIo(io, room, roomId, socket);
 }
@@ -2239,12 +2239,15 @@ io.on('connection', (socket) => {
     // la sala tiene dueño, esto reemplaza al hostToken como forma de probar "soy el host" (ver
     // isRoomOwner()); si no tiene dueño, el comportamiento es exactamente el de siempre.
     const sessionUserId = socket.request.session && socket.request.session.userId;
-    if (isRoomOwner(room, { hostToken, sessionUserId })) {
-      setHost(room, roomId, socket); // emite su propio 'host-status'
-    } else {
-      socket.isHost = false;
-      socket.emit('host-status', { isHost: false, hostToken: null });
-    }
+    // Fase 3 de los interruptores (docs/PLAN-INTERRUPTORES.md, 3.2): dueño → control temporal (sala sin
+    // host: la dejó el dueño siendo el último, o volvió de un reinicio, que no guarda hostSocketId) →
+    // invitado. Emite el 'host-status' que corresponda; ver assignHostOnJoin() en lib/hostAuth.js.
+    assignHostOnJoin(io, room, roomId, socket, {
+      hostToken,
+      sessionUserId,
+      autoTransfer: settings.getSetting('HOST_AUTO_TRANSFER'),
+      allowAnonymous: settings.getSetting('ALLOW_ANONYMOUS_ROOMS'),
+    });
     socket.emit('room-data', { videoFile: room.videoFile, subtitleFile: room.subtitleFile, position: room.videoPosition });
     if (wasMuted) socket.emit('mute-status', { muted: true });
 

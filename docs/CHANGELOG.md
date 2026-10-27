@@ -1,5 +1,18 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-27 — Interruptores de acceso, fase 3: control temporal de una sala sin host
+
+- **Qué:** tercera de las 5 fases de `docs/PLAN-INTERRUPTORES.md` (sección 3.2). En `join-room`, quien entra a una sala **sin host vivo** recibe el control temporal. Cubre dos casos que el traspaso automático no resolvía: el dueño era el último en irse, y la sala restaurada tras un reinicio (`hostSocketId` no se guarda en Redis, así que toda sala restaurada vuelve sin host). Si vuelve el dueño, `setHost()` degrada al temporal y el dueño recupera el control (nunca hay dos hosts).
+- **Quién lo recibe:** con `ALLOW_ANONYMOUS_ROOMS` encendido, cualquiera; apagado, solo quien tiene sesión de cuenta. **Decisión al implementar:** con `HOST_AUTO_TRANSFER` apagado tampoco hay control temporal (el plan, 3.1, dice que entonces nadie controla hasta que vuelva el host); el dueño siempre lo recupera.
+- **Sin cambio de comportamiento con host conectado.** Un `hostSocketId` de un socket ya caído se trata como «sin host» (`roomHasLiveHost`), para que una sala no quede bloqueada.
+- **Archivos:** `lib/hostAuth.js` (`roomHasLiveHost`, `canTakeTemporaryHost`, `assignHostOnJoin`), `server.js` (bloque `join-room`), `lib/roomStore.js` (se exporta `hydrateRoom`, solo para el test), `test/hostAuth.test.js`, y los 3 docs.
+- **Verificado por el asistente:** `node --check`, `npm test` 145/145 (14 tests nuevos, incluida la sala restaurada con el `hydrateRoom` real), lint limpio. Prueba de mutación: anulando la regla fallan 7 tests. Con el servidor real (`DISABLE_REDIS=1`) y sockets: por defecto el visitante que entra a la sala que dejó el dueño recibe el control, el dueño lo recupera al volver y el visitante lo pierde, y un tercero con host vivo queda de invitado; con `HOST_AUTO_TRANSFER=0` el visitante no recibe control y el dueño sí.
+- **NO verificado:** el reinicio real con Redis (no hay Redis en el entorno del asistente; lo cubre el test con `hydrateRoom`); `ALLOW_ANONYMOUS_ROOMS` apagado con una sesión real (necesita Postgres; cubierto solo por tests unitarios); el comportamiento de la UI de la sala en un navegador cuando `host-status` llega a un invitado que entra solo.
+- **Observación:** como en el traspaso automático y `make-host`, en una sala anónima el host temporal recibe el `hostToken` de la sala (ver 4.0c del plan).
+- **Siguiente:** fase 4, `ALLOW_REGISTRATION` y `ALLOW_LIBRARY_PASSWORD`.
+
+---
+
 ## 2026-10-27 — Interruptores de acceso, fase 2: `ALLOW_ANONYMOUS_ROOMS`
 
 - **Qué:** segunda de las 5 fases de `docs/PLAN-INTERRUPTORES.md`. Con `ALLOW_ANONYMOUS_ROOMS` apagado, crear una sala nueva exige sesión de cuenta, **aunque la contraseña de biblioteca sea correcta**. Nuevo `lib/accessPolicy.js` (regla de crear sala, validación de arranque y lista de interruptores que exigen cuenta), middleware `requireAccountToCreateRoom` antes de `requireUploadAuth` en `/create-room` y `/create-room-from-upload` (403 con `code: 'ACCOUNT_REQUIRED'`), endpoint público `GET /api/access-policy`, aviso previo en `public/js/index.js`, y la clave en el catálogo y en el panel.

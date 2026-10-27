@@ -160,6 +160,14 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Interruptores de acceso, fase 3 de 5: control temporal de una sala sin host (2026-10-27)**: código hecho y verificado por el asistente, **pendiente de que la persona aplique el parche y pruebe en el navegador**. Las fases 1 y 2 ya están aplicadas. Plan en `docs/PLAN-INTERRUPTORES.md` (3.2 y 4.0c).
+
+- **Qué cambió:** `lib/hostAuth.js` suma `roomHasLiveHost`, `canTakeTemporaryHost` y `assignHostOnJoin`; el bloque `join-room` de `server.js` los usa en vez del `if/else` de `isRoomOwner`; `lib/roomStore.js` exporta `hydrateRoom` (solo para tests); 14 tests nuevos. Quien entra a una sala sin host vivo recibe el control temporal si `HOST_AUTO_TRANSFER` está encendido y (`ALLOW_ANONYMOUS_ROOMS` encendido o tiene sesión). Si vuelve el dueño, lo recupera y degrada al temporal.
+- **Decisión que tomé yo (revisar):** con `HOST_AUTO_TRANSFER` apagado tampoco hay control temporal, porque el plan (3.1) dice que entonces nadie controla hasta que vuelva el host. El plan no lo decía explícitamente para 3.2; si se prefiere lo contrario es quitar una línea de `canTakeTemporaryHost()` y su test.
+- **Ojo:** el host temporal de una sala anónima recibe el `hostToken` de la sala (igual que con el traspaso automático y `make-host` hoy). En salas con dueño ese token no autoriza nada.
+- **Verificado:** `npm test` 145/145, lint limpio, prueba de mutación (7 tests fallan sin la regla) y prueba con el servidor real y sockets (dueño se va, visitante recibe control, dueño vuelve y lo recupera, tercero queda de invitado; con `HOST_AUTO_TRANSFER=0` nadie lo recibe). **No verificado:** reinicio real con Redis (sin Redis en el entorno; lo cubre el test con `hydrateRoom`), `ALLOW_ANONYMOUS_ROOMS` apagado con sesión real (sin Postgres) y la UI en un navegador.
+- **Siguiente:** fase 4, `ALLOW_REGISTRATION` y `ALLOW_LIBRARY_PASSWORD` (condiciones en `/auth/register`, `requireLibraryAuth` y `requireUploadAuth`; suma `ALLOW_LIBRARY_PASSWORD` a `ACCOUNT_REQUIRING_SWITCHES`). Cierra además el hueco de `presign` anotado en la fase 2.
+
 **Interruptores de acceso, fase 2 de 5: `ALLOW_ANONYMOUS_ROOMS` (2026-10-27)**: código hecho y verificado por el asistente, **pendiente de que la persona aplique el parche y pruebe en el navegador**. La fase 1 (`bool` y `HOST_AUTO_TRANSFER`) ya fue probada y aplicada. Plan en `docs/PLAN-INTERRUPTORES.md`.
 
 - **Qué cambió:** `lib/accessPolicy.js` nuevo; `requireAccountToCreateRoom` antes de `requireUploadAuth` en `/create-room` y `/create-room-from-upload` (403 `ACCOUNT_REQUIRED`); `GET /api/access-policy`; aviso en `index.js`; validación de arranque (sin `DATABASE_URL` y con el interruptor apagado el server no arranca); clave en el catálogo y el panel. Solo bloquea crear: las salas anónimas existentes siguen.

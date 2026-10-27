@@ -1,6 +1,6 @@
 # Plan: interruptores de acceso en el panel de admin
 
-Fecha: 2026-10-27. Rama: `plan-produccion`. Estado: **fases 1 y 2 de 5 hechas (2026-10-27); fases 3 a 5 pendientes**.
+Fecha: 2026-10-27. Rama: `plan-produccion`. Estado: **fases 1, 2 y 3 de 5 hechas (2026-10-27); fases 4 y 5 pendientes**.
 
 Este documento recoge lo decidido antes de tocar código. La sección 4 («Fases») sustituye
 al reparto en 4 parches de la primera versión: al medir el código se vio que el parche 2
@@ -68,6 +68,12 @@ que el dueño recupera el control sin cambios adicionales.
 - Si está apagado: solo cuentas con sesión. Una sala con solo anónimos puede
   quedar sin host.
 
+**Interacción con `HOST_AUTO_TRANSFER` (decidido al implementar la fase 3):** con el traspaso automático
+apagado tampoco hay control temporal. El plan de 3.1 dice que entonces «nadie controla el video hasta que
+vuelva» el host; darle el control al primero que entre sería un traspaso automático por otra puerta. El
+dueño sí lo recupera siempre (`isRoomOwner`). Si se prefiere lo contrario, es quitar una línea de
+`canTakeTemporaryHost()` en `lib/hostAuth.js` (y su test).
+
 Riesgo conocido: si el dueño no está, cualquiera con el link toma el control.
 Esto ya ocurre hoy mientras hay gente conectada; lo nuevo es que también ocurre
 con la sala vacía.
@@ -113,7 +119,7 @@ que ya hace algo. Así el panel nunca muestra un interruptor sin efecto.
 |---|---|---|
 | **1. Infraestructura** ✅ | Tipo `bool` en `lib/settings.js` y `lib/envValidation.js`, selector sí/no en el panel (`public/admin.html` y `public/js/admin.js`), y `HOST_AUTO_TRANSFER` como primer interruptor (un `if` en `disconnect`) | Chico-medio |
 | **2. `ALLOW_ANONYMOUS_ROOMS`** ✅ | Exigir sesión en `/create-room` y `/create-room-from-upload` (ver 6.1, punto 1), mensaje en `public/js/index.js`, y validación de arranque (3.4), escrita de forma genérica para que la reusen las demás fases | Medio |
-| **3. Control temporal** | Regla de sala sin host en `join-room` (3.2), apoyada en la fase 2, con tests, incluida la sala restaurada tras un reinicio | Medio |
+| **3. Control temporal** ✅ | Regla de sala sin host en `join-room` (3.2), apoyada en la fase 2, con tests, incluida la sala restaurada tras un reinicio | Medio |
 | **4. Registro y biblioteca** | `ALLOW_REGISTRATION` y `ALLOW_LIBRARY_PASSWORD`: condiciones en `/auth/register`, `requireLibraryAuth` y `requireUploadAuth` | Chico-medio |
 | **5. `REQUIRE_ACCOUNT_TO_JOIN`** | Rechazo en `join-room` y pantalla de «necesitas cuenta» en `room.js`. Si hace falta, se parte en 5a (servidor) y 5b (cliente) | **Pesada** |
 
@@ -147,6 +153,21 @@ que ya hace algo. Así el panel nunca muestra un interruptor sin efecto.
   cambiar el video de una sala que ya existe, y 3.3 dice que las salas existentes siguen funcionando.
   Consecuencia: alguien sin cuenta pero con la contraseña de biblioteca aún puede pedir una URL
   prefirmada y subir un archivo suelto a R2 (sin sala). Eso lo cierra `ALLOW_LIBRARY_PASSWORD` en la fase 4.
+
+### 4.0c Fase 3, hecha (2026-10-27)
+
+- `lib/hostAuth.js`: `roomHasLiveHost(io, room)` (un `hostSocketId` de un socket ya caído **no** cuenta como host),
+  `canTakeTemporaryHost()` (la regla, pura) y `assignHostOnJoin()` (dueño → control temporal → invitado; emite el
+  `host-status` que corresponda y devuelve `'owner' | 'temporary' | 'guest'`).
+- La regla: no hay host vivo **y** `HOST_AUTO_TRANSFER` encendido **y** (`ALLOW_ANONYMOUS_ROOMS` encendido **o** quien entra
+  tiene sesión de cuenta). Ver la interacción con `HOST_AUTO_TRANSFER` en 3.2.
+- `server.js`, bloque `join-room`: el `if/else` de `isRoomOwner` pasa a una llamada a `assignHostOnJoin()`. No se agrega mensaje
+  al chat (con la sala vacía no lo vería nadie; el cliente se entera por `host-status`).
+- `lib/roomStore.js`: se exporta `hydrateRoom` solo para testear que una sala restaurada vuelve con `hostSocketId: null`.
+- Si vuelve el dueño, `setHost()` degrada al temporal antes de promoverlo: nunca hay dos hosts (test incluido).
+- **Observación, sin cambiar:** `setHost()` le manda al host (también al temporal) el `hostToken` de la sala. En una sala anónima
+  eso ya ocurría con el traspaso automático y con `make-host`; ahora también lo recibe quien entra a una sala sin host. En salas
+  con dueño el `hostToken` no autoriza nada (`isRoomOwner`).
 
 ### 4.1 Por qué la fase 5 es la pesada
 
