@@ -680,6 +680,14 @@ Fase 2, conviene tratarlo como su propio bloque:
       `attemptsLeft`; con la contraseña correcta → 200 y crea la sala; 3
       contraseñas incorrectas seguidas → bloqueo 429 por 15 min, mismo
       comportamiento que el resto de las rutas con `requireUploadAuth`.
+      **Actualización 2026-10-27:** el criterio de arriba sigue siendo el
+      comportamiento por defecto, pero ya no está fijo: cinco interruptores
+      del panel de admin (`ALLOW_ANONYMOUS_ROOMS`, `ALLOW_LIBRARY_PASSWORD`,
+      `ALLOW_REGISTRATION`, `REQUIRE_ACCOUNT_TO_JOIN` y
+      `HOST_AUTO_TRANSFER`) permiten cerrar el modo anónimo, la contraseña
+      compartida, el registro o la entrada sin cuenta, sin tocar código.
+      Detalle y límites en `docs/PLAN-INTERRUPTORES.md`. Pendiente antes de
+      salir a producción: elegir los valores definitivos de los cinco.
 - [x] **Migración del rol de host** ✅ (resuelta el 2026-09-05 para salas
       creadas con sesión iniciada): `room.hostSocketId` sigue siendo, sin
       cambios, la fuente de verdad de "quién controla la sala ahora" (ver

@@ -212,3 +212,18 @@ test('ALLOW_REGISTRATION y ALLOW_LIBRARY_PASSWORD: default true; apagados desde 
     assert.equal(settings.getSetting(key), false, `${key} desde Postgres`);
   }
 });
+
+test('REQUIRE_ACCOUNT_TO_JOIN: default false (como siempre); encendido desde Postgres o el .env se lee como true', async () => {
+  await settings.init({ isEnabled: () => false });
+  delete process.env.REQUIRE_ACCOUNT_TO_JOIN;
+  assert.equal(settings.getSetting('REQUIRE_ACCOUNT_TO_JOIN'), false);
+
+  process.env.REQUIRE_ACCOUNT_TO_JOIN = '1';
+  assert.equal(settings.getSetting('REQUIRE_ACCOUNT_TO_JOIN'), true);
+  process.env.REQUIRE_ACCOUNT_TO_JOIN = 'quizas'; // ilegible: cae al default (apagado)
+  assert.equal(settings.getSetting('REQUIRE_ACCOUNT_TO_JOIN'), false);
+  delete process.env.REQUIRE_ACCOUNT_TO_JOIN;
+
+  await settings.init(makeFakeDb([{ key: 'REQUIRE_ACCOUNT_TO_JOIN', value: '1', updated_at: new Date(), updated_by: 1 }]));
+  assert.equal(settings.getSetting('REQUIRE_ACCOUNT_TO_JOIN'), true);
+});

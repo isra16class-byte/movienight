@@ -393,6 +393,20 @@ async function refreshAuthState() {
   renderAccountBar();
 }
 
+// --- Volver a la sala tras iniciar sesión (REQUIRE_ACCOUNT_TO_JOIN, docs/PLAN-INTERRUPTORES.md, fase 5) ---
+// room.js manda acá con `?next=/room/<id>` cuando el server exige cuenta para entrar. Solo se acepta ESA forma
+// exacta (/room/ + 6 hex, el formato de makeRoomId): cualquier otra cosa se ignora, así `next` no sirve de
+// redirección abierta a otro sitio ni a otra ruta de la app.
+const NEXT_ROOM_RE = /^\/room\/[0-9a-f]{6}$/;
+function getPendingRoomPath() {
+  const next = new URLSearchParams(location.search).get('next');
+  return next && NEXT_ROOM_RE.test(next) ? next : null;
+}
+function goToPendingRoom() {
+  const path = getPendingRoomPath();
+  if (path) location.href = path;
+}
+
 async function doLogin() {
   const email = await mnPrompt({ title: 'Iniciar sesión', placeholder: 'Email', type: 'email', okLabel: 'Siguiente' });
   if (email === null) return;
@@ -412,6 +426,7 @@ async function doLogin() {
     currentUser = { id: data.id, email: data.email };
     renderAccountBar();
     await mnAlert('Sesión iniciada.');
+    goToPendingRoom(); // si venía de un link de sala que exigía cuenta (fase 5), vuelve solo
   } catch (err) {
     await mnAlert('No se pudo conectar con el servidor. Intenta de nuevo.');
   }
@@ -457,7 +472,12 @@ async function doForgotPassword(prefillEmail = '') {
   }
 }
 
-refreshAuthState();
+(async () => {
+  await refreshAuthState();
+  if (!getPendingRoomPath()) return;
+  if (currentUser) { goToPendingRoom(); return; } // ya había sesión: vuelve directo
+  await mnAlert('Esa sala necesita una cuenta para entrar. Iniciá sesión (o creá una cuenta) y volvés a la sala solo.', 'Cuenta necesaria');
+})();
 
 // --- Unirse a sala con código ---
 const joinBtn = document.getElementById('joinBtn');

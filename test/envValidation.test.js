@@ -101,8 +101,8 @@ test('ALLOW_ANONYMOUS_ROOMS: un valor ilegible avisa con un warning; 0/false/1/t
   }
 });
 
-test('ALLOW_REGISTRATION y ALLOW_LIBRARY_PASSWORD: un valor ilegible avisa con un warning; 0/false/1/true no', () => {
-  for (const key of ['ALLOW_REGISTRATION', 'ALLOW_LIBRARY_PASSWORD']) {
+test('ALLOW_REGISTRATION, ALLOW_LIBRARY_PASSWORD y REQUIRE_ACCOUNT_TO_JOIN: un valor ilegible avisa con un warning; 0/false/1/true no', () => {
+  for (const key of ['ALLOW_REGISTRATION', 'ALLOW_LIBRARY_PASSWORD', 'REQUIRE_ACCOUNT_TO_JOIN']) {
     const { warnings } = collectIssues({ [key]: 'no' });
     assert.equal(warnings.length, 1, key);
     assert.match(warnings[0], new RegExp(key));

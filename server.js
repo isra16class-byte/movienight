@@ -787,6 +787,7 @@ app.get('/api/access-policy', (req, res) => {
     allowAnonymousRooms: settings.getSetting('ALLOW_ANONYMOUS_ROOMS'),
     allowRegistration: settings.getSetting('ALLOW_REGISTRATION'),
     allowLibraryPassword: settings.getSetting('ALLOW_LIBRARY_PASSWORD'),
+    requireAccountToJoin: settings.getSetting('REQUIRE_ACCOUNT_TO_JOIN'),
   });
 });
 
@@ -1976,7 +1977,13 @@ app.get('/metrics', requireMetricsAuth, (req, res) => {
 app.get('/api/room/:id', (req, res) => {
   const room = rooms[req.params.id];
   if (!room) return res.status(404).json({ error: 'not found' });
-  res.json({ passwordProtected: !!room.passwordHash });
+  // accountRequired (fase 5): el cliente se entera ANTES de pedir nombre y contraseña, y manda a iniciar
+  // sesión sin conectar el socket. Depende de la sesión de quien pregunta, así que no se cachea.
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    passwordProtected: !!room.passwordHash,
+    accountRequired: !!accessPolicy.joinBlock(req.session, settings.getSetting),
+  });
 });
 
 // --- Biblioteca de cintas: videos ya subidos en public/uploads ---
@@ -2170,6 +2177,13 @@ io.on('connection', (socket) => {
   socket.on('join-room', safeSocketHandler('join-room', async ({ roomId, username, hostToken, userId, password }) => {
     const room = rooms[roomId];
     if (!room) { socket.emit('room-error', 'La sala no existe.'); return; }
+
+    // Interruptor REQUIRE_ACCOUNT_TO_JOIN (docs/PLAN-INTERRUPTORES.md, fase 5). Va ANTES de la contraseña
+    // de sala y de cualquier cambio de estado: no gasta intentos del limitador, no cuenta un viewer, no
+    // anuncia nada en el chat ni asigna host. El `code` (2.º argumento) es lo que lee room.js para mandar
+    // a iniciar sesión; el texto no puede contener «Contraseña» (ver joinBlock en lib/accessPolicy.js).
+    const accountBlock = accessPolicy.joinBlock(socket.request.session, settings.getSetting);
+    if (accountBlock) { socket.emit('room-error', accountBlock.error, { code: accountBlock.code }); return; }
 
     // Rate limiting de intentos de contraseña (Fase 2.2 del plan de producción) — antes 'join-room'
     // no tenía ningún límite, a diferencia de requireUploadAuth (V19). Clave = ip + roomId (no solo

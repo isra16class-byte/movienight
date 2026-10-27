@@ -1,6 +1,6 @@
 # Plan: interruptores de acceso en el panel de admin
 
-Fecha: 2026-10-27. Rama: `plan-produccion`. Estado: **fases 1 a 4 de 5 hechas (2026-10-27); fase 5 pendiente**.
+Fecha: 2026-10-27. Rama: `plan-produccion`. Estado: **las 5 fases hechas (2026-10-27); pendiente probar en navegador las fases 3 a 5**.
 
 Este documento recoge lo decidido antes de tocar código. La sección 4 («Fases») sustituye
 al reparto en 4 parches de la primera versión: al medir el código se vio que el parche 2
@@ -121,7 +121,7 @@ que ya hace algo. Así el panel nunca muestra un interruptor sin efecto.
 | **2. `ALLOW_ANONYMOUS_ROOMS`** ✅ | Exigir sesión en `/create-room` y `/create-room-from-upload` (ver 6.1, punto 1), mensaje en `public/js/index.js`, y validación de arranque (3.4), escrita de forma genérica para que la reusen las demás fases | Medio |
 | **3. Control temporal** ✅ | Regla de sala sin host en `join-room` (3.2), apoyada en la fase 2, con tests, incluida la sala restaurada tras un reinicio | Medio |
 | **4. Registro y biblioteca** ✅ | `ALLOW_REGISTRATION` y `ALLOW_LIBRARY_PASSWORD`: condiciones en `/auth/register`, `requireLibraryAuth` y `requireUploadAuth` | Chico-medio |
-| **5. `REQUIRE_ACCOUNT_TO_JOIN`** | Rechazo en `join-room` y pantalla de «necesitas cuenta» en `room.js`. Si hace falta, se parte en 5a (servidor) y 5b (cliente) | **Pesada** |
+| **5. `REQUIRE_ACCOUNT_TO_JOIN`** ✅ | Rechazo en `join-room` y redirección al login en `room.js` / `index.js` (un solo parche, sin partir en 5a/5b) | **Pesada** |
 
 ### 4.0 Fase 1, hecha (2026-10-27)
 
@@ -182,7 +182,33 @@ que ya hace algo. Así el panel nunca muestra un interruptor sin efecto.
 - `GET /api/access-policy` suma `allowRegistration` y `allowLibraryPassword`; `index.js` avisa antes de pedir la contraseña.
   Sin pantalla propia en `library.html` ni botón de registro oculto: se muestra el mensaje del server (mejora posible, no bloqueante).
 
-### 4.1 Por qué la fase 5 es la pesada
+### 4.0e Fase 5, hecha (2026-10-27)
+
+- `lib/accessPolicy.js`: `joinBlock(session, getSetting)` → `null` o `{ code: 'ACCOUNT_REQUIRED', error }`. `REQUIRE_ACCOUNT_TO_JOIN` entra en
+  `ACCOUNT_REQUIRING_SWITCHES` con `demandingValue: true` (el único que exige cuenta **encendido**), así que la validación de arranque
+  de 3.4 lo cubre sin código nuevo.
+- `server.js`, `join-room`: el chequeo va justo después de comprobar que la sala existe y **antes** de la contraseña de sala y de
+  cualquier cambio de estado. Emite `room-error` con el texto y `{ code }` como segundo argumento: la app móvil sigue recibiendo el
+  string, y `room.js` se guía por `code`. El texto no puede contener «Contraseña» (el handler de `room.js` abriría el prompt de
+  contraseña de sala); hay un test que lo vigila.
+- `GET /api/room/:id` suma `accountRequired` (sin caché: depende de la sesión de quien pregunta) y `GET /api/access-policy` suma
+  `requireAccountToJoin`.
+- `public/js/room.js`: `enterRoom()` consulta `/api/room/:id` **primero** (antes del prompt de nombre) y, si hace falta cuenta, va a
+  `/?next=/room/<id>`. La guarda anti-bucle usa `sessionStorage` (`mn_login_redirect_<sala>`): si ya se fue a iniciar sesión y el server
+  sigue pidiendo cuenta, avisa y va al inicio sin `next`. El mismo camino atiende un `room-error` con `code` (p. ej. sesión vencida al reconectar).
+- `public/js/index.js`: `getPendingRoomPath()` solo acepta `/room/` + 6 hex (`makeRoomId`); al cargar, con sesión vuelve directo y sin
+  sesión avisa; tras `doLogin()` exitoso (también el de `doRegister()`) vuelve a la sala.
+- **Límites:** (1) encender el interruptor no expulsa a quien ya está dentro; solo rechaza al reconectar. (2) Protege entrar a la
+  sala, no el archivo de video: se sirve por URL pública (`/uploads/...` o R2) y la URL solo se entrega por socket tras un `join-room`
+  válido, pero quien ya la tenga la conserva. (3) Con `ALLOW_REGISTRATION` apagado, quien no tiene cuenta no puede crear una para entrar.
+- **Interacción con la fase 3:** con el interruptor encendido, el control temporal de una sala sin host solo puede recibirlo una cuenta
+  (todos los que entran tienen sesión), así que `ALLOW_ANONYMOUS_ROOMS` deja de importar para eso.
+
+### 4.1 Por qué la fase 5 es la pesada (decisión tomada)
+
+**Decidido al empezar la fase 5 (2026-10-27): redirigir al inicio a iniciar sesión y volver solo a la sala.** Se descartaron el
+formulario de login dentro de la sala (duplicaría `doLogin`/`doRegister`/`doForgotPassword` en `room.js`) y el simple aviso (no deja
+volver al link). Lo que sigue es el análisis original.
 
 Los otros interruptores son condicionales de pocas líneas. `REQUIRE_ACCOUNT_TO_JOIN` no:
 `public/js/room.js` no tiene nada de login (el login vive en `index.js`), así que hay que
@@ -211,7 +237,7 @@ Esa decisión de producto queda abierta hasta empezar la fase 5.
 
 ## 5. Otros pendientes, en el orden elegido
 
-- [ ] 1. `hostToken` anónimo: lo cubren las fases 1 a 5, con el matiz de 3.3.
+- [x] 1. `hostToken` anónimo: cubierto por las fases 1 a 5, con el matiz de 3.3 (los interruptores existen; falta elegir sus valores definitivos antes de salir a producción).
 - [ ] 2. Unificar `escapeHtml()` (hoy hay 4 copias) y que escape `"` y `'`.
   Cierra lo anotado en la auditoría de `innerHTML`.
 - [ ] 3. Prueba en móvil de `room.html`: rotación y teclado de Android. No

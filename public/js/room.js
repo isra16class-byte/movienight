@@ -247,13 +247,30 @@ document.getElementById('changeVideoLink').addEventListener('click', () => {
   socket.disconnect();
 });
 
-// --- Entrada a la sala: nombre (si no lo tenemos ya) → chequeo de existencia/contraseña → conectar socket ---
-async function enterRoom() {
-  if (!username) {
-    username = (await mnPrompt({ title: '¿Cómo te llamas?', placeholder: 'Tu nombre', showCancel: false })).trim() || 'Anónimo';
-    sessionStorage.setItem('mn_username_' + roomId, username);
+// --- Interruptor REQUIRE_ACCOUNT_TO_JOIN (docs/PLAN-INTERRUPTORES.md, fase 5) ---------------------------
+// Si el server exige cuenta para entrar y no hay sesión, esta página NO tiene login (vive en index.js):
+// se manda al inicio con `?next=/room/<id>` y, al iniciar sesión, index.js vuelve solo a esta sala.
+// Guarda anti-bucle: si ya fuimos a iniciar sesión y el server sigue pidiendo cuenta (por ejemplo una
+// cookie de sesión que no llega), no se vuelve a redirigir: se avisa y se va al inicio sin `next`.
+const LOGIN_REDIRECT_KEY = 'mn_login_redirect_' + roomId;
+function clearLoginRedirectFlag() {
+  try { sessionStorage.removeItem(LOGIN_REDIRECT_KEY); } catch { /* sin storage: nada que borrar */ }
+}
+async function goToLoginForRoom() {
+  let alreadyTried = false;
+  try { alreadyTried = sessionStorage.getItem(LOGIN_REDIRECT_KEY) === '1'; } catch { /* sin storage: sin guarda */ }
+  if (alreadyTried) {
+    clearLoginRedirectFlag();
+    await mnAlert('No se pudo confirmar tu sesión. Iniciá sesión en el inicio e intentá de nuevo con el link de la sala.', 'Cuenta necesaria');
+    location.href = '/';
+    return;
   }
+  try { sessionStorage.setItem(LOGIN_REDIRECT_KEY, '1'); } catch { /* sin storage: sin guarda */ }
+  location.href = '/?next=' + encodeURIComponent('/room/' + roomId);
+}
 
+// --- Entrada a la sala: chequeo de existencia/cuenta → nombre (si no lo tenemos ya) → contraseña → conectar socket ---
+async function enterRoom() {
   let data;
   try {
     data = await fetch(`/api/room/${roomId}`).then(r => r.json());
@@ -262,6 +279,15 @@ async function enterRoom() {
     return;
   }
   if (data.error) { await mnAlert('Sala no encontrada'); location.href = '/'; return; }
+
+  // Antes de pedir nombre y contraseña: no tiene sentido hacerlo si igual hace falta iniciar sesión.
+  if (data.accountRequired) { await goToLoginForRoom(); return; }
+  clearLoginRedirectFlag();
+
+  if (!username) {
+    username = (await mnPrompt({ title: '¿Cómo te llamas?', placeholder: 'Tu nombre', showCancel: false })).trim() || 'Anónimo';
+    sessionStorage.setItem('mn_username_' + roomId, username);
+  }
 
   if (data.passwordProtected) {
     roomPassword = await mnPrompt({ title: 'Esta sala tiene contraseña', placeholder: 'Contraseña', type: 'password', okLabel: 'Entrar' });
@@ -289,7 +315,11 @@ socket.on('server-restarting', () => {
   document.getElementById('restartBanner').style.display = 'block';
 });
 
-socket.on('room-error', async (msg) => {
+socket.on('room-error', async (msg, meta) => {
+  // El server exige cuenta para entrar (fase 5): se distingue por `code`, no por el texto (la app móvil
+  // sigue recibiendo solo el string). También cubre una sesión que venció con la sala abierta: al
+  // reconectar, join-room la rechaza y se vuelve a pasar por el login.
+  if (meta && meta.code === 'ACCOUNT_REQUIRED') { await goToLoginForRoom(); return; }
   if (msg && msg.includes('Contraseña')) {
     const pw = await mnPrompt({ title: 'Contraseña incorrecta', placeholder: 'Intenta de nuevo', type: 'password', okLabel: 'Reintentar', cancelLabel: 'Volver al inicio' });
     if (pw === null) { location.href = '/'; return; }

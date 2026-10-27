@@ -1,11 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  accountRequiringSwitches, validateAccessPolicy, roomCreationBlock, libraryPasswordBlock, registrationBlock,
+  accountRequiringSwitches, validateAccessPolicy, roomCreationBlock, libraryPasswordBlock, registrationBlock, joinBlock,
 } = require('../lib/accessPolicy');
 
 // getSetting de mentira: valores por clave, con el default "abierto" (todo permitido) para lo no listado.
-const makeGet = (values = {}) => (key) => (key in values ? values[key] : true);
+// REQUIRE_ACCOUNT_TO_JOIN es el único cuyo default es «apagado» (false): los demás vienen en true.
+const makeGet = (values = {}) => (key) => (key in values ? values[key] : key !== 'REQUIRE_ACCOUNT_TO_JOIN');
 
 test('accountRequiringSwitches: con los defaults ningún interruptor exige cuenta', () => {
   assert.deepEqual(accountRequiringSwitches(makeGet()), []);
@@ -102,4 +103,41 @@ test('registrationBlock: abierto (default) no corta; cerrado responde 403 REGIST
   assert.equal(block.status, 403);
   assert.equal(block.code, 'REGISTRATION_CLOSED');
   assert.ok(block.error.length > 0);
+});
+
+test('accountRequiringSwitches: REQUIRE_ACCOUNT_TO_JOIN exige cuenta ENCENDIDO (al revés que los otros)', () => {
+  assert.deepEqual(accountRequiringSwitches(makeGet({ REQUIRE_ACCOUNT_TO_JOIN: true })).map((x) => x.key), ['REQUIRE_ACCOUNT_TO_JOIN']);
+  assert.deepEqual(accountRequiringSwitches(makeGet({ REQUIRE_ACCOUNT_TO_JOIN: false })), []);
+});
+
+test('validateAccessPolicy: sin Postgres y REQUIRE_ACCOUNT_TO_JOIN encendido, falla nombrando la clave', () => {
+  const result = validateAccessPolicy({ getSetting: makeGet({ REQUIRE_ACCOUNT_TO_JOIN: true }), dbEnabled: false });
+  assert.equal(result.ok, false);
+  assert.match(result.errors[0], /REQUIRE_ACCOUNT_TO_JOIN/);
+  assert.match(result.errors[0], /DATABASE_URL/);
+  assert.deepEqual(validateAccessPolicy({ getSetting: makeGet({ REQUIRE_ACCOUNT_TO_JOIN: true }), dbEnabled: true }), { ok: true });
+});
+
+test('joinBlock: apagado (default), no corta a nadie', () => {
+  for (const session of [undefined, null, {}, { userId: 5 }]) {
+    assert.equal(joinBlock(session, makeGet()), null);
+  }
+});
+
+test('joinBlock: encendido, una sesión de cuenta sigue entrando', () => {
+  assert.equal(joinBlock({ userId: 5 }, makeGet({ REQUIRE_ACCOUNT_TO_JOIN: true })), null);
+});
+
+test('joinBlock: encendido, sin sesión se corta con ACCOUNT_REQUIRED', () => {
+  const get = makeGet({ REQUIRE_ACCOUNT_TO_JOIN: true });
+  for (const session of [undefined, null, {}, { userId: null }]) {
+    const block = joinBlock(session, get);
+    assert.equal(block.code, 'ACCOUNT_REQUIRED');
+    assert.ok(block.error.length > 0);
+  }
+});
+
+test('joinBlock: el mensaje NO contiene «Contraseña» (room.js abriría el prompt de contraseña de sala)', () => {
+  const block = joinBlock({}, makeGet({ REQUIRE_ACCOUNT_TO_JOIN: true }));
+  assert.equal(/contraseña/i.test(block.error), false);
 });

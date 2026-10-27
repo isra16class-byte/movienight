@@ -154,6 +154,10 @@ const SETTINGS_META = {
   ALLOW_LIBRARY_PASSWORD: {
     label: 'Permitir la contraseña de biblioteca',
     desc: 'Si está en "No", la contraseña compartida deja de valer para listar y subir cintas, y solo sirve la sesión de una cuenta. Un anónimo ya no puede crear sala ni subir archivos.'
+  },
+  REQUIRE_ACCOUNT_TO_JOIN: {
+    label: 'Exigir cuenta para entrar a una sala',
+    desc: 'Si está en "Sí", quien solo mira también necesita iniciar sesión: abre el link, se lo manda a iniciar sesión y vuelve solo a la sala. Quien ya está dentro sigue hasta que se reconecte.'
   }
 };
 
