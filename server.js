@@ -453,6 +453,10 @@ function requireMetricsAuth(req, res, next) {
 async function requireLibraryAuth(req, res, next) {
   try {
     if (req.session && req.session.userId) return next(); // sesión de cuenta real: alcanza sola
+    // Interruptor ALLOW_LIBRARY_PASSWORD (docs/PLAN-INTERRUPTORES.md, fase 4): apagado, la contraseña
+    // compartida ya no vale. Se corta antes del limitador y de comparar nada.
+    const passwordBlock = accessPolicy.libraryPasswordBlock(req.session, settings.getSetting);
+    if (passwordBlock) return res.status(passwordBlock.status).json({ error: passwordBlock.error, code: passwordBlock.code });
     // Mismo límite de intentos por IP que requireUploadAuth: es el mismo secreto (LIBRARY_PASSWORD).
     // Se reusa a propósito `uploadAuthLimiter` (clave: solo ip), así que agotar los intentos aquí
     // bloquea también la subida, y al revés. Decisión tomada, no efecto colateral.
@@ -528,6 +532,11 @@ async function requireUploadAuth(req, res, next) {
     // compartida. No reemplaza el camino existente — sigue siendo válido subir/crear sala solo con la
     // LIBRARY_PASSWORD, sin cuenta (ver "quién puede crear salas" más abajo, decisión ya cerrada).
     if (req.session && req.session.userId) return next();
+
+    // Interruptor ALLOW_LIBRARY_PASSWORD (fase 4): apagado, la contraseña compartida ya no vale para
+    // subir ni cambiar video (ni pedir una URL prefirmada: cierra el hueco de presign anotado en la fase 2).
+    const passwordBlock = accessPolicy.libraryPasswordBlock(req.session, settings.getSetting);
+    if (passwordBlock) return res.status(passwordBlock.status).json({ error: passwordBlock.error, code: passwordBlock.code });
 
     const ip = clientIp(req); // IP completa: solo para logs
     const limiterKey = rateLimitKeyFromIp(ip); // clave del limitador: IPv4 igual, IPv6 al /64
@@ -636,6 +645,9 @@ const loginAuthLimiter = makeAttemptLimiter();
 const avatarChangeLimiter = avatars.makeAvatarChangeLimiter();
 
 app.post('/auth/register', requireDbEnabled, async (req, res) => {
+  // Interruptor ALLOW_REGISTRATION (docs/PLAN-INTERRUPTORES.md, fase 4): cerrado, no nacen cuentas nuevas.
+  const registrationClosed = accessPolicy.registrationBlock(settings.getSetting);
+  if (registrationClosed) return res.status(registrationClosed.status).json({ error: registrationClosed.error, code: registrationClosed.code });
   const { email, password } = req.body || {};
   if (typeof email !== 'string' || typeof password !== 'string' || !email.trim() || !password) {
     return res.status(400).json({ error: 'Faltan email y/o contraseña.' });
@@ -771,7 +783,11 @@ app.post('/auth/logout', (req, res) => {
 // parámetros que no sean un sí/no de acceso. Sin caché: el panel puede cambiarlo en cualquier momento.
 app.get('/api/access-policy', (req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.json({ allowAnonymousRooms: settings.getSetting('ALLOW_ANONYMOUS_ROOMS') });
+  res.json({
+    allowAnonymousRooms: settings.getSetting('ALLOW_ANONYMOUS_ROOMS'),
+    allowRegistration: settings.getSetting('ALLOW_REGISTRATION'),
+    allowLibraryPassword: settings.getSetting('ALLOW_LIBRARY_PASSWORD'),
+  });
 });
 
 // Le permite al cliente (room.html, library.html, etc.) preguntar "¿hay alguien logueado ahora?" sin

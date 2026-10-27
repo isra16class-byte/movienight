@@ -113,15 +113,19 @@ async function getUploadPassword(message = '') {
   });
 }
 
-// ¿El server deja crear salas sin cuenta? Si la consulta falla se asume que sí: no bloquea a nadie por un
-// error de red, y si hacía falta cuenta el server lo rechaza igual con un mensaje claro.
-async function fetchAnonymousRoomsAllowed() {
+// ¿Qué exige el server para crear una sala sin sesión? Devuelve { allowAnonymousRooms, allowLibraryPassword }.
+// Si la consulta falla se asume que todo está permitido: no bloquea a nadie por un error de red, y si hacía
+// falta cuenta el server lo rechaza igual con un mensaje claro.
+async function fetchAccessPolicy() {
   try {
     const res = await fetch('/api/access-policy');
     const data = await res.json();
-    return data.allowAnonymousRooms !== false;
+    return {
+      allowAnonymousRooms: data.allowAnonymousRooms !== false,
+      allowLibraryPassword: data.allowLibraryPassword !== false,
+    };
   } catch (err) {
-    return true;
+    return { allowAnonymousRooms: true, allowLibraryPassword: true };
   }
 }
 
@@ -129,12 +133,16 @@ btn.onclick = async () => {
   const file = fileInput.files[0];
   if (!file) { status.textContent = 'Inserta una cinta primero'; return; }
 
-  // Interruptor ALLOW_ANONYMOUS_ROOMS (docs/PLAN-INTERRUPTORES.md, fase 2): si el server no deja crear
-  // salas sin cuenta, se avisa ACÁ, antes de pedir la contraseña y de subir un video de varios GB. El
-  // server igual lo vuelve a exigir en /create-room y /create-room-from-upload (esto es solo cortesía).
-  if (!currentUser && !(await fetchAnonymousRoomsAllowed())) {
-    await mnAlert('Crear una sala necesita una cuenta. Iniciá sesión o creá una cuenta (arriba) y volvé a intentar.', 'Cuenta necesaria');
-    return;
+  // Interruptores ALLOW_ANONYMOUS_ROOMS (fase 2) y ALLOW_LIBRARY_PASSWORD (fase 4): si el server no deja
+  // crear salas sin cuenta (o ya no acepta la contraseña de biblioteca, que era la única forma de
+  // hacerlo sin cuenta), se avisa ACÁ, antes de pedir la contraseña y de subir un video de varios GB.
+  // El server igual lo vuelve a exigir en /create-room y /create-room-from-upload (esto es cortesía).
+  if (!currentUser) {
+    const policy = await fetchAccessPolicy();
+    if (!policy.allowAnonymousRooms || !policy.allowLibraryPassword) {
+      await mnAlert('Crear una sala necesita una cuenta. Iniciá sesión o creá una cuenta (arriba) y volvé a intentar.', 'Cuenta necesaria');
+      return;
+    }
   }
 
   // Fase 2bis, "la biblioteca deja de depender de una única LIBRARY_PASSWORD": con sesión iniciada,

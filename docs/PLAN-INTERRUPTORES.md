@@ -1,6 +1,6 @@
 # Plan: interruptores de acceso en el panel de admin
 
-Fecha: 2026-10-27. Rama: `plan-produccion`. Estado: **fases 1, 2 y 3 de 5 hechas (2026-10-27); fases 4 y 5 pendientes**.
+Fecha: 2026-10-27. Rama: `plan-produccion`. Estado: **fases 1 a 4 de 5 hechas (2026-10-27); fase 5 pendiente**.
 
 Este documento recoge lo decidido antes de tocar código. La sección 4 («Fases») sustituye
 al reparto en 4 parches de la primera versión: al medir el código se vio que el parche 2
@@ -120,7 +120,7 @@ que ya hace algo. Así el panel nunca muestra un interruptor sin efecto.
 | **1. Infraestructura** ✅ | Tipo `bool` en `lib/settings.js` y `lib/envValidation.js`, selector sí/no en el panel (`public/admin.html` y `public/js/admin.js`), y `HOST_AUTO_TRANSFER` como primer interruptor (un `if` en `disconnect`) | Chico-medio |
 | **2. `ALLOW_ANONYMOUS_ROOMS`** ✅ | Exigir sesión en `/create-room` y `/create-room-from-upload` (ver 6.1, punto 1), mensaje en `public/js/index.js`, y validación de arranque (3.4), escrita de forma genérica para que la reusen las demás fases | Medio |
 | **3. Control temporal** ✅ | Regla de sala sin host en `join-room` (3.2), apoyada en la fase 2, con tests, incluida la sala restaurada tras un reinicio | Medio |
-| **4. Registro y biblioteca** | `ALLOW_REGISTRATION` y `ALLOW_LIBRARY_PASSWORD`: condiciones en `/auth/register`, `requireLibraryAuth` y `requireUploadAuth` | Chico-medio |
+| **4. Registro y biblioteca** ✅ | `ALLOW_REGISTRATION` y `ALLOW_LIBRARY_PASSWORD`: condiciones en `/auth/register`, `requireLibraryAuth` y `requireUploadAuth` | Chico-medio |
 | **5. `REQUIRE_ACCOUNT_TO_JOIN`** | Rechazo en `join-room` y pantalla de «necesitas cuenta» en `room.js`. Si hace falta, se parte en 5a (servidor) y 5b (cliente) | **Pesada** |
 
 ### 4.0 Fase 1, hecha (2026-10-27)
@@ -168,6 +168,19 @@ que ya hace algo. Así el panel nunca muestra un interruptor sin efecto.
 - **Observación, sin cambiar:** `setHost()` le manda al host (también al temporal) el `hostToken` de la sala. En una sala anónima
   eso ya ocurría con el traspaso automático y con `make-host`; ahora también lo recibe quien entra a una sala sin host. En salas
   con dueño el `hostToken` no autoriza nada (`isRoomOwner`).
+
+### 4.0d Fase 4, hecha (2026-10-27)
+
+- `lib/accessPolicy.js`: `libraryPasswordBlock(session, getSetting)` y `registrationBlock(getSetting)`, puras y testeadas;
+  `ALLOW_LIBRARY_PASSWORD` entra en `ACCOUNT_REQUIRING_SWITCHES` (la validación de arranque de 3.4 lo cubre sin código nuevo).
+- `server.js`: `requireLibraryAuth` y `requireUploadAuth` cortan con 403 `ACCOUNT_REQUIRED` a quien no tiene sesión, **antes** del
+  limitador y de comparar la contraseña. `/auth/register` responde 403 `REGISTRATION_CLOSED` si está cerrado. Cierra el hueco de
+  `presign` de la fase 2 (y `change-video`, que cuelga de `requireUploadAuth`).
+- `ALLOW_REGISTRATION` **no** exige cuenta (no va en `ACCOUNT_REQUIRING_SWITCHES`): solo impide cuentas nuevas y no corta el arranque sin Postgres.
+- **Interacción:** con `ALLOW_LIBRARY_PASSWORD` apagado, un anónimo no puede crear sala aunque `ALLOW_ANONYMOUS_ROOMS` esté encendido
+  (la contraseña era su única puerta por `requireUploadAuth`). Entrar a una sala existente no cambia.
+- `GET /api/access-policy` suma `allowRegistration` y `allowLibraryPassword`; `index.js` avisa antes de pedir la contraseña.
+  Sin pantalla propia en `library.html` ni botón de registro oculto: se muestra el mensaje del server (mejora posible, no bloqueante).
 
 ### 4.1 Por qué la fase 5 es la pesada
 

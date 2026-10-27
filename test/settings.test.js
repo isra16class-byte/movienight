@@ -201,3 +201,14 @@ test('ALLOW_ANONYMOUS_ROOMS: default true; apagado desde Postgres se lee como fa
   await settings.init(makeFakeDb([{ key: 'ALLOW_ANONYMOUS_ROOMS', value: '0', updated_at: new Date(), updated_by: 1 }]));
   assert.equal(settings.getSetting('ALLOW_ANONYMOUS_ROOMS'), false);
 });
+
+test('ALLOW_REGISTRATION y ALLOW_LIBRARY_PASSWORD: default true; apagados desde Postgres se leen como false', async () => {
+  for (const key of ['ALLOW_REGISTRATION', 'ALLOW_LIBRARY_PASSWORD']) {
+    await settings.init({ isEnabled: () => false });
+    delete process.env[key];
+    assert.equal(settings.getSetting(key), true, `${key} default`);
+
+    await settings.init(makeFakeDb([{ key, value: '0', updated_at: new Date(), updated_by: 1 }]));
+    assert.equal(settings.getSetting(key), false, `${key} desde Postgres`);
+  }
+});

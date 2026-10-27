@@ -146,6 +146,14 @@ const SETTINGS_META = {
   ALLOW_ANONYMOUS_ROOMS: {
     label: 'Permitir salas sin cuenta',
     desc: 'Si está en "No", crear una sala nueva exige una cuenta (aunque se sepa la contraseña de biblioteca). Las salas anónimas que ya existen siguen hasta que expiren.'
+  },
+  ALLOW_REGISTRATION: {
+    label: 'Permitir registro de cuentas nuevas',
+    desc: 'Si está en "No", nadie puede crear una cuenta nueva. Las cuentas que ya existen siguen entrando normalmente.'
+  },
+  ALLOW_LIBRARY_PASSWORD: {
+    label: 'Permitir la contraseña de biblioteca',
+    desc: 'Si está en "No", la contraseña compartida deja de valer para listar y subir cintas, y solo sirve la sesión de una cuenta. Un anónimo ya no puede crear sala ni subir archivos.'
   }
 };
 
