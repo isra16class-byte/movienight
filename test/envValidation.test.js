@@ -78,3 +78,18 @@ test('collectIssues: acumula varios problemas distintos a la vez, no solo el pri
   assert.equal(errors.length, 2);
   assert.equal(warnings.length, 1);
 });
+
+test('interruptores booleanos del panel: 1/true/0/false (cualquier mayúscula) no avisan nada', () => {
+  for (const value of ['1', 'true', 'TRUE', '0', 'false', 'False']) {
+    const { errors, warnings } = collectIssues({ HOST_AUTO_TRANSFER: value });
+    assert.deepEqual(errors, [], value);
+    assert.deepEqual(warnings, [], value);
+  }
+});
+
+test('interruptores booleanos del panel: un valor ilegible avisa con un warning (no es error fatal)', () => {
+  const { errors, warnings } = collectIssues({ HOST_AUTO_TRANSFER: 'quizas' });
+  assert.deepEqual(errors, []);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /HOST_AUTO_TRANSFER/);
+});

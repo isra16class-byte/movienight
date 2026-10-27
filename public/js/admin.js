@@ -138,12 +138,33 @@ const SETTINGS_META = {
   LIBRARY_ORPHAN_DAYS: {
     label: 'Antigüedad de video huérfano (días)',
     desc: 'A partir de cuántos días un video sin sala asociada aparece en el reporte de huérfanos.'
+  },
+  HOST_AUTO_TRANSFER: {
+    label: 'Traspaso automático del host',
+    desc: 'Si el host se desconecta, el control pasa solo al siguiente conectado. En "No", la sala queda sin control remoto hasta que vuelva el host.'
   }
 };
 
 const SOURCE_LABEL = { db: 'editado acá', env: 'desde tu .env', default: 'por defecto' };
 
 const settingsList = document.getElementById('settingsList');
+
+// Control de edición según el tipo del parámetro: los booleanos (interruptores) usan un selector
+// Sí/No en vez de un campo de texto. Los valores del selector ('1'/'0') los acepta POST /admin/settings.
+function renderSettingControl(setting) {
+  const key = escapeHtml(setting.key);
+  if (setting.type === 'bool') {
+    const yes = setting.value === true ? 'selected' : '';
+    const no = setting.value === true ? '' : 'selected';
+    return `<select class="admin-setting-select" data-key="${key}">
+          <option value="1" ${yes}>Sí</option>
+          <option value="0" ${no}>No</option>
+        </select>`;
+  }
+  const displayValue = setting.value === null ? '' : setting.value;
+  return `<input type="text" inputmode="decimal" value="${escapeHtml(String(displayValue))}"
+               placeholder="${setting.nullable ? 'vacío = nunca' : ''}" data-key="${key}">`;
+}
 
 async function loadSettings() {
   try {
@@ -161,7 +182,6 @@ function renderSettings(list) {
     const meta = SETTINGS_META[setting.key] || { label: setting.key, desc: '' };
     const li = document.createElement('li');
     li.className = 'admin-setting-row';
-    const displayValue = setting.value === null ? '' : setting.value;
     const sourceClass = setting.source === 'db' ? 'is-db' : '';
     li.innerHTML = `
       <div class="admin-setting-info">
@@ -170,8 +190,7 @@ function renderSettings(list) {
         <span class="admin-setting-source ${sourceClass}">${escapeHtml(SOURCE_LABEL[setting.source] || setting.source)}</span>
       </div>
       <div class="admin-setting-controls">
-        <input type="text" inputmode="decimal" value="${escapeHtml(String(displayValue))}"
-               placeholder="${setting.nullable ? 'vacío = nunca' : ''}" data-key="${escapeHtml(setting.key)}">
+        ${renderSettingControl(setting)}
         <button class="admin-save-btn" data-key="${escapeHtml(setting.key)}">Guardar</button>
         <button class="admin-reset-btn" data-key="${escapeHtml(setting.key)}" ${setting.source === 'db' ? '' : 'disabled'}>Restaurar</button>
       </div>
@@ -188,7 +207,7 @@ function renderSettings(list) {
 }
 
 async function saveSetting(key) {
-  const input = settingsList.querySelector(`input[data-key="${key}"]`);
+  const input = settingsList.querySelector(`input[data-key="${key}"], select[data-key="${key}"]`);
   const value = input.value;
   try {
     const res = await fetch('/admin/settings', {

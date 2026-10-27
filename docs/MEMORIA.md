@@ -160,6 +160,12 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Interruptores de acceso, fase 1 de 5: tipo `bool` y `HOST_AUTO_TRANSFER` (2026-10-27)**: código hecho y verificado por el asistente, **pendiente de que la persona aplique el parche y pruebe el panel**. Plan completo en `docs/PLAN-INTERRUPTORES.md`.
+
+- **Qué cambió:** `lib/settings.js` (tipo `bool`, clave `HOST_AUTO_TRANSFER`, default `true`), `lib/envValidation.js` (warning si no es 1/true/0/false), `server.js` en `disconnect` (apagado: no hay traspaso, `hostSocketId` queda en `null`, aviso en el chat), selector Sí/No en el panel (`admin.js`, `style.css`), `.env.example` y 10 tests nuevos.
+- **Verificado:** `npm test` 121/121, lint limpio, y una prueba con el servidor local y dos sockets en los tres casos (default, `=0`, typo). **No verificado:** el selector en un navegador ni guardar desde el panel (no hay Postgres en el entorno del asistente).
+- **Siguiente:** fase 2, `ALLOW_ANONYMOUS_ROOMS` (exigir sesión al crear sala aunque la contraseña de biblioteca sea correcta; ver 4.2 del plan).
+
 **CSP sin `'unsafe-inline'` en `styleSrc`, paso final: `styleSrc` queda en `['self', 'https://fonts.googleapis.com']` (2026-10-25)**: hecho y probado por la persona. Un parche sobre `origin/plan-produccion`
 (`CSP: styleSrc sin 'unsafe-inline' (ultimo paso de la conversion de CSP)`, commit `7d6008a`, solo `server.js`). **Con esto queda cerrada la serie de conversión de la CSP: ni `scriptSrc` ni `styleSrc` llevan `'unsafe-inline'`.**
 

@@ -2396,10 +2396,20 @@ io.on('connection', (socket) => {
 
     // Traspaso automático: si el que se fue era el host actual de la sala (por hostSocketId, no por
     // su flag isHost local — que puede haber quedado desactualizado), el siguiente en la sala toma el control
+    // Interruptor HOST_AUTO_TRANSFER (docs/PLAN-INTERRUPTORES.md, 3.1): apagado, el control NO pasa solo —
+    // hostSocketId queda en null y la sala queda sin control remoto hasta que vuelva el host. El traspaso
+    // manual (make-host) no depende de este interruptor.
     if (room.hostSocketId === socket.id) {
       room.hostSocketId = null;
       const stillConnected = io.sockets.adapter.rooms.get(currentRoom);
-      if (stillConnected && stillConnected.size > 0) {
+      if (!settings.getSetting('HOST_AUTO_TRANSFER')) {
+        if (stillConnected && stillConnected.size > 0) {
+          const noTransferMsg = { system: true, avatarId: null, text: `🎛 ${username} se desconectó: la sala queda sin control remoto hasta que vuelva el host` };
+          pushChatHistory(room, noTransferMsg);
+          io.to(currentRoom).emit('chat-message', noTransferMsg);
+          roomStore.saveRoom(currentRoom, room); // fire-and-forget: guarda el aviso en el chatHistory
+        }
+      } else if (stillConnected && stillConnected.size > 0) {
         const next = io.sockets.sockets.get([...stillConnected][0]);
         if (next) {
           setHost(room, currentRoom, next);

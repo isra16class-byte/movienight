@@ -1,6 +1,6 @@
 # Plan: interruptores de acceso en el panel de admin
 
-Fecha: 2026-10-27. Rama: `plan-produccion`. Estado: **plan acordado y reordenado en 5 fases, sin código todavía**.
+Fecha: 2026-10-27. Rama: `plan-produccion`. Estado: **fase 1 de 5 hecha (2026-10-27); fases 2 a 5 pendientes**.
 
 Este documento recoge lo decidido antes de tocar código. La sección 4 («Fases») sustituye
 al reparto en 4 parches de la primera versión: al medir el código se vio que el parche 2
@@ -112,11 +112,21 @@ que ya hace algo. Así el panel nunca muestra un interruptor sin efecto.
 
 | Fase | Contenido | Tamaño |
 |---|---|---|
-| **1. Infraestructura** | Tipo `bool` en `lib/settings.js` y `lib/envValidation.js`, selector sí/no en el panel (`public/admin.html` y `public/js/admin.js`), y `HOST_AUTO_TRANSFER` como primer interruptor (un `if` en `disconnect`) | Chico-medio |
+| **1. Infraestructura** ✅ | Tipo `bool` en `lib/settings.js` y `lib/envValidation.js`, selector sí/no en el panel (`public/admin.html` y `public/js/admin.js`), y `HOST_AUTO_TRANSFER` como primer interruptor (un `if` en `disconnect`) | Chico-medio |
 | **2. `ALLOW_ANONYMOUS_ROOMS`** | Exigir sesión en `/create-room` y `/create-room-from-upload` (ver 6.1, punto 1), mensaje en `public/js/index.js`, y validación de arranque (3.4), escrita de forma genérica para que la reusen las demás fases | Medio |
 | **3. Control temporal** | Regla de sala sin host en `join-room` (3.2), apoyada en la fase 2, con tests, incluida la sala restaurada tras un reinicio | Medio |
 | **4. Registro y biblioteca** | `ALLOW_REGISTRATION` y `ALLOW_LIBRARY_PASSWORD`: condiciones en `/auth/register`, `requireLibraryAuth` y `requireUploadAuth` | Chico-medio |
 | **5. `REQUIRE_ACCOUNT_TO_JOIN`** | Rechazo en `join-room` y pantalla de «necesitas cuenta» en `room.js`. Si hace falta, se parte en 5a (servidor) y 5b (cliente) | **Pesada** |
+
+### 4.0 Fase 1, hecha (2026-10-27)
+
+- `lib/settings.js`: tipo `bool` (acepta 1/true y 0/false; se guarda como `'1'`/`'0'`; un valor ilegible
+  del `.env` cae al default) y la clave `HOST_AUTO_TRANSFER` (default `true`).
+- `lib/envValidation.js`: `BOOL_SETTING_VARS`, con un warning si el valor no es 1/true/0/false.
+- `server.js`, bloque `disconnect`: con el interruptor apagado no hay traspaso; `hostSocketId` queda en
+  `null` y, si queda gente, se avisa en el chat (el aviso se puede quitar si no gusta, ver 3.1).
+- Panel: los booleanos usan un selector Sí/No en vez de un campo de texto.
+- Los otros cuatro interruptores se suman al catálogo y a `BOOL_SETTING_VARS` en la fase donde hacen algo.
 
 ### 4.1 Por qué la fase 5 es la pesada
 

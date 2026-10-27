@@ -125,3 +125,70 @@ test('listAll: refleja el origen correcto de cada parámetro (db / env / default
 
   delete process.env.ALERT_COOLDOWN_MS;
 });
+
+// --- Tipo 'bool' (interruptores de acceso, docs/PLAN-INTERRUPTORES.md) ---------------------------
+
+test('HOST_AUTO_TRANSFER: sin nada configurado, el default es true (comportamiento de siempre)', async () => {
+  await settings.init({ isEnabled: () => false });
+  delete process.env.HOST_AUTO_TRANSFER;
+  assert.equal(settings.getSetting('HOST_AUTO_TRANSFER'), true);
+});
+
+test('bool: el .env acepta 1/true y 0/false, sin distinguir mayúsculas', async () => {
+  await settings.init({ isEnabled: () => false });
+  for (const [raw, expected] of [['1', true], ['true', true], ['TRUE', true], ['0', false], ['false', false], ['False', false]]) {
+    process.env.HOST_AUTO_TRANSFER = raw;
+    assert.equal(settings.getSetting('HOST_AUTO_TRANSFER'), expected, `HOST_AUTO_TRANSFER=${raw}`);
+  }
+  delete process.env.HOST_AUTO_TRANSFER;
+});
+
+test('bool: un valor ilegible en el .env cae al default en vez de quedar indefinido', async () => {
+  await settings.init({ isEnabled: () => false });
+  process.env.HOST_AUTO_TRANSFER = 'quizas';
+  assert.equal(settings.getSetting('HOST_AUTO_TRANSFER'), true);
+  delete process.env.HOST_AUTO_TRANSFER;
+});
+
+test('bool: Postgres gana sobre el .env, y un "0" guardado se lee como false', async () => {
+  const db = makeFakeDb([{ key: 'HOST_AUTO_TRANSFER', value: '0', updated_at: new Date(), updated_by: null }]);
+  await settings.init(db);
+  process.env.HOST_AUTO_TRANSFER = '1'; // no debería importar, Postgres gana
+  assert.equal(settings.getSetting('HOST_AUTO_TRANSFER'), false);
+  delete process.env.HOST_AUTO_TRANSFER;
+});
+
+test('bool: setSetting guarda "1"/"0", acepta "true"/"false" y actualiza la cache al toque', async () => {
+  const db = makeFakeDb();
+  await settings.init(db);
+  await settings.setSetting('HOST_AUTO_TRANSFER', '0', 7, db);
+  assert.equal(db._rows.get('HOST_AUTO_TRANSFER').value, '0');
+  assert.equal(settings.getSetting('HOST_AUTO_TRANSFER'), false);
+  await settings.setSetting('HOST_AUTO_TRANSFER', 'true', 7, db);
+  assert.equal(db._rows.get('HOST_AUTO_TRANSFER').value, '1');
+  assert.equal(settings.getSetting('HOST_AUTO_TRANSFER'), true);
+});
+
+test('bool: setSetting rechaza texto que no es sí/no y un campo vacío, sin guardar nada', async () => {
+  const db = makeFakeDb();
+  await settings.init(db);
+  await assert.rejects(() => settings.setSetting('HOST_AUTO_TRANSFER', 'quizas', 7, db), /sí o no/);
+  await assert.rejects(() => settings.setSetting('HOST_AUTO_TRANSFER', '', 7, db), /sí o no/);
+  assert.equal(db._rows.has('HOST_AUTO_TRANSFER'), false);
+});
+
+test('bool: listAll lo informa con type "bool" y el valor ya como booleano', async () => {
+  await settings.init(makeFakeDb([{ key: 'HOST_AUTO_TRANSFER', value: '0', updated_at: new Date(), updated_by: 3 }]));
+  const row = settings.listAll().find((r) => r.key === 'HOST_AUTO_TRANSFER');
+  assert.equal(row.type, 'bool');
+  assert.equal(row.value, false);
+  assert.equal(row.default, true);
+  assert.equal(row.source, 'db');
+});
+
+test('bool: resetSetting vuelve al default (true)', async () => {
+  const db = makeFakeDb([{ key: 'HOST_AUTO_TRANSFER', value: '0', updated_at: new Date(), updated_by: null }]);
+  await settings.init(db);
+  await settings.resetSetting('HOST_AUTO_TRANSFER', db);
+  assert.equal(settings.getSetting('HOST_AUTO_TRANSFER'), true);
+});

@@ -1,5 +1,16 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-27 — Interruptores de acceso, fase 1: tipo `bool` y `HOST_AUTO_TRANSFER`
+
+- **Qué:** primera de las 5 fases de `docs/PLAN-INTERRUPTORES.md`. `lib/settings.js` suma el tipo `bool` y la clave `HOST_AUTO_TRANSFER` (default `true`, o sea el comportamiento de siempre). `lib/envValidation.js` avisa con un warning si el valor del `.env` no es 1/true/0/false. En `server.js` (`disconnect`), con el interruptor apagado el control no pasa solo: `hostSocketId` queda en `null` y se avisa en el chat. El panel muestra los booleanos con un selector Sí/No (`public/js/admin.js`, `public/style.css`).
+- **Sin cambio de comportamiento por defecto:** con el interruptor sin tocar, el traspaso automático funciona igual que antes. El traspaso manual (`make-host`) no depende del interruptor.
+- **Archivos:** `lib/settings.js`, `lib/envValidation.js`, `server.js`, `public/js/admin.js`, `public/style.css`, `.env.example`, `test/settings.test.js`, `test/envValidation.test.js`, más `docs/MEMORIA.md`, `docs/CHANGELOG.md` y `docs/PLAN-INTERRUPTORES.md`.
+- **Verificado por el asistente:** `node --check`, `npm test` 121/121 (10 tests nuevos sobre el tipo `bool` y la validación del `.env`), lint limpio. Con el servidor en local (`DISABLE_REDIS=1`), un host y un invitado por socket: por defecto el control pasa al invitado; con `HOST_AUTO_TRANSFER=0` no pasa y el chat lo avisa; con `HOST_AUTO_TRANSFER=quizas` el arranque avisa del typo y se usa el default.
+- **NO verificado:** el selector Sí/No del panel en un navegador, ni guardar/restaurar el valor desde ahí (necesita Postgres y una cuenta admin; el servidor de prueba corrió sin ellos). La ruta `POST /admin/settings` no cambió: los tests cubren `setSetting`, no la ruta HTTP.
+- **Siguiente:** fase 2, `ALLOW_ANONYMOUS_ROOMS`.
+
+---
+
 ## 2026-10-25 — CSP: `styleSrc` sin `'unsafe-inline'` (fin de la serie de conversión)
 
 - **Qué:** en `server.js`, `styleSrc` pasó de `["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com']` a `["'self'", 'https://fonts.googleapis.com']`, con el comentario actualizado. Con `scriptSrc` ya resuelto, la CSP no lleva `'unsafe-inline'` en ningún lado.
