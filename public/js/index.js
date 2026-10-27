@@ -358,7 +358,7 @@ const accountBar = document.getElementById('accountBar');
 function renderAccountBar() {
   if (currentUser) {
     accountBar.innerHTML = `
-      <span>👤 ${escapeHtmlLocal(currentUser.email)}</span>
+      <span>👤 ${escapeHtml(currentUser.email)}</span>
       <span class="account-sep">·</span>
       <button id="logoutBtn">Cerrar sesión</button>
     `;
@@ -372,14 +372,6 @@ function renderAccountBar() {
     document.getElementById('loginBtn').onclick = doLogin;
     document.getElementById('registerBtn').onclick = doRegister;
   }
-}
-
-// No hay ninguna dependencia externa de escape de HTML en este archivo (index.html no lo necesitaba
-// hasta ahora) — reusa el mismo patrón de escapeHtml que ya usa library.html.
-function escapeHtmlLocal(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
 }
 
 async function refreshAuthState() {

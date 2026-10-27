@@ -34,12 +34,6 @@ function formatDate(ms) {
          d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
 }
 
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
 // --- Modal genérico: reemplaza prompt()/confirm()/alert() nativos del navegador ---
 // (mismo componente que en room.html — ver nota junto a .mn-modal-overlay en style.css)
 //

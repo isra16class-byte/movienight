@@ -1,9 +1,3 @@
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
 // --- Modal genérico: mismo componente que library.html/room.html (ver esos archivos para el
 // comentario completo del bug V10 que motiva el manejo del timer de cierre) ---------------------
 let mnModalHideTimer = null;

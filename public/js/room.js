@@ -104,11 +104,6 @@ function getPersistentUserId() {
   }
   return id;
 }
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str == null ? '' : String(str);
-  return div.innerHTML;
-}
 
 // --- Modal genérico: reemplaza prompt()/confirm()/alert() nativos del navegador ---
 // (ver nota en style.css junto a .mn-modal-overlay sobre por qué existe). Un solo diálogo en el DOM,

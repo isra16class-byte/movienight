@@ -238,8 +238,8 @@ Esa decisión de producto queda abierta hasta empezar la fase 5.
 ## 5. Otros pendientes, en el orden elegido
 
 - [x] 1. `hostToken` anónimo: cubierto por las fases 1 a 5, con el matiz de 3.3 (los interruptores existen; falta elegir sus valores definitivos antes de salir a producción).
-- [ ] 2. Unificar `escapeHtml()` (hoy hay 4 copias) y que escape `"` y `'`.
-  Cierra lo anotado en la auditoría de `innerHTML`.
+- [x] 2. Unificar `escapeHtml()` (había 4 copias) y que escape `"` y `'`. ✅ Hecho el 2026-10-27:
+  una sola copia en `public/js/escape-html.js`, con guardián en `test/escapeHtml.test.js`. Cierra lo anotado en la auditoría de `innerHTML`.
 - [ ] 3. Prueba en móvil de `room.html`: rotación y teclado de Android. No
   requiere código.
 - [ ] 4. Espacio en R2. La línea «Las salas nunca expiran» de `MEMORIA.md` está
