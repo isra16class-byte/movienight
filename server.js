@@ -91,6 +91,7 @@ const alerts = require('./lib/alerts');
 // por uno (ver cada call site más abajo), las constantes que hasta ahora leían `process.env` una sola
 // vez al arrancar. Ver lib/settings.js para el detalle de la precedencia DB→env→default.
 const settings = require('./lib/settings');
+const accessPolicy = require('./lib/accessPolicy');
 
 // Seguridad de las rutas /admin/* (paso 6 del plan, ver lib/adminAuth.js): middleware `requireAdmin`
 // (rol consultado a Postgres en cada request, no en la cookie de sesión) y `requireSameOrigin` (chequeo
@@ -510,6 +511,16 @@ const { rateLimitKeyFromIp } = require('./lib/ipKey'); // clave de los limitador
 const uploadAuthLimiter = makeAttemptLimiter(); // clave: ip (IPv6: prefijo /64, ver lib/ipKey.js)
 const roomJoinAuthLimiter = makeAttemptLimiter(); // clave: ip (IPv6: /64) + roomId (ver 'join-room' más abajo)
 
+// Interruptor ALLOW_ANONYMOUS_ROOMS (docs/PLAN-INTERRUPTORES.md, fase 2; reglas en lib/accessPolicy.js).
+// Va ANTES de requireUploadAuth y del middleware de subida (multer) en las rutas que crean una sala:
+// así, si hace falta cuenta, se corta sin haber guardado ningún archivo y sin gastar un intento de la
+// contraseña de biblioteca. Solo bloquea CREAR salas nuevas; las anónimas ya existentes no se tocan.
+function requireAccountToCreateRoom(req, res, next) {
+  const block = accessPolicy.roomCreationBlock(req.session, settings.getSetting);
+  if (!block) return next();
+  res.status(block.status).json({ error: block.error, code: block.code });
+}
+
 async function requireUploadAuth(req, res, next) {
   try {
     // Mismo criterio que requireLibraryAuth (Fase 2bis, "la biblioteca deja de depender de una única
@@ -752,6 +763,15 @@ app.post('/auth/logout', (req, res) => {
     res.clearCookie('movienight.sid');
     res.json({ ok: true });
   });
+});
+
+// Política de acceso que el cliente necesita para no dejar a alguien subiendo un video de varios GB
+// para recién enterarse al final de que hacía falta una cuenta. Pública (no pide sesión) y solo con
+// booleanos; cada fase suma acá lo que su interruptor necesite mostrar. Nunca expone valores de
+// parámetros que no sean un sí/no de acceso. Sin caché: el panel puede cambiarlo en cualquier momento.
+app.get('/api/access-policy', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ allowAnonymousRooms: settings.getSetting('ALLOW_ANONYMOUS_ROOMS') });
 });
 
 // Le permite al cliente (room.html, library.html, etc.) preguntar "¿hay alguien logueado ahora?" sin
@@ -1661,7 +1681,7 @@ app.post('/api/uploads/presign', requireUploadAuth, checkStorageLimits, async (r
   }
 });
 
-app.post('/create-room', requireUploadAuth, checkStorageLimits, uploadVideoTracked, rejectIfInvalidVideo, async (req, res) => {
+app.post('/create-room', requireAccountToCreateRoom, requireUploadAuth, checkStorageLimits, uploadVideoTracked, rejectIfInvalidVideo, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No llegó ningún video' });
   const roomId = makeRoomId();
   // Si quien crea la sala tiene una sesión iniciada (Fase 2bis), la sala queda "con dueño" desde el
@@ -1692,7 +1712,7 @@ app.post('/create-room', requireUploadAuth, checkStorageLimits, uploadVideoTrack
 // memoria/Redis) — se corrige acá para que las dos formas de crear una sala pidan la misma
 // contraseña. El cliente (library.html) ya la maneja vía mnLibraryFetch, que reintenta con el
 // prompt correspondiente ante un 401.
-app.post('/create-room-from-upload', requireUploadAuth, async (req, res) => {
+app.post('/create-room-from-upload', requireAccountToCreateRoom, requireUploadAuth, async (req, res) => {
   try {
     const { filename, password } = req.body || {};
     if (!(await isValidUploadReference(filename))) return res.status(400).json({ error: 'Ese archivo no existe' });
@@ -2646,6 +2666,20 @@ async function startServer() {
   // (mismo criterio que runMigrations() arriba): cualquier getSetting() antes de este punto tiraría
   // "init() no se llamó todavía".
   await settings.init();
+
+  // Plan de interruptores 3.4: un interruptor que exige cuenta no se puede cumplir sin Postgres, así
+  // que el server no arranca (mismo criterio de "fallar rápido" que Redis/R2/Postgres). Va justo
+  // después de settings.init() porque necesita el valor EFECTIVO (panel → .env → default); sin Postgres
+  // la cache queda vacía, así que acá el choque solo puede venir de un valor fijado en el .env.
+  const accessCheck = accessPolicy.validateAccessPolicy({ getSetting: settings.getSetting, dbEnabled: db.isEnabled() });
+  if (!accessCheck.ok) {
+    logger.fatal(
+      { errors: accessCheck.errors },
+      'Configuración de acceso imposible de cumplir — el server NO va a arrancar:\n   - ' + accessCheck.errors.join('\n   - ')
+    );
+    process.exit(1);
+  }
+
   logger.info(db.isEnabled() ? 'Parámetros administrables: cargados desde Postgres (donde haya, si no, env/default).' : 'Parámetros administrables: sin Postgres, usando env/default como siempre.');
 
   // Fase 2.6, barrido de salas expiradas: se dispara ACÁ (no en el bloque de Redis de más arriba) a

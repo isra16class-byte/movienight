@@ -93,3 +93,10 @@ test('interruptores booleanos del panel: un valor ilegible avisa con un warning 
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /HOST_AUTO_TRANSFER/);
 });
+
+test('ALLOW_ANONYMOUS_ROOMS: un valor ilegible avisa con un warning; 0/false/1/true no', () => {
+  assert.equal(collectIssues({ ALLOW_ANONYMOUS_ROOMS: 'no' }).warnings.length, 1);
+  for (const value of ['0', 'false', '1', 'true']) {
+    assert.deepEqual(collectIssues({ ALLOW_ANONYMOUS_ROOMS: value }).warnings, [], value);
+  }
+});

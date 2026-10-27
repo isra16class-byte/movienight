@@ -142,6 +142,10 @@ const SETTINGS_META = {
   HOST_AUTO_TRANSFER: {
     label: 'Traspaso automático del host',
     desc: 'Si el host se desconecta, el control pasa solo al siguiente conectado. En "No", la sala queda sin control remoto hasta que vuelva el host.'
+  },
+  ALLOW_ANONYMOUS_ROOMS: {
+    label: 'Permitir salas sin cuenta',
+    desc: 'Si está en "No", crear una sala nueva exige una cuenta (aunque se sepa la contraseña de biblioteca). Las salas anónimas que ya existen siguen hasta que expiren.'
   }
 };
 

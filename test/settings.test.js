@@ -192,3 +192,12 @@ test('bool: resetSetting vuelve al default (true)', async () => {
   await settings.resetSetting('HOST_AUTO_TRANSFER', db);
   assert.equal(settings.getSetting('HOST_AUTO_TRANSFER'), true);
 });
+
+test('ALLOW_ANONYMOUS_ROOMS: default true; apagado desde Postgres se lee como false', async () => {
+  await settings.init({ isEnabled: () => false });
+  delete process.env.ALLOW_ANONYMOUS_ROOMS;
+  assert.equal(settings.getSetting('ALLOW_ANONYMOUS_ROOMS'), true);
+
+  await settings.init(makeFakeDb([{ key: 'ALLOW_ANONYMOUS_ROOMS', value: '0', updated_at: new Date(), updated_by: 1 }]));
+  assert.equal(settings.getSetting('ALLOW_ANONYMOUS_ROOMS'), false);
+});

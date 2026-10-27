@@ -1,6 +1,6 @@
 # Plan: interruptores de acceso en el panel de admin
 
-Fecha: 2026-10-27. Rama: `plan-produccion`. Estado: **fase 1 de 5 hecha (2026-10-27); fases 2 a 5 pendientes**.
+Fecha: 2026-10-27. Rama: `plan-produccion`. Estado: **fases 1 y 2 de 5 hechas (2026-10-27); fases 3 a 5 pendientes**.
 
 Este documento recoge lo decidido antes de tocar código. La sección 4 («Fases») sustituye
 al reparto en 4 parches de la primera versión: al medir el código se vio que el parche 2
@@ -104,8 +104,7 @@ necesita Postgres para guardar cualquier valor.
 Cada fase es una sesión y un patch: commit local, `git format-patch`, y quien mantiene el
 repo lo aplica con `git am` y hace el push. Cada patch deja tests y lint en verde y
 actualiza `MEMORIA.md` y `CHANGELOG.md` en el mismo commit (en la fase 5 también
-`PLAN-PRODUCCION.md`). Este documento se entregó como patch 0002; las fases se aplican
-una tras otra.
+`PLAN-PRODUCCION.md`). Las fases se aplican una tras otra.
 
 **Regla de orden:** cada clave se agrega al catálogo de `lib/settings.js` en la fase en
 que ya hace algo. Así el panel nunca muestra un interruptor sin efecto.
@@ -113,7 +112,7 @@ que ya hace algo. Así el panel nunca muestra un interruptor sin efecto.
 | Fase | Contenido | Tamaño |
 |---|---|---|
 | **1. Infraestructura** ✅ | Tipo `bool` en `lib/settings.js` y `lib/envValidation.js`, selector sí/no en el panel (`public/admin.html` y `public/js/admin.js`), y `HOST_AUTO_TRANSFER` como primer interruptor (un `if` en `disconnect`) | Chico-medio |
-| **2. `ALLOW_ANONYMOUS_ROOMS`** | Exigir sesión en `/create-room` y `/create-room-from-upload` (ver 6.1, punto 1), mensaje en `public/js/index.js`, y validación de arranque (3.4), escrita de forma genérica para que la reusen las demás fases | Medio |
+| **2. `ALLOW_ANONYMOUS_ROOMS`** ✅ | Exigir sesión en `/create-room` y `/create-room-from-upload` (ver 6.1, punto 1), mensaje en `public/js/index.js`, y validación de arranque (3.4), escrita de forma genérica para que la reusen las demás fases | Medio |
 | **3. Control temporal** | Regla de sala sin host en `join-room` (3.2), apoyada en la fase 2, con tests, incluida la sala restaurada tras un reinicio | Medio |
 | **4. Registro y biblioteca** | `ALLOW_REGISTRATION` y `ALLOW_LIBRARY_PASSWORD`: condiciones en `/auth/register`, `requireLibraryAuth` y `requireUploadAuth` | Chico-medio |
 | **5. `REQUIRE_ACCOUNT_TO_JOIN`** | Rechazo en `join-room` y pantalla de «necesitas cuenta» en `room.js`. Si hace falta, se parte en 5a (servidor) y 5b (cliente) | **Pesada** |
@@ -127,6 +126,27 @@ que ya hace algo. Así el panel nunca muestra un interruptor sin efecto.
   `null` y, si queda gente, se avisa en el chat (el aviso se puede quitar si no gusta, ver 3.1).
 - Panel: los booleanos usan un selector Sí/No en vez de un campo de texto.
 - Los otros cuatro interruptores se suman al catálogo y a `BOOL_SETTING_VARS` en la fase donde hacen algo.
+
+### 4.0b Fase 2, hecha (2026-10-27)
+
+- `lib/accessPolicy.js` (nuevo, puro y testeado): `roomCreationBlock()` (la regla de crear sala),
+  `validateAccessPolicy()` (la validación de arranque de 3.4) y la lista `ACCOUNT_REQUIRING_SWITCHES`,
+  a la que las fases 4 y 5 suman su interruptor.
+- `server.js`: el middleware `requireAccountToCreateRoom` va **antes** de `requireUploadAuth` y de la
+  subida en `/create-room` y `/create-room-from-upload`. Responde 403 con `code: 'ACCOUNT_REQUIRED'`
+  (no 401: el cliente lo leería como contraseña de biblioteca incorrecta y reabriría el prompt). La
+  contraseña de biblioteca no sustituye a la sesión. Va antes de la subida, así que no se guarda ningún
+  archivo ni se gasta un intento de contraseña.
+- `GET /api/access-policy` (público, solo booleanos, sin caché): el cliente sabe de antemano si hace
+  falta cuenta. Las fases siguientes le suman sus campos.
+- `public/js/index.js`: sin sesión y con el interruptor apagado, avisa antes de pedir contraseña o
+  subir nada.
+- Arranque: tras `settings.init()`, si algún interruptor exige cuenta y no hay `DATABASE_URL`, el
+  server sale con código 1 nombrando la clave.
+- **Decisión sobre `/api/uploads/presign` y `change-video`: no se tocan.** `library.js` usa ambas para
+  cambiar el video de una sala que ya existe, y 3.3 dice que las salas existentes siguen funcionando.
+  Consecuencia: alguien sin cuenta pero con la contraseña de biblioteca aún puede pedir una URL
+  prefirmada y subir un archivo suelto a R2 (sin sala). Eso lo cierra `ALLOW_LIBRARY_PASSWORD` en la fase 4.
 
 ### 4.1 Por qué la fase 5 es la pesada
 

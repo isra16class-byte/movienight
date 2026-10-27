@@ -1,5 +1,18 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-10-27 — Interruptores de acceso, fase 2: `ALLOW_ANONYMOUS_ROOMS`
+
+- **Qué:** segunda de las 5 fases de `docs/PLAN-INTERRUPTORES.md`. Con `ALLOW_ANONYMOUS_ROOMS` apagado, crear una sala nueva exige sesión de cuenta, **aunque la contraseña de biblioteca sea correcta**. Nuevo `lib/accessPolicy.js` (regla de crear sala, validación de arranque y lista de interruptores que exigen cuenta), middleware `requireAccountToCreateRoom` antes de `requireUploadAuth` en `/create-room` y `/create-room-from-upload` (403 con `code: 'ACCOUNT_REQUIRED'`), endpoint público `GET /api/access-policy`, aviso previo en `public/js/index.js`, y la clave en el catálogo y en el panel.
+- **Sin cambio de comportamiento por defecto:** el interruptor viene en «Sí». Solo bloquea CREAR: las salas anónimas existentes siguen hasta expirar (plan 3.3).
+- **Arranque:** sin `DATABASE_URL` y con el interruptor apagado en el `.env`, el server sale con código 1 y un mensaje que nombra la clave.
+- **Decisión:** `/api/uploads/presign` y `change-video` no se tocan (los usa `library.js` para salas existentes). Sin cuenta pero con la contraseña de biblioteca aún se puede subir un archivo suelto a R2; lo cierra la fase 4.
+- **Archivos:** `lib/accessPolicy.js` (nuevo), `lib/settings.js`, `lib/envValidation.js`, `server.js`, `public/js/index.js`, `public/js/admin.js`, `.env.example`, `test/accessPolicy.test.js` (nuevo), `test/settings.test.js`, `test/envValidation.test.js`, y los 3 docs.
+- **Verificado por el asistente:** `node --check`, `npm test` 131/131 (10 tests nuevos), lint limpio. Con el servidor real y un Postgres local: anónimo con contraseña correcta, con incorrecta y a `/create-room-from-upload` → 403 sin guardar ningún archivo; con cuenta y SIN contraseña → 200; el panel (por HTTP, con un usuario admin) cambia el valor, `/api/access-policy` lo refleja al instante y la fila queda en `app_settings`; sin `DATABASE_URL` y con el interruptor en 0 → exit 1 con el mensaje; con los defaults y sin Postgres → arranca.
+- **NO verificado:** el aviso de `index.js` y el selector del panel en un navegador (la prueba fue por HTTP, no con la interfaz); el camino de R2 (`presign` real); que la app móvil muestre bien el 403 (usa los mismos endpoints).
+- **Siguiente:** fase 3, control temporal de una sala sin host.
+
+---
+
 ## 2026-10-27 — Interruptores de acceso, fase 1: tipo `bool` y `HOST_AUTO_TRANSFER`
 
 - **Qué:** primera de las 5 fases de `docs/PLAN-INTERRUPTORES.md`. `lib/settings.js` suma el tipo `bool` y la clave `HOST_AUTO_TRANSFER` (default `true`, o sea el comportamiento de siempre). `lib/envValidation.js` avisa con un warning si el valor del `.env` no es 1/true/0/false. En `server.js` (`disconnect`), con el interruptor apagado el control no pasa solo: `hostSocketId` queda en `null` y se avisa en el chat. El panel muestra los booleanos con un selector Sí/No (`public/js/admin.js`, `public/style.css`).

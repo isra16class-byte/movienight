@@ -160,6 +160,13 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Interruptores de acceso, fase 2 de 5: `ALLOW_ANONYMOUS_ROOMS` (2026-10-27)**: código hecho y verificado por el asistente, **pendiente de que la persona aplique el parche y pruebe en el navegador**. La fase 1 (`bool` y `HOST_AUTO_TRANSFER`) ya fue probada y aplicada. Plan en `docs/PLAN-INTERRUPTORES.md`.
+
+- **Qué cambió:** `lib/accessPolicy.js` nuevo; `requireAccountToCreateRoom` antes de `requireUploadAuth` en `/create-room` y `/create-room-from-upload` (403 `ACCOUNT_REQUIRED`); `GET /api/access-policy`; aviso en `index.js`; validación de arranque (sin `DATABASE_URL` y con el interruptor apagado el server no arranca); clave en el catálogo y el panel. Solo bloquea crear: las salas anónimas existentes siguen.
+- **Ojo:** `presign` y `change-video` no se tocaron a propósito; sin cuenta pero con la contraseña de biblioteca aún se puede subir un archivo suelto a R2 hasta la fase 4.
+- **Verificado:** `npm test` 131/131, lint limpio y prueba por HTTP con el servidor real y un Postgres local (rechazo anónimo, cuenta sin contraseña, panel, arranque fallido). **No verificado:** el aviso y el selector en un navegador, R2 real y la app móvil.
+- **Siguiente:** fase 3, control temporal en `join-room` (leer antes `lib/hostAuth.js` y los bloques `join-room`/`disconnect`).
+
 **Interruptores de acceso, fase 1 de 5: tipo `bool` y `HOST_AUTO_TRANSFER` (2026-10-27)**: código hecho y verificado por el asistente, **pendiente de que la persona aplique el parche y pruebe el panel**. Plan completo en `docs/PLAN-INTERRUPTORES.md`.
 
 - **Qué cambió:** `lib/settings.js` (tipo `bool`, clave `HOST_AUTO_TRANSFER`, default `true`), `lib/envValidation.js` (warning si no es 1/true/0/false), `server.js` en `disconnect` (apagado: no hay traspaso, `hostSocketId` queda en `null`, aviso en el chat), selector Sí/No en el panel (`admin.js`, `style.css`), `.env.example` y 10 tests nuevos.
