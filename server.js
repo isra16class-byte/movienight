@@ -472,6 +472,11 @@ async function requireLibraryAuth(req, res, next) {
     const provided = req.get('x-library-password') || req.query.libraryPassword || (req.body && req.body.libraryPassword) || '';
     const { valid } = await verifyPassword(provided, libraryPasswordHash);
     if (!valid) {
+      // Sin contraseña no es un intento de adivinar: se rechaza igual (401) pero NO gasta uno de los 3
+      // intentos ni se loguea como fallo. Ver isPasswordAttempt en lib/accessPolicy.js.
+      if (!accessPolicy.isPasswordAttempt(provided)) {
+        return res.status(401).json({ error: 'Contraseña de biblioteca requerida o incorrecta.', attemptsLeft: uploadAuthLimiter.attemptsLeft(limiterKey) });
+      }
       logger.warn({ ip }, 'Intento fallido de contraseña de biblioteca');
       const { attemptsLeft } = uploadAuthLimiter.recordFailure(limiterKey);
       return res.status(401).json({ error: 'Contraseña de biblioteca requerida o incorrecta.', attemptsLeft });
@@ -553,6 +558,11 @@ async function requireUploadAuth(req, res, next) {
     if (valid) {
       uploadAuthLimiter.recordSuccess(limiterKey);
       return next();
+    }
+
+    // Sin contraseña no es un intento de adivinar (mismo criterio que requireLibraryAuth): no gasta intentos.
+    if (!accessPolicy.isPasswordAttempt(provided)) {
+      return res.status(401).json({ error: 'Contraseña incorrecta.', attemptsLeft: uploadAuthLimiter.attemptsLeft(limiterKey) });
     }
 
     logger.warn({ ip }, 'Intento fallido de contraseña de subida/cambio de video');

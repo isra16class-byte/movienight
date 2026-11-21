@@ -108,3 +108,30 @@ test('listLocked + splitLastColon con claves reales de los tres limitadores', ()
   assert.deepEqual(splitLastColon(out[1]), { ip: '::ffff:172.18.0.1', rest: 'a@b.com' });
   assert.equal(maskEmail(splitLastColon(out[1]).rest), '***@b.com'); // "a" tiene 1 letra
 });
+
+test('attemptsLeft: informa los intentos que quedan sin registrar nada', () => {
+  const limiter = makeAttemptLimiter();
+  assert.equal(limiter.attemptsLeft('ip'), 3); // sin entrada: contador fresco
+  limiter.recordFailure('ip');
+  assert.equal(limiter.attemptsLeft('ip'), 2);
+  assert.equal(limiter.attemptsLeft('ip'), 2); // consultar no gasta nada
+  limiter.recordFailure('ip');
+  assert.equal(limiter.attemptsLeft('ip'), 1);
+});
+
+test('attemptsLeft: 0 mientras dura el bloqueo y contador fresco cuando vence', () => {
+  let now = 1_000_000;
+  const limiter = makeAttemptLimiter({ now: () => now });
+  limiter.recordFailure('ip'); limiter.recordFailure('ip'); limiter.recordFailure('ip'); // bloquea
+  assert.equal(limiter.attemptsLeft('ip'), 0);
+  now += 15 * 60 * 1000 + 1; // venció el bloqueo
+  assert.equal(limiter.attemptsLeft('ip'), 3);
+});
+
+test('attemptsLeft: recordSuccess lo devuelve al máximo y no mezcla claves', () => {
+  const limiter = makeAttemptLimiter();
+  limiter.recordFailure('a'); limiter.recordFailure('a');
+  assert.equal(limiter.attemptsLeft('b'), 3);
+  limiter.recordSuccess('a');
+  assert.equal(limiter.attemptsLeft('a'), 3);
+});

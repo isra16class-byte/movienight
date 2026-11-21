@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  accountRequiringSwitches, validateAccessPolicy, roomCreationBlock, libraryPasswordBlock, registrationBlock, joinBlock,
+  accountRequiringSwitches, validateAccessPolicy, roomCreationBlock, libraryPasswordBlock, registrationBlock, joinBlock, isPasswordAttempt,
 } = require('../lib/accessPolicy');
 
 // getSetting de mentira: valores por clave, con el default "abierto" (todo permitido) para lo no listado.
@@ -140,4 +140,12 @@ test('joinBlock: encendido, sin sesión se corta con ACCOUNT_REQUIRED', () => {
 test('joinBlock: el mensaje NO contiene «Contraseña» (room.js abriría el prompt de contraseña de sala)', () => {
   const block = joinBlock({}, makeGet({ REQUIRE_ACCOUNT_TO_JOIN: true }));
   assert.equal(/contraseña/i.test(block.error), false);
+});
+
+test('isPasswordAttempt: una petición sin contraseña NO es un intento (no gasta intentos del limitador)', () => {
+  for (const empty of ['', undefined, null]) assert.equal(isPasswordAttempt(empty), false, String(empty));
+});
+
+test('isPasswordAttempt: cualquier valor presente SÍ es un intento, incluido un espacio en blanco', () => {
+  for (const value of ['mala', 'a', ' ', '   ', 'secreto']) assert.equal(isPasswordAttempt(value), true, JSON.stringify(value));
 });
