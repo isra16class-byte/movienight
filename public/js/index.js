@@ -424,7 +424,24 @@ async function doLogin() {
   }
 }
 
+// Interruptor ALLOW_REGISTRATION (docs/PLAN-INTERRUPTORES.md, fase 4): si el server tiene el registro
+// cerrado, se avisa ANTES de pedir email y contraseña (antes se enteraba recién al pulsar «Crear»). Si la
+// consulta falla se asume abierto: no bloquea a nadie por un error de red, y /auth/register igual lo rechaza.
+async function isRegistrationOpen() {
+  try {
+    const res = await fetch('/api/access-policy');
+    const data = await res.json();
+    return data.allowRegistration !== false;
+  } catch (err) {
+    return true;
+  }
+}
+
 async function doRegister() {
+  if (!(await isRegistrationOpen())) {
+    await mnAlert('El registro de cuentas nuevas está cerrado en este servidor.', 'Registro cerrado');
+    return;
+  }
   const email = await mnPrompt({ title: 'Crear cuenta', placeholder: 'Email', type: 'email', okLabel: 'Siguiente' });
   if (email === null) return;
   const password = await mnPrompt({ title: 'Crear cuenta', message: `${email} — mínimo 8 caracteres`, placeholder: 'Contraseña', type: 'password', okLabel: 'Crear' });

@@ -180,7 +180,9 @@ que ya hace algo. Así el panel nunca muestra un interruptor sin efecto.
 - **Interacción:** con `ALLOW_LIBRARY_PASSWORD` apagado, un anónimo no puede crear sala aunque `ALLOW_ANONYMOUS_ROOMS` esté encendido
   (la contraseña era su única puerta por `requireUploadAuth`). Entrar a una sala existente no cambia.
 - `GET /api/access-policy` suma `allowRegistration` y `allowLibraryPassword`; `index.js` avisa antes de pedir la contraseña.
-  Sin pantalla propia en `library.html` ni botón de registro oculto: se muestra el mensaje del server (mejora posible, no bloqueante).
+  Sin pantalla propia en `library.html` ni botón de registro oculto (mejora posible, no bloqueante).
+  **Actualización 2026-11-20:** las pruebas en navegador confirmaron que el aviso de registro cerrado llegaba tarde (al pulsar «Crear»);
+  ahora `doRegister()` avisa antes de abrir el formulario, en `index.js` y `library.js`. La biblioteca también muestra los intentos restantes.
 
 ### 4.0e Fase 5, hecha (2026-10-27)
 

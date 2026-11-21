@@ -129,6 +129,7 @@ try { localStorage.removeItem(MN_LIBRARY_PW_KEY); } catch { /* sin storage: nada
 // llamadas a /api/uploads).
 async function mnLibraryFetch(url, options = {}) {
   let pw = getLibraryPw();
+  let lockProbeDone = false;
   while (true) {
     const headers = Object.assign({}, options.headers, { 'x-library-password': pw });
     const res = await fetch(url, Object.assign({}, options, { headers }));
@@ -138,11 +139,31 @@ async function mnLibraryFetch(url, options = {}) {
       if (pw && res.status !== 429) setLibraryPw(pw);
       return res;
     }
+    // El server manda `attemptsLeft` en el 401 (cuántos intentos quedan antes del bloqueo de 15 min). Si
+    // no viene o no se puede leer, el mensaje sale sin conteo, como antes.
+    let attemptsLeft = null;
+    try {
+      const body = await res.json();
+      if (Number.isInteger(body.attemptsLeft)) attemptsLeft = body.attemptsLeft;
+    } catch (err) { /* sin cuerpo JSON: mensaje sin conteo */ }
+    const hadPassword = !!pw;
     clearLibraryPw(); // 401: la guardada (si había) es incorrecta
+    // `attemptsLeft: 0` = este fallo fue el último permitido y el server YA bloqueó la IP (lib/rateLimiter.js:
+    // el bloqueo se fija en ese mismo fallo). Pedir otra contraseña no sirve (la próxima petición ni se
+    // compara, aunque sea correcta), así que no se muestra el prompt: se vuelve a pedir UNA vez, sin
+    // contraseña, para que el server conteste su 429 con los minutos reales y la página lo muestre. La
+    // guarda `lockProbeDone` impide que esto pueda repetirse en bucle si el server no respondiera 429.
+    if (attemptsLeft === 0 && !lockProbeDone) {
+      lockProbeDone = true;
+      pw = '';
+      continue;
+    }
     pw = await mnPrompt({
       title: 'Biblioteca protegida',
-      message: pw
-        ? 'Contraseña incorrecta. Probá de nuevo (te la pasa quien armó el servidor).'
+      message: hadPassword
+        ? 'Contraseña incorrecta.'
+          + (attemptsLeft === null ? ' Probá de nuevo' : ` Te quedan ${attemptsLeft} intento${attemptsLeft === 1 ? '' : 's'}`)
+          + ' (te la pasa quien armó el servidor).'
         : 'Esta biblioteca es compartida entre todas las salas. Pedile la contraseña a quien armó el servidor.',
       placeholder: 'Contraseña de la biblioteca',
       type: 'password',
@@ -214,7 +235,24 @@ async function doLogin() {
   }
 }
 
+// Interruptor ALLOW_REGISTRATION (docs/PLAN-INTERRUPTORES.md, fase 4): si el server tiene el registro
+// cerrado, se avisa ANTES de pedir email y contraseña (antes se enteraba recién al pulsar «Crear»). Si la
+// consulta falla se asume abierto: no bloquea a nadie por un error de red, y /auth/register igual lo rechaza.
+async function isRegistrationOpen() {
+  try {
+    const res = await fetch('/api/access-policy');
+    const data = await res.json();
+    return data.allowRegistration !== false;
+  } catch (err) {
+    return true;
+  }
+}
+
 async function doRegister() {
+  if (!(await isRegistrationOpen())) {
+    await mnAlert('El registro de cuentas nuevas está cerrado en este servidor.', 'Registro cerrado');
+    return;
+  }
   const email = await mnPrompt({ title: 'Crear cuenta', placeholder: 'Email', type: 'email', okLabel: 'Siguiente' });
   if (email === null) return;
   const password = await mnPrompt({ title: 'Crear cuenta', message: `${email} — mínimo 8 caracteres`, placeholder: 'Contraseña', type: 'password', okLabel: 'Crear' });
