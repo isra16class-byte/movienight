@@ -247,7 +247,10 @@ Esa decisión de producto queda abierta hasta empezar la fase 5.
 - [ ] 4. Espacio en R2. La línea «Las salas nunca expiran» de `MEMORIA.md` está
   desactualizada: desde la Fase 2.6 las salas expiran a las 24 h. Lo que se
   acumula es el video en R2, que no se borra a propósito. Corregir esa línea y
-  revisar cuánto ocupa el bucket.
+  revisar cuánto ocupa el bucket. **Mitad hecha el 2026-11-22:** la línea de
+  `MEMORIA.md` ya está corregida. Sigue pendiente revisar cuánto ocupa el
+  bucket (hay que mirarlo en el panel de R2; `npm run library:orphans` ayuda a
+  decidir qué borrar).
 - [ ] 5. Fuentes propias, para poder quitar `fonts.googleapis.com` y
   `fonts.gstatic.com` de la CSP.
 - [ ] 6. Beacon de Cloudflare (se desactiva en el panel de Cloudflare),

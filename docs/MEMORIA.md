@@ -145,7 +145,9 @@ mover la barra de progreso — cualquier intento se revierte.
   recuperar contraseña (`isResetRequestRateLimited`) se resolvió después, el mismo día: ver «Por dónde seguir».
 - ~~Contraseña de biblioteca guardada en `localStorage` en texto plano~~ → **mitigado 2026-10-21**: ahora en `sessionStorage` (por pestaña) y se
   migra/borra la vieja. Sigue legible por un script inyectado en esa pestaña. `mn_host_<sala>` sigue en `localStorage`. Ver «Por dónde seguir».
-- Las salas nunca expiran — se acumulan en memoria y en R2 indefinidamente.
+- ~~Las salas nunca expiran — se acumulan en memoria y en R2 indefinidamente~~ → **resuelto 2026-09-06 (Fase 2.6)**: las salas expiran a las 24 h sin actividad
+  (`ROOM_TTL_HOURS`, default 24; `null` = nunca). Lo que sí se acumula es el **video** en R2, a propósito: no se borra al expirar la sala y queda en la
+  biblioteca para reutilizarse. `npm run library:orphans` lista los huérfanos (reporte manual; solo borra con `--delete`). Línea corregida el 2026-11-22.
 - ~~Subir un video real vía `create-room` devuelve `413 Payload Too Large` de
   Cloudflare~~ → **resuelto en modo R2 (Fase 2.7, 2026-09-06)**: subida
   directa del navegador al bucket vía URL prefirmada, sin pasar por el
@@ -159,6 +161,8 @@ mover la barra de progreso — cualquier intento se revierte.
 - Cada cambio importante debería reflejarse acá (este archivo, `docs/MEMORIA.md`, si cambia algo esencial) y como entrada nueva en `docs/CHANGELOG.md` — no en los archivos de `docs/historico/`, que quedaron congelados como registro del estado anterior a esta reorganización.
 
 ## Por dónde seguir
+
+**Limpieza de documentación (2026-11-22)**: solo docs, sin código. Detalle y evidencia en `docs/CHANGELOG.md`. Se corrigieron las casillas del escapado de HTML en `PLAN-PRODUCCION.md` (estaban hechas desde 2026-10-27), la línea falsa «Las salas nunca expiran» de la sección de problemas conocidos (expiran a las 24 h; el video en R2 queda a propósito), y se marcaron «Logs estructurados» y «Tests» tras verificarlos en el código. **No se tocó** `docs/PRUEBAS-PANEL-ADMIN.md` (probado solo en parte) ni las entradas históricas fechadas. Pendientes reales sin cambios: pruebas a mano en navegador (tercer participante invitado, sala con contraseña + «Exigir cuenta», `GRABAR` anónimo con archivo, subida real, móvil), valores definitivos de los 5 interruptores, hosting sin decidir, términos y privacidad (faltan email y jurisdicción), espacio del bucket de R2, fuentes propias, y la limpieza menor (beacon de Cloudflare, `favicon.ico`, meta obsoleta).
 
 **La petición vacía ya no gasta intentos de la contraseña de biblioteca (2026-11-21)**: resuelve el «hallazgo para decidir» de la entrada anterior. Código hecho y verificado por el asistente; **pendiente de que la persona aplique el parche y lo pruebe**. La mejora de UX del registro y de los intentos restantes (`5f51631`) ya está aplicada y subida.
 

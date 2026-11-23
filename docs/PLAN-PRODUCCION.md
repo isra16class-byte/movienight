@@ -260,8 +260,10 @@ secundario.
       `styleSrc` sigue con `'unsafe-inline'`: tema aparte. Detalle en `docs/MEMORIA.md`.
 - [x] Auditoría de los 47 usos de `innerHTML` en `public/js/*.js` (2026-10-25, sobre `c348fa0`): sin hallazgos, sin cambios de código; lectura del asistente más dos verificaciones puntuales de la persona (comillas en `escapeHtml`,
       alfabeto de `socket.id`). Tabla completa en `docs/MEMORIA.md`.
-- [ ] (Decidir aparte) `escapeHtml` no escapa `"`: hoy no es explotable (ningún valor de otra persona va en un atributo), pero conviene escapar también `"` y `'` si se agrega texto de usuario en atributos.
-- [ ] (Decidir aparte) Unificar las 4 copias de la función de escapado (`escapeHtml` x3 y `escapeHtmlLocal` en `index.js`) en un archivo compartido.
+- [x] ✅ Hecho el 2026-10-27 (decidido y resuelto): `escapeHtml` no escapa `"`: hoy no es explotable (ningún valor de otra persona va en un atributo), pero conviene escapar también `"` y `'` si se agrega texto de usuario en atributos.
+      Ahora `escapeHtml` escapa también `"` y `'`: ver `public/js/escape-html.js` y `docs/CHANGELOG.md` (2026-10-27).
+- [x] ✅ Hecho el 2026-10-27: Unificar las 4 copias de la función de escapado (`escapeHtml` x3 y `escapeHtmlLocal` en `index.js`) en un archivo compartido.
+      Quedó una sola copia en `public/js/escape-html.js`, cargada por las 4 páginas que la usan; `test/escapeHtml.test.js` falla si reaparece una copia local o una página la usa sin cargarla.
 - [x] CSP sin `'unsafe-inline'` en `styleSrc` (hecho 2026-10-25, 2 pasos más el cambio final, probado por la persona en las 7 páginas): paso 1 hecho y probado por la persona (2026-10-25): los 58 `style="..."` estáticos pasaron a clases en `public/style.css`; paso 2 hecho y probado por la persona (2026-10-25): los 4
       `style="color:${usernameColor(...)}"` de `room.js` pasaron a `style.setProperty('--user-color', ...)`, y ya no queda ningún `style="..."` en `public/`. Después se quitó `'unsafe-inline'` de `styleSrc` en `server.js` y se probaron las 7 páginas. **Con esto la CSP ya no lleva `'unsafe-inline'` en `scriptSrc` ni en `styleSrc`.** Detalle en `docs/MEMORIA.md`.
 - [ ] (Aparte, no es de la serie CSP) La CSP bloquea `https://static.cloudflareinsights.com/beacon.min.js`, el script de analíticas que inyecta Cloudflare; error de consola en las 4 páginas del dominio
@@ -775,7 +777,7 @@ instancia alcanza por ahora. Queda documentada para cuando haga falta retomarla)
 
 ## Fase 4 — Observabilidad ✅ (completa el 2026-09-07)
 
-- [ ] Logs estructurados (JSON) en vez de `console.log` — más fácil de indexar en
+- [x] Logs estructurados (JSON) en vez de `console.log` ✅ (casilla marcada el 2026-11-22 tras verificar el código: `lib/logger.js` usa `pino`, y en `server.js` ya no queda ninguna llamada a `console.log`, solo un comentario) — más fácil de indexar en
       cualquier servicio de logs (Datadog, Better Stack, CloudWatch, etc. según
       el hosting elegido).
 - [x] Reporte de errores (**Sentry**) para enterarse de excepciones en
@@ -816,7 +818,7 @@ instancia alcanza por ahora. Queda documentada para cuando haga falta retomarla)
 
 ## Fase 5 — Calidad de código y proceso
 
-- [ ] Tests, al menos para lo más crítico y menos obvio a simple vista:
+- [x] Tests, al menos para lo más crítico y menos obvio a simple vista ✅ (casilla marcada el 2026-11-22 tras verificar `test/`: `hostAuth.test.js` cubre `setHost`, `rateLimiter.test.js` y `passwordAuth.test.js` cubren contraseñas y limitador, `uploadReference.test.js` cubre el modo disco/R2; hoy son 180 tests):
   - `setHost()` (traspaso de host — ya tuvo un bug serio de hosts duplicados,
     ver `docs/historico/MEMORIA.md` 5bis, justo el tipo de lógica que se rompe fácil sin red
     de seguridad).

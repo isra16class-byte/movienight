@@ -1,5 +1,16 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-22 — Limpieza de documentación (sin cambios de código)
+
+- **Qué:** los docs se contradecían tras las últimas fases. Solo se tocó documentación, ningún `.js` ni test.
+- **Corregido:** (1) `PLAN-PRODUCCION.md`: las dos casillas «(Decidir aparte)» del escapado de HTML seguían sin marcar aunque el trabajo se hizo y se verificó el 2026-10-27 (en el parche de entonces solo se actualizó `PLAN-INTERRUPTORES.md`); ahora están marcadas, con referencia al archivo y al guardián. (2) `MEMORIA.md`: la línea «Las salas nunca expiran» era falsa desde la Fase 2.6; ahora dice que expiran a las 24 h y que lo que se acumula es el video en R2, a propósito. (3) `PLAN-INTERRUPTORES.md`: el ítem 4 de la sección 5 queda con su mitad hecha anotada.
+- **Marcadas tras verificar el código** (estaban hechas pero sin marcar): `PLAN-PRODUCCION.md`, Fase 4, «Logs estructurados» (`lib/logger.js` usa `pino`; en `server.js` solo queda un comentario con la palabra `console.log`), y Fase 5, «Tests» (`hostAuth`, `rateLimiter`, `passwordAuth`, `uploadReference`; 180 tests).
+- **Verificado:** `npm test` y `npm run lint` siguen igual (no cambió código); la evidencia de cada casilla está en la línea que se marcó.
+- **NO tocado, a propósito:** `docs/PRUEBAS-PANEL-ADMIN.md`. Su checklist está sin marcar y el agente de ChatGPT probó solo una parte (guardar y restaurar un parámetro, cerrar una sala, listar); no se vio «Limpiar salas», «Cerrar inactivas», «Cerrar TODAS» con confirmación escrita, el refresco cada 15 s ni salir y volver a entrar. Marcar sin haberlo visto sería repetir el problema. Tampoco se tocaron las entradas históricas de `MEMORIA.md` (fechadas) que aún mencionan el escapado como pendiente: eran ciertas cuando se escribieron.
+- **Sigue pendiente (no es de docs):** revisar cuánto ocupa el bucket de R2, pruebas a mano en navegador, decisiones de hosting, valores de los interruptores y términos/privacidad.
+
+---
+
 ## 2026-11-21 — Una petición sin contraseña ya no gasta intentos de la contraseña de biblioteca
 
 - **Problema (confirmado antes de arreglar):** `requireLibraryAuth` y `requireUploadAuth` contaban como intento fallido **toda** petición con contraseña inválida, incluida la que llega **sin** contraseña (la primera de `library.js`, que solo pregunta si hace falta una). Reproducido contra el servidor real: **3 peticiones sin contraseña bloqueaban la IP 15 min y la contraseña correcta recibía 429**, tanto en la biblioteca (`/api/uploads`) como en el camino de subida (`/api/uploads/presign`). Efecto en la práctica: abrir la biblioteca sin sesión ya gastaba 1 de los 3 intentos antes de escribir nada, y 3 aperturas seguidas bloqueaban sin haber probado ninguna clave. Anterior a los interruptores; lo destapó la prueba de aceptación del bloqueo (P8).
