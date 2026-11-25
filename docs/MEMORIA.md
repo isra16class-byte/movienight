@@ -162,6 +162,14 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Login en el inicio: aviso de error reparado (2026-11-25).** La verificación del despliegue de los PR #3/#2 encontró un fallo previo: `doLogin()` llamaba a `mnConfirm`, ausente en `index.js`, y el `catch` mostraba un falso error de conexión aunque el servidor hubiera respondido.
+
+- Se agrega el mismo helper de confirmación que ya usan biblioteca, sala y admin. No cambia el servidor, el límite de intentos ni el flujo de recuperación.
+- Cuatro regresiones ejecutan `doLogin` y los modales reales en VM con DOM/HTTP simulados: error normal, bloqueo, aceptar recuperación y éxito. Antes del arreglo fallaban las tres de error/recuperación; la de éxito pasaba. Después: `npm test` **188/188**, lint y `git diff --check` pasan. Pendiente repetir el rechazo en navegador tras desplegar este ajuste.
+- Los PR #3 y #2 están fusionados. El commit `2c850b7` ya está desplegado: `/health` público e interno correctos; Redis/Postgres/R2 habilitados y sanos. IDs, inicio y contador de reinicios de Redis y Postgres sin cambios; solo se recreó `app`. Su `server.js` coincide por SHA-256 con el commit fusionado. La sesión del admin sobrevivió; se cerró desde la interfaz y `/auth/me` confirmó `loggedIn:false` para probar el formulario.
+- Edge no está disponible. La prueba de interfaz se realiza en A/Chrome; no se usa InPrivate ni otro perfil. No hubo salas que cerrar.
+- El login correcto del admin se verificó en Chrome real contra el dominio, con Postgres/Redis reales: aviso «Sesión iniciada.» y `/auth/me` confirmó la identidad después. La cuenta quedó iniciada.
+
 **Integración de los PR #3 y #2 (2026-11-25).** La persona autorizó fusionar ambos en `plan-produccion` y actualizar únicamente la app del servidor de pruebas.
 
 - El PR #3 ya está fusionado. Se incorporó su base al PR #2 mediante merge, conservando ambas entradas de documentación y sin reescribir el historial.
