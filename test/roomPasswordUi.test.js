@@ -10,16 +10,20 @@ const start = source.indexOf("socket.on('room-error',");
 const end = source.indexOf('\n});', start);
 assert.ok(start >= 0 && end > start);
 const handlerSource = source.slice(start, end + '\n});'.length);
+const promptStart = source.indexOf('function mnPrompt(');
+const promptEnd = source.indexOf('\n}\n', promptStart);
+assert.ok(promptStart >= 0 && promptEnd > promptStart);
+const promptSource = source.slice(promptStart, promptEnd + 3);
 
-// Listener real del cliente; modales, Socket.IO y navegación simulados, sin navegador.
+// Listener y helper mnPrompt reales; diálogo, Socket.IO y navegación simulados, sin navegador.
 function fixture(answer = crypto.randomBytes(24).toString('hex')) {
   const state = { prompts: [], alerts: [], emitted: [], logins: 0 };
   const location = { href: '/room/abc123' };
   let handler;
-  vm.runInNewContext('let roomPassword = null;\n' + handlerSource, {
+  vm.runInNewContext('let roomPassword = null;\n' + promptSource + handlerSource, {
     roomId: 'abc123', username: 'QA', hostToken: null, myUserId: 'qa-user', location,
     socket: { on: (_event, fn) => { handler = fn; }, emit: (...args) => state.emitted.push(args) },
-    mnPrompt: async (options) => { state.prompts.push(options); return answer; },
+    mnDialog: async (options) => { state.prompts.push(options); return answer; },
     mnAlert: async (...args) => { state.alerts.push(args); },
     goToLoginForRoom: async () => { state.logins++; },
   });
@@ -32,7 +36,7 @@ test('sala UI: muestra los intentos del servidor en el prompt y reenvía la nuev
     const message = `Contraseña incorrecta. Te quedan ${attemptsLeft} intento(s).`;
     await f.error(message, { code: 'ROOM_PASSWORD_INCORRECT', attemptsLeft });
     assert.equal(f.state.prompts[0].message, message);
-    assert.equal(f.state.prompts[0].type, 'password');
+    assert.equal(f.state.prompts[0].inputType, 'password');
     assert.equal(f.state.emitted.length, 1);
     assert.equal(f.state.emitted[0][0], 'join-room');
     assert.equal(f.state.emitted[0][1].password, f.answer);

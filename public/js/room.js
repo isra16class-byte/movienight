@@ -168,8 +168,8 @@ function mnAlert(message, title = 'MovieNight') {
 function mnConfirm(message, title = '¿Estás seguro?') {
   return mnDialog({ title, message, okLabel: 'Sí', cancelLabel: 'Cancelar' });
 }
-function mnPrompt({ title, placeholder = '', type = 'text', defaultValue = '', okLabel = 'Aceptar', cancelLabel = 'Cancelar', showCancel = true }) {
-  return mnDialog({ title, showInput: true, inputType: type, placeholder, defaultValue, okLabel, cancelLabel, showCancel });
+function mnPrompt({ title, message = '', placeholder = '', type = 'text', defaultValue = '', okLabel = 'Aceptar', cancelLabel = 'Cancelar', showCancel = true }) {
+  return mnDialog({ title, message, showInput: true, inputType: type, placeholder, defaultValue, okLabel, cancelLabel, showCancel });
 }
 
 const myUserId = getPersistentUserId();
