@@ -1,5 +1,13 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Fuentes y CSP locales desplegadas y aceptadas
+
+- PR #14/#15 integrados; código `9d61e49` desplegado mediante dos recreaciones solo de app. Redis/Postgres conservados; salud interna/pública correcta y 27 archivos de runtime coinciden con el commit. Los paquetes de fuentes no se instalan en runtime.
+- Dominio: 7 HTML/CSP correctos y 17 WOFF2 200 con MIME/bytes originales. Chrome/Edge: inicio, admin, biblioteca y sala con fuentes cargadas y diseño conservado. Sala de prueba cerrada desde panel; 0 salas/conexiones/subidas, cinco valores por defecto, A admin y B anónimo. API de consola sin errores/avisos registrados.
+- Suite final 223/223, lint y check de artefactos correctos. Respaldo real local en Edge comprobado con servidor temporal detenido; no se detuvo el dominio para esta prueba. Inspección directa del SW activo bloqueada por la política del navegador: migración/controlador, móvil e instalación PWA quedan NO PROBADOS. Tabla completa en `FUENTES-LOCALES.md`.
+
+---
+
 ## 2026-11-25 — Completar la CSP de fuentes en el servidor
 
 - Se incluye `server.js`, omitido por error en el staging del PR #14: `style-src`/`font-src` solo `'self'`. Regresión adicional con Helmet real para verificar esa política, mantener permisos R2 y no introducir inline. Pendiente aceptación final del dominio; no cambia las familias ni los artefactos del PR #14.
