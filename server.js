@@ -2784,9 +2784,8 @@ async function startServer() {
         .catch((err) => {
           logger.warn(
             { err },
-            'Cloudflare R2 está configurado en .env pero la conexión de prueba falló. Revisá ' +
-            'R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET_NAME. Mientras esto ' +
-            'no se arregle, crear sala o cambiar de cinta va a fallar (no hay respaldo a disco).'
+            'No se pudo comprobar la conexión con Cloudflare R2 al arrancar. Consultá el evento ' +
+            'r2_operation_failed para distinguir fallos de red, permisos o configuración.'
           );
         });
     } else {
