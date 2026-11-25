@@ -162,6 +162,12 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Presencia/reconexión desplegada y aceptada (2026-11-25).** PR #12 integrado en `f473dd9` y desplegado solo en `app` desde una exportación limpia. `server.js` coincide por SHA-256 normalizado; Redis/Postgres mantienen IDs, inicio y reinicios. Salud interna/pública 200 con Redis/Postgres/R2 sanos. Esta entrada cierra los pendientes de integración y navegador de la siguiente.
+
+- **Navegador real:** A Chrome/admin y B Edge/anónimo (`/auth/me` al inicio/final). Sala `6cc3b8` con cinta de prueba existente, sin archivos elegidos/subidos. Tres recargas B conservan contador 2 y un solo aviso de entrada; solapamiento de dos pestañas de B agrupa avisos y vuelve a dos participantes al retirar la anterior, sin salida falsa tras 29 s. La recarga A recupera control y conserva B invitado. «Salir» de B deja contador/lista solo con A y un aviso de salida tras 15 s. Tabla separada por prueba en `AUDITORIA-PRESENCIA.md`.
+- **Cierre:** al salir A el panel muestra 0 conexiones y sala con 0 viewers; sala cerrada desde el panel, 0 salas/conexiones/subidas y cinco interruptores por defecto. A sigue admin y B en el inicio sin sesión; pestaña temporal cerrada. API de consola sin errores/avisos registrados en las consultas de A/B.
+- **Límites:** sin tercer participante independiente (la pestaña extra comparte B), móvil, archivos, fallos remotos provocados o adaptador distribuido. Doble emisión del mismo socket/avatar pendiente/callbacks obsoletos siguen cubiertos automáticamente, sin provocarlos desde el navegador. No se repitió reinicio con sala ocupada ni prueba audiovisual completa. Suite del arreglo: **215/215** y lint correctos.
+
 **Presencia/reconexión: diagnóstico y arreglo preparado (2026-11-25).** Reproducidos contador fantasma y avisos duplicados con Socket.IO real local; también con `server.js` anterior a los interruptores (`dc13a97`, padre de `35bc9d1`). Detalle, tabla antes/después y límites en `docs/AUDITORIA-PRESENCIA.md`.
 
 - **Causas confirmadas:** admisiones repetidas/concurrentes del mismo socket, admisión que termina después de desconectarse y reconexión nueva que llega antes de cerrar la anterior. Se encontró además que cambiar de sala sin desconectar dejaba la primera mal contada. La reconexión ordenada sí funcionaba. Los bloques vienen de agosto/octubre, antes de los interruptores del 27 de octubre.

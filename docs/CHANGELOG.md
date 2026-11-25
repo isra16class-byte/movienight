@@ -1,5 +1,13 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Presencia desplegada y comprobada en Chrome/Edge
+
+- PR #12 integrado (`f473dd9`); una recreación de `app` desde exportación limpia. Servidor comparado con el commit por SHA-256 normalizado; Redis/Postgres mantienen IDs, inicio y reinicios. Salud interna/pública correcta con servicios reales.
+- Chrome/admin + Edge/anónimo: tres recargas sin duplicar avisos, conexiones solapadas de B sin falsa salida tras 29 s y contador/lista correctos, recarga del dueño recupera control. Salida explícita retira a B de la lista y anuncia una vez tras los mismos 15 s. Tabla por prueba en `AUDITORIA-PRESENCIA.md`; API de consola sin errores/avisos registrados.
+- Sala de prueba cerrada desde el panel; 0 salas/conexiones/subidas, cinco interruptores por defecto, A admin y B anónimo confirmado en `/auth/me`. Sin archivos elegidos/subidos ni contexto C. Móvil, tercer participante independiente y fallos remotos siguen pendientes; carreras internas cubiertas por tests y diagnóstico local, sin inyectarlas en navegador.
+
+---
+
 ## 2026-11-25 — Presencia: admisión única y avisos de reconexión coherentes
 
 - Reproducidos con Socket.IO real: entrada repetida deja contador 1 con 0 sockets; desconectar durante la entrada deja espectador/nombre sin socket; solapamiento duplica entrada y anuncia salida con usuario dentro; cambiar de sala sin desconectar deja la primera mal contada. La reconexión ordenada funciona. Mismos resultados con `server.js` anterior al primer interruptor; historial y límites en `AUDITORIA-PRESENCIA.md`.

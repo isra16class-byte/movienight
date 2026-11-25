@@ -832,7 +832,7 @@ instancia alcanza por ahora. Queda documentada para cuando haga falta retomarla)
 
 ## Fase 5 — Calidad de código y proceso
 
-- [x] Presencia y reconexión (2026-11-25): diagnóstico histórico anterior a interruptores y arreglo de admisión única/avisos solapados. Diez regresiones, suite **215/215**, lint y Socket.IO real local correctos; pendiente revisión, despliegue y navegador/móvil. Tabla y límites en `AUDITORIA-PRESENCIA.md`.
+- [x] Presencia y reconexión (2026-11-25): diagnóstico histórico anterior a interruptores y arreglo de admisión única/avisos solapados. PR #12 integrado y desplegado solo en app (`f473dd9`); diez regresiones, suite **215/215**, lint y Socket.IO real local correctos. Chrome/Edge: tres recargas sin avisos duplicados, solapamiento de B sin falsa salida tras 29 s, dueño recupera control al recargar y salida explícita limpia lista/contador con aviso tras 15 s. Panel final 0 salas/conexiones/subidas y cinco valores por defecto. Pendientes móvil, tercer participante independiente, archivos y fallos de red provocados; carreras internas verificadas automáticamente. Tabla y límites en `AUDITORIA-PRESENCIA.md`.
 
 - [x] Compatibilidad LF/CRLF de `test/clientGuards.test.js` (2026-11-25): normalizar solo las lecturas de los tests. Reproducidos cuatro fallos previos; suite Windows 180/180 y lint pasan en la rama independiente. Guardianes comprobados con ambas variantes en memoria; combinado con el PR #2: **184/184**. No equivale a ejecución de navegador.
 
