@@ -162,6 +162,14 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Diagnóstico de los 6 errores R2 (2026-11-25).** Investigación de solo lectura completada; detalle en `docs/DIAGNOSTICO-R2.md`. No se encontró un fallo actual persistente que justifique modificar la configuración.
+
+- **Confirmado:** un `AggregateError` de arranque con timeouts IPv4 y `ENETUNREACH` IPv6; el último error registrado fue DNS (`ENOTFOUND`) unos 77 segundos después de arrancar. El contador sigue en 6 más de 30 minutos después del último error; es acumulativo y solo guarda el último, no un historial de seis eventos.
+- **Comprobado ahora:** cinco `HeadBucket` autenticados correctos; seis resoluciones DNS correctas; cuatro conexiones TLS automáticas y cuatro IPv4 correctas, con certificados válidos. IPv6 forzado falla con `ENETUNREACH`. Salud 200 con Redis/Postgres/R2 sanos y 0 salas/conexiones/subidas. La selección automática real de Node funciona en las muestras actuales.
+- **Inferencia/límite:** apunta a fallos transitorios de red/DNS al arrancar. IPv6 sin ruta no basta para explicar los timeouts IPv4 ni identificar la causa de cada uno de los seis eventos. No se pudo determinar la capa responsable del fallo DNS ni se probó un nuevo arranque en frío, carga, escrituras o una interrupción controlada.
+- **Entorno preservado:** sin reinicios ni cambios de app, credenciales, red, datos o ajustes. No se eligieron/subieron archivos. Consultas y resultados con secretos/nombres privados redactados.
+- **Siguiente:** si reaparece, registrar operación/código/hora de cada fallo para poder atribuirlo; el contador actual no permite reconstruirlos. El siguiente trabajo ordinario del plan sigue siendo favicon, meta móvil y beacon de Cloudflare.
+
 **Aceptación de contraseña de sala: helper del prompt (2026-11-25).** PR #6 fusionado y desplegado solo en `app`. Edge volvió a estar disponible y `/auth/me` confirmó B anónimo; A/Chrome conserva la sesión admin. La primera comprobación real detectó que `mnPrompt` de `room.js` descartaba `message`, aunque el listener ya lo enviaba.
 
 - Se agrega `message = ''` al helper y se pasa a `mnDialog`. La regresión ahora ejecuta tanto el listener como el helper reales; solo el diálogo, Socket y navegación son dobles. Tres de cinco tests de UI fallaron antes de este ajuste y pasan después. Suite Windows **200/200**, lint, sintaxis y `git diff --check` correctos.
