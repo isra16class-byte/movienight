@@ -255,8 +255,9 @@ Esa decisión de producto queda abierta hasta empezar la fase 5.
   `fonts.gstatic.com` de la CSP.
 - [ ] 6. Beacon de Cloudflare (se desactiva en el panel de Cloudflare),
   pendiente de la persona. **Favicon y meta hechos el 2026-11-25:** ICO de respaldo y SVG explícito,
-  meta `mobile-web-app-capable` en las cuatro páginas. HTTP local, suite 205/205 y lint correctos;
-  pendiente despliegue/navegador real y móvil. La CSP no cambia.
+  meta `mobile-web-app-capable` en las cuatro páginas. Desplegado: HTTP real 200, ICO 192×192
+  decodificado en Edge y metas comprobadas en Chrome/Edge; suite 205/205 y lint correctos.
+  Pendiente instalación/offline móvil. La CSP no cambia.
 
 ## 6. Verificación contra el código
 
