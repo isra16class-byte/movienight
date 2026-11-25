@@ -1,5 +1,15 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — El inicio muestra los errores de login en lugar de un falso fallo de conexión
+
+- **Reproducido en Chrome real:** el rechazo de credenciales de prueba disparó «No se pudo conectar con el servidor. Intenta de nuevo.». El servidor sí registró el intento; faltaba `mnConfirm` en `index.js` y la excepción caía en el `catch` de red.
+- **Cambio:** añadir el helper de confirmación que ya existe en las otras páginas. Permite mostrar el error devuelto y elegir cancelar o recuperar la cuenta; no cambia las reglas de seguridad.
+- **Regresión:** tres pruebas de error/recuperación fallan antes del arreglo, y la de éxito pasa. Después: suite completa **188/188**, lint y `git diff --check` correctos. Ejecutan funciones y modales reales en VM, con DOM y HTTP simulados; no equivalen a un navegador. Pendiente repetir el rechazo real tras desplegar.
+- **Despliegue anterior:** PR #3 y #2 fusionados, commit `2c850b7` desplegado solo en `app`, salud pública/interna correcta y Redis/Postgres sin reinicios. Edge no está disponible para controlar; se continúa en Chrome.
+- **Login real:** cierre desde la interfaz y `/auth/me` sin sesión; posterior login correcto en Chrome con aviso «Sesión iniciada.» y `/auth/me` confirmando la cuenta admin. La sesión quedó iniciada.
+
+---
+
 ## 2026-11-25 — Integración de login y guardianes LF/CRLF
 
 - PR #3 fusionado en `plan-produccion`; su base se incorpora al PR #2 con merge normal. Los conflictos de MEMORIA y CHANGELOG se resuelven conservando las dos entradas.

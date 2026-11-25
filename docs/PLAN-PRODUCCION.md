@@ -208,6 +208,8 @@ secundario.
 
 ### 2.2 Rate limiting ✅ (resuelta el 2026-09-05)
 
+- [x] Aviso de login del inicio (2026-11-25): agregar `mnConfirm`, que faltaba y convertía el rechazo de credenciales/bloqueo en un falso error de conexión. Cuatro regresiones de error, bloqueo, recuperación y éxito; suite **188/188** y lint correctos. Pendiente repetir el rechazo en navegador tras desplegar; login correcto del admin ya verificado en el dominio real.
+
 - [x] Login: unificar el tercer fallo de email existente/inexistente, autorizado y corregido el 2026-11-25. Mismo estado y cuerpo (401, 401, 429, 429), sin cambiar tres intentos/15 min ni IP+email. Cuatro tests del handler y HTTP local con servicios simulados; pendiente navegador/despliegue. Combinado con el PR #3: suite Windows **184/184**.
 
 - [x] `join-room` (intentos de contraseña de sala): mismo criterio que ya
