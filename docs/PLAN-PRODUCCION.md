@@ -818,6 +818,8 @@ instancia alcanza por ahora. Queda documentada para cuando haga falta retomarla)
 
 ## Fase 5 — Calidad de código y proceso
 
+- [x] Compatibilidad LF/CRLF de `test/clientGuards.test.js` (2026-11-25): normalizar solo las lecturas de los tests. Reproducidos cuatro fallos previos; suite Windows 180/180 y lint pasan en esta rama independiente. Guardianes comprobados con ambas variantes en memoria; no equivale a ejecución de navegador ni incluye el PR de login.
+
 - [x] Tests, al menos para lo más crítico y menos obvio a simple vista ✅ (casilla marcada el 2026-11-22 tras verificar `test/`: `hostAuth.test.js` cubre `setHost`, `rateLimiter.test.js` y `passwordAuth.test.js` cubren contraseñas y limitador, `uploadReference.test.js` cubre el modo disco/R2; hoy son 180 tests):
   - `setHost()` (traspaso de host — ya tuvo un bug serio de hosts duplicados,
     ver `docs/historico/MEMORIA.md` 5bis, justo el tipo de lógica que se rompe fácil sin red

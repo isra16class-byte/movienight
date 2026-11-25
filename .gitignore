@@ -3,3 +3,4 @@ public/uploads/*
 !public/uploads/.gitkeep
 .env
 cloudflared-config.yml
+acceptance-evidence/
