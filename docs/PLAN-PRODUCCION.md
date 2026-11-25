@@ -207,6 +207,9 @@ secundario.
       directo (sin rate limiting de por medio).
 
 ### 2.2 Rate limiting ✅ (resuelta el 2026-09-05)
+
+- [x] Login: unificar el tercer fallo de email existente/inexistente, autorizado y corregido el 2026-11-25. Mismo estado y cuerpo (401, 401, 429, 429), sin cambiar tres intentos/15 min ni IP+email. Cuatro tests del handler y HTTP local con servicios simulados; pendiente navegador/despliegue. Suite Windows con cuatro fallos CRLF previos, documentados en `MEMORIA.md`.
+
 - [x] `join-room` (intentos de contraseña de sala): mismo criterio que ya
       usaba `requireUploadAuth` (3 intentos, bloqueo de 15 min), extraído a un
       helper genérico reusable (`makeAttemptLimiter()`) para no duplicar la
