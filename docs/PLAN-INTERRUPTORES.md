@@ -253,9 +253,11 @@ Esa decisión de producto queda abierta hasta empezar la fase 5.
   decidir qué borrar).
 - [x] 5. Fuentes propias (2026-11-25): siete páginas con Fontsource local y CSP
   de estilos/fuentes solo `'self'`; SW v2 con precarga y respuestas válidas.
-  Suite 222/222, lint, HTTP local y Edge con servidor temporal detenido correctos.
-  Pendientes despliegue/dominio, actualización del SW instalado y móvil/PWA;
-  detalle en `FUENTES-LOCALES.md`.
+  PR #14/#15 integrados y desplegados; suite final 223/223, lint, HTTP del dominio
+  y fuentes/diseño en Chrome/Edge correctos. Respaldo local en Edge con servidor
+  temporal detenido correcto. Pendientes inspección directa del SW activo
+  (página interna bloqueada por política del navegador) y móvil/PWA;
+  tabla y límites en `FUENTES-LOCALES.md`.
 - [ ] 6. Beacon de Cloudflare (se desactiva en el panel de Cloudflare),
   pendiente de la persona. **Favicon y meta hechos el 2026-11-25:** ICO de respaldo y SVG explícito,
   meta `mobile-web-app-capable` en las cuatro páginas. Desplegado: HTTP real 200, ICO 192×192

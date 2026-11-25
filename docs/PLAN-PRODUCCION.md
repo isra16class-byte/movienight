@@ -279,9 +279,9 @@ secundario.
 - [ ] (Aparte, no es de la serie CSP) La CSP bloquea `https://static.cloudflareinsights.com/beacon.min.js`, el script de analíticas que inyecta Cloudflare; error de consola en las 4 páginas del dominio
       real, no rompe nada. Resolver permitiéndolo en `server.js` (`scriptSrc`/`connectSrc`) o desactivando la inyección en el panel de Cloudflare. Sin resolver.
 
-- [x] Fuentes locales (2026-11-25): siete HTML con Fontsource 5.3.0, WOFF2/CSS/licencias versionados y CSP de estilos/fuentes solo `'self'`. SW v2 precarga el shell y no guarda errores ni datos dinámicos. Suite **222/222**, lint, check de artefactos, HTTP local y Edge real con servidor temporal detenido correctos. Pendientes integración/despliegue/dominio y móvil/PWA; detalle en `FUENTES-LOCALES.md`.
+- [x] Fuentes locales (2026-11-25): PR #14/#15 integrados y desplegados (`9d61e49`); siete HTML con Fontsource 5.3.0, WOFF2/CSS/licencias versionados y CSP de estilos/fuentes solo `'self'`. SW v2 precarga el shell y no guarda errores ni datos dinámicos. Suite final **223/223**, lint/check de artefactos, 7 HTML/CSP y 17 WOFF2 del dominio correctos. Chrome/Edge conservan diseño y fuentes; respaldo local con servidor temporal detenido correcto. Panel final 0 salas/conexiones/subidas y valores por defecto. Pendientes móvil/PWA e inspección directa del SW activo, bloqueada por política del navegador; tabla/límites en `FUENTES-LOCALES.md`.
 
-- [x] CSP de fuentes: se incluye el ajuste de `server.js` omitido en el staging del PR #14, con guardián que ejecuta Helmet real y comprueba fuentes/estilos locales, R2 e inline. Pendiente aceptación de la cabecera desplegada junto con el tema de fuentes anterior.
+- [x] CSP de fuentes: ajuste de `server.js` omitido inicialmente e integrado en PR #15, con guardián de Helmet real para fuentes/estilos locales, R2 e inline. Cabecera desplegada comprobada en las siete páginas del dominio.
 
 ### 2.3 Identidad del host — reemplazada por Fase 2bis (cuentas reales)
 - ~~Endurecer el `hostToken` actual (expiración, JWT, cookie httpOnly)~~ — con

@@ -59,7 +59,46 @@ de trabajo usado en la comprobación local ya los había retirado. Se completa
 el cambio en el servidor y se añade una regresión que ejecuta Helmet real con
 la configuración de `server.js`: estilos/fuentes solo locales, sin inline y
 con los permisos R2 conservados. La cabecera de la imagen desplegada se
-comprobará antes de cerrar la aceptación; el cambio de CSP estrecha permisos.
+comprobó en el cierre siguiente; el cambio de CSP estrecha permisos.
+
+## Cierre del despliegue y aceptación
+
+PR #14 (fuentes/SW) y #15 (CSP/guardián) integrados. Código final desplegado:
+`9d61e49ea29c118c4bb33fd6e62411a94dd3e9f4`. Hubo dos recreaciones de `app`,
+ambas desde exportaciones limpias de Git, sin `.env`, videos locales ni
+evidencias en las imágenes. Redis y Postgres conservaron sus IDs, inicio y
+contadores de reinicios en ambos despliegues. Salud interna y pública 200 con
+Redis/Postgres/R2 habilitados y sanos. Los paquetes Fontsource no están
+instalados en runtime; sus artefactos públicos sí están incluidos.
+
+Se compararon con el commit 27 archivos de runtime: servidor, siete HTML,
+SW, CSS de fuentes y 17 WOFF2. Textos por SHA-256 normalizando LF/CRLF y
+binarios sin normalizar. Todos coinciden. Suite final **223/223**, lint,
+check reproducible de fuentes y `git diff --check` correctos antes del commit
+de la corrección de CSP.
+
+| Prueba | Resultado | Observado / esperado | Errores de consola |
+|---|---|---|---|
+| HTTP del dominio: siete páginas | PASS | 200; CSS local, sin referencias Google; cabecera real con `style-src 'self'` y `font-src 'self'` | No corresponde: HTTP |
+| HTTP del dominio: 17 WOFF2/CSS/SW | PASS | WOFF2 200 `font/woff2`, bytes iguales al commit; CSS y SW 200 `no-store`; SW servido contiene v2 | No corresponde: HTTP |
+| Inicio en Edge | PASS | Aspecto comparado antes/después; las tres familias cargadas, CSS solo del mismo origen | Ninguno registrado por la API consultada |
+| Admin y biblioteca en Chrome | PASS | Sesión admin conservada, familias cargadas y biblioteca lista sus cintas existentes | Ninguno registrado |
+| Sala en Chrome/Edge | PASS | Sala `4a9673` desde `metrics-test.mp4` existente, dos participantes y A host; nombre «Fuentes B Ñ» visible y fuentes de cuerpo/OSD cargadas | Ninguno registrado |
+| Respaldo con servidor temporal detenido | PASS local | Edge recarga shell, fuentes y estilos; abre/cancela modal mediante JS cacheado. No se detuvo el dominio real | Sin errores en la consulta anterior al corte; no consultada después |
+| Inspección directa de versión activa/migración del SW del dominio | NO PROBADO | El protocolo interno de Edge está bloqueado por la política del control del navegador; el evaluador DOM tampoco expone CacheStorage/controlador. No se usaron vías alternativas | No corresponde |
+| Limpieza y configuración | PASS | Sala cerrada desde el panel; 0 salas/conexiones/subidas, cinco valores por defecto; B anónimo confirmado al inicio/final con `/auth/me` | Ninguno registrado en las consultas |
+| Móvil, instalación PWA y archivo real | NO PROBADO | Pendientes manuales; no se eligieron archivos ni se usó contexto C | No corresponde |
+
+Los errores HTTP, escrituras fallidas, activación incompleta y limpieza de
+versiones se verificaron con los tests del SW; no se provocaron fallos del
+dominio. La inspección manual opcional de la versión activa puede hacerse en
+las herramientas de desarrollo de Edge, Aplicación → Service Workers. No se
+afirma haber inspeccionado su CacheStorage ni una migración v1→v2 en vivo.
+
+Estado final: A en `/admin.html` con admin y B en el inicio sin sesión.
+`HOST_AUTO_TRANSFER=Sí`, `ALLOW_ANONYMOUS_ROOMS=Sí`, `ALLOW_REGISTRATION=Sí`,
+`ALLOW_LIBRARY_PASSWORD=Sí`, `REQUIRE_ACCOUNT_TO_JOIN=No`. Sin videos borrados,
+archivos seleccionados/subidos, cambios de credenciales ni de la CSP del beacon.
 
 ## Referencias
 
