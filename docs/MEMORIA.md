@@ -162,6 +162,12 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Favicon y meta móvil (2026-11-25).** Se reprodujo en la app desplegada el 404 de `/favicon.ico` y la meta obsoleta en inicio, biblioteca, sala y admin.
+
+- Se reutiliza el SVG existente como favicon explícito de las cuatro páginas. `/favicon.ico` es un contenedor ICO con el PNG de 192 px existente, conservando sus bytes: mismo dibujo, sin generar ni editar píxeles. Se sustituye `apple-mobile-web-app-capable` por `mobile-web-app-capable`.
+- **Verificado:** HTTP local con Express real, sin `.env` ni servicios: favicon 200 `image/x-icon`, directorio ICO válido y PNG idéntico; cuatro HTML 200 con icono SVG y meta nueva, sin la obsoleta. SVG y todos los iconos del manifest disponibles. Suite **205/205**, lint y `git diff --check` correctos. No se añadieron tests espejo para este ajuste estático.
+- **Pendiente:** integración y despliegue junto con los logs R2 del PR #9, ya integrado; después navegador real. No se verificó instalación ni modo offline en móvil. El service worker conserva su estrategia network-first y el manifest no cambia. El beacon sigue pendiente de desactivarse en Cloudflare por la persona; no se modifica la CSP.
+
 **Logs de operaciones R2 (2026-11-25).** Informe del PR #8 fusionado. Se implementó un evento seguro `r2_operation_failed` para las nueve operaciones R2 que ya contaban fallos, manteniendo contador, reintentos, respuestas y el error original.
 
 - Cada evento incluye operación, código reconocido y hora de Pino; cuando existen, estado HTTP, intentos, demora y códigos/familia de red anidados. No copia mensaje/stack, endpoints, bucket, key, URL firmada ni credenciales. Los valores arbitrarios se omiten y los códigos desconocidos quedan `UNKNOWN`.

@@ -254,7 +254,9 @@ Esa decisión de producto queda abierta hasta empezar la fase 5.
 - [ ] 5. Fuentes propias, para poder quitar `fonts.googleapis.com` y
   `fonts.gstatic.com` de la CSP.
 - [ ] 6. Beacon de Cloudflare (se desactiva en el panel de Cloudflare),
-  `favicon.ico` (404) y la meta `apple-mobile-web-app-capable` obsoleta.
+  pendiente de la persona. **Favicon y meta hechos el 2026-11-25:** ICO de respaldo y SVG explícito,
+  meta `mobile-web-app-capable` en las cuatro páginas. HTTP local, suite 205/205 y lint correctos;
+  pendiente despliegue/navegador real y móvil. La CSP no cambia.
 
 ## 6. Verificación contra el código
 
