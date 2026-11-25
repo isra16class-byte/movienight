@@ -162,6 +162,13 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Integración de los PR #3 y #2 (2026-11-25).** La persona autorizó fusionar ambos en `plan-produccion` y actualizar únicamente la app del servidor de pruebas.
+
+- El PR #3 ya está fusionado. Se incorporó su base al PR #2 mediante merge, conservando ambas entradas de documentación y sin reescribir el historial.
+- **Verificado en la combinación:** `npm test` **184/184** en Windows; los cuatro tests de login y los cuatro guardianes LF/CRLF pasan juntos.
+- **Pendiente de esta ejecución:** fusionar el PR #2, desplegar solo `app` y verificar el login en el dominio real. Redis y Postgres no deben reiniciarse. El panel previo muestra 0 salas, 0 conexiones y los cinco interruptores por defecto.
+- Edge no está disponible en la conexión de navegador actual; Chrome conserva la sesión del admin. No se presenta la ejecución de Node como una prueba de navegador.
+
 **Login: tercer fallo uniforme, autorizado por la persona (2026-11-25).** Código corregido en una rama/PR aparte de la auditoría; pendiente de revisión y despliegue. No se modificaron los otros limitadores.
 
 - **Qué se reprodujo antes:** el tercer fallo respondía 429 si el email existía y 401 si no, revelando esa diferencia. El nuevo test del handler real falló exactamente en el intento 3 antes de cambiarlo.
@@ -170,6 +177,15 @@ mover la barra de progreso — cualquier intento se revierte.
 - **Suite completa en este Windows:** 180/184 pasan; los cuatro fallos restantes son previos, en `clientGuards.test.js`, por buscar cierres LF en fuentes CRLF. No se corrigió ese otro tema ni se afirma que la suite esté verde.
 - **NO verificado:** navegador, dominio de pruebas, Postgres/Redis reales, espera real de 15 minutos ni concurrencia. La corrección elimina la señal por estado/cuerpo; no se midieron ni igualaron tiempos de respuesta.
 - **Siguiente:** revisar/aplicar este PR. Después decidir por separado el vacío de contraseña de sala, el mensaje de conteo/bloqueo y los tests CRLF. Los límites por IP+email y la acumulación de fallos sin ventana siguen sin cambiar.
+
+**Tests de Windows: compatibilidad LF/CRLF corregida (2026-11-25).** Rama/PR separado del arreglo de login, basado directamente en `plan-produccion`.
+
+- **Reproducido antes:** los cuatro tests de `test/clientGuards.test.js` fallaban buscando el cierre de las funciones. `git ls-files --eol` confirmó fuentes CRLF en Windows (`core.autocrlf=true`), mientras el helper buscaba `\n}\n`.
+- **Cambio:** normalizar CRLF a LF únicamente en la cadena leída por esos tests. Se conservan sus cuatro comprobaciones; no se modifican fuentes públicas, configuración de Git, servidor ni reglas de seguridad. `acceptance-evidence/` queda ignorado y fuera del commit.
+- **Verificado:** `npm test` **180/180**, lint y `git diff --check` pasan en Windows. Los mismos cuatro tests pasan con las lecturas de fuentes forzadas a LF y a CRLF en memoria, sin escribir los archivos de la aplicación.
+- **Alcance del conteo:** esta rama independiente no incluye los cuatro tests del arreglo de login del PR #2. No se presenta como una prueba de ambos PR fusionados.
+- **NO verificado:** ejecución en Linux nativo, navegador o despliegue; los tests siguen siendo guardianes de la forma del código, no pruebas de navegador.
+- **Siguiente:** revisar e integrar este PR y el de login antes de actualizar el servidor de pruebas. Después decidir el tratamiento del vacío de contraseña de sala; no se cambia sin autorización.
 
 **Limpieza de documentación (2026-11-22)**: solo docs, sin código. Detalle y evidencia en `docs/CHANGELOG.md`. Se corrigieron las casillas del escapado de HTML en `PLAN-PRODUCCION.md` (estaban hechas desde 2026-10-27), la línea falsa «Las salas nunca expiran» de la sección de problemas conocidos (expiran a las 24 h; el video en R2 queda a propósito), y se marcaron «Logs estructurados» y «Tests» tras verificarlos en el código. **No se tocó** `docs/PRUEBAS-PANEL-ADMIN.md` (probado solo en parte) ni las entradas históricas fechadas. Pendientes reales sin cambios: pruebas a mano en navegador (tercer participante invitado, sala con contraseña + «Exigir cuenta», `GRABAR` anónimo con archivo, subida real, móvil), valores definitivos de los 5 interruptores, hosting sin decidir, términos y privacidad (faltan email y jurisdicción), espacio del bucket de R2, fuentes propias, y la limpieza menor (beacon de Cloudflare, `favicon.ico`, meta obsoleta).
 

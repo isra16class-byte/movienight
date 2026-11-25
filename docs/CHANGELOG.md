@@ -1,5 +1,13 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Integración de login y guardianes LF/CRLF
+
+- PR #3 fusionado en `plan-produccion`; su base se incorpora al PR #2 con merge normal. Los conflictos de MEMORIA y CHANGELOG se resuelven conservando las dos entradas.
+- `npm test`: **184/184** en Windows con ambos cambios juntos. Despliegue y verificación en navegador todavía pendientes de esta ejecución.
+- Antes del despliegue, el panel real muestra 0 salas, 0 conexiones y los cinco interruptores por defecto. Edge no está disponible para controlarlo; se mantiene la sesión del admin en Chrome.
+
+---
+
 ## 2026-11-25 — Login: misma respuesta al tercer fallo exista o no la cuenta
 
 - **Problema reproducido:** `/auth/login` devolvía 401, 401, **429** para una cuenta existente y 401, 401, **401** para una inexistente; la respuesta del tercer fallo permitía distinguirlas. La persona autorizó unificarla tras la auditoría.
@@ -8,6 +16,15 @@
 - **Verificado:** HTTP local contra el servidor compilado, con Postgres/correo simulados y Redis/R2 deshabilitados: ambos tipos de email devuelven 401, 401, 429, 429. Lint, `node --test test/loginRateLimit.test.js` y `git diff --check` pasan. Suite completa Windows: **180/184**; cuatro fallos previos de `clientGuards.test.js` por CRLF, ya identificados en la auditoría. No se ocultan ni se arreglan en este tema.
 - **NO verificado:** navegador real, dominio de pruebas, BD/Redis reales, espera real de 15 minutos, concurrencia o igualdad de tiempos. No se presenta el cambio como una solución a todas las posibles señales de enumeración.
 - **Higiene:** `acceptance-evidence/` queda ignorado y fuera del commit. Las claves de las pruebas se generan al ejecutar; no se guardan secretos. Un commit para este arreglo, separado del PR de auditoría.
+
+---
+
+## 2026-11-25 — Los guardianes del cliente aceptan fuentes LF y CRLF
+
+- **Problema reproducido:** los cuatro casos de `test/clientGuards.test.js` fallaban en el checkout Windows porque el helper esperaba `\n}\n` y los archivos tenían `\r\n`. Git confirmó `w/crlf` y `core.autocrlf=true`.
+- **Arreglo:** la lectura de los tests normaliza CRLF a LF antes de analizar el código. Las aserciones existentes se mantienen. No cambia la aplicación ni la configuración de finales de línea de Git; `.gitignore` excluye las evidencias locales.
+- **Verificado:** cuatro fallos antes del cambio; después `npm test` **180/180**, `npm run lint` y `git diff --check` pasan. Los mismos cuatro guardianes pasan con LF y CRLF forzados en memoria. No se añadieron tests que solo repitan el reemplazo de texto.
+- **Límite:** rama y commit separados del arreglo de login del PR #2; sus cuatro tests adicionales no están incluidos en este conteo. No se verificó la combinación fusionada, Linux nativo, navegador ni despliegue. Estos guardianes revisan la forma del código del cliente, no su ejecución en navegador.
 
 ---
 

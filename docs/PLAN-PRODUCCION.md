@@ -208,7 +208,7 @@ secundario.
 
 ### 2.2 Rate limiting ✅ (resuelta el 2026-09-05)
 
-- [x] Login: unificar el tercer fallo de email existente/inexistente, autorizado y corregido el 2026-11-25. Mismo estado y cuerpo (401, 401, 429, 429), sin cambiar tres intentos/15 min ni IP+email. Cuatro tests del handler y HTTP local con servicios simulados; pendiente navegador/despliegue. Suite Windows con cuatro fallos CRLF previos, documentados en `MEMORIA.md`.
+- [x] Login: unificar el tercer fallo de email existente/inexistente, autorizado y corregido el 2026-11-25. Mismo estado y cuerpo (401, 401, 429, 429), sin cambiar tres intentos/15 min ni IP+email. Cuatro tests del handler y HTTP local con servicios simulados; pendiente navegador/despliegue. Combinado con el PR #3: suite Windows **184/184**.
 
 - [x] `join-room` (intentos de contraseña de sala): mismo criterio que ya
       usaba `requireUploadAuth` (3 intentos, bloqueo de 15 min), extraído a un
@@ -820,6 +820,8 @@ instancia alcanza por ahora. Queda documentada para cuando haga falta retomarla)
 ---
 
 ## Fase 5 — Calidad de código y proceso
+
+- [x] Compatibilidad LF/CRLF de `test/clientGuards.test.js` (2026-11-25): normalizar solo las lecturas de los tests. Reproducidos cuatro fallos previos; suite Windows 180/180 y lint pasan en la rama independiente. Guardianes comprobados con ambas variantes en memoria; combinado con el PR #2: **184/184**. No equivale a ejecución de navegador.
 
 - [x] Tests, al menos para lo más crítico y menos obvio a simple vista ✅ (casilla marcada el 2026-11-22 tras verificar `test/`: `hostAuth.test.js` cubre `setHost`, `rateLimiter.test.js` y `passwordAuth.test.js` cubren contraseñas y limitador, `uploadReference.test.js` cubre el modo disco/R2; hoy son 180 tests):
   - `setHost()` (traspaso de host — ya tuvo un bug serio de hosts duplicados,
