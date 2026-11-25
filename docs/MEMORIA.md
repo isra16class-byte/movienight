@@ -162,6 +162,13 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Cierre de logs R2 y favicon/meta (2026-11-25).** PR #8 (informe), #9 (logs) y #10 (favicon/meta) fusionados en `plan-produccion`. Código de `382903a` desplegado con una sola recreación de `app`, desde una exportación limpia de Git; sin evidencias, videos locales ni `.env` en la imagen. Esta entrada reemplaza los pendientes de despliegue/verificación de las dos siguientes.
+
+- **Verificado:** suite Windows **205/205** y lint correctos. Las cinco regresiones R2 también pasan dentro de la imagen desplegada con el SDK/firma/subida simulados y Pino real; no se provocó una falla contra el bucket real. Nueve archivos de servidor/logs/HTML/favicon comparados con el commit: contenido textual idéntico normalizando LF/CRLF; ICO idéntico byte a byte.
+- **Recursos reales:** `/favicon.ico` 200 `image/x-icon`; SVG 200; los cuatro HTML sirven la meta nueva y no la obsoleta. En Edge público, el ICO se decodifica completo a 192×192. El primer acceso encontró un 404 antiguo en caché; tras expirar y recargar mostró la imagen correcta. Meta nueva comprobada en admin/Chrome e inicio/Edge. La API de consola no reportó errores/avisos en ambos contextos.
+- **Estado final:** app sana y `/health` 200 con Redis/Postgres/R2 sanos. Redis/Postgres conservan IDs, fecha de inicio y contador de reinicios. A conserva admin; B sigue en el inicio. Panel con 0 salas/conexiones/subidas, cinco interruptores por defecto y contador R2 0 tras el reinicio: el contador es volátil, esto no demuestra que se haya corregido la conectividad histórica. Ninguna sala creada ni archivo elegido/subido.
+- **Límites:** sin nuevo fallo real de R2 observado para comprobar un evento natural; cobertura por simulación en la imagen real. Instalación/offline/móvil y navegación completa de sala no probados en este tema. Beacon de Cloudflare sigue pendiente de la persona, con CSP intacta.
+
 **Favicon y meta móvil (2026-11-25).** Se reprodujo en la app desplegada el 404 de `/favicon.ico` y la meta obsoleta en inicio, biblioteca, sala y admin.
 
 - Se reutiliza el SVG existente como favicon explícito de las cuatro páginas. `/favicon.ico` es un contenedor ICO con el PNG de 192 px existente, conservando sus bytes: mismo dibujo, sin generar ni editar píxeles. Se sustituye `apple-mobile-web-app-capable` por `mobile-web-app-capable`.

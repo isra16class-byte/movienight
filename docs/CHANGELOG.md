@@ -1,5 +1,14 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Desplegados y comprobados logs R2, favicon y meta móvil
+
+- PR #8, #9 y #10 fusionados; código `382903a` desplegado con una sola recreación de `app` desde exportación limpia. Redis/Postgres mantienen IDs, inicio y reinicios. Salud 200 con las tres dependencias sanas; 0 salas/conexiones/subidas y cinco interruptores por defecto.
+- Suite Windows **205/205** y lint; cinco regresiones de logs también correctas dentro de la imagen con SDK/firma/subida simulados y Pino real. Nueve archivos de despliegue comparados con el commit, normalizando LF/CRLF en texto y comparando el ICO byte a byte.
+- Favicon real 200 `image/x-icon`, SVG 200, cuatro HTML con meta nueva y sin la obsoleta. Edge decodifica ICO de 192×192; meta nueva comprobada en Chrome/admin y Edge/inicio. Se detectó y superó un 404 antiguo de caché al recargar. Consola sin errores/avisos reportados.
+- Sin fallos reales R2 provocados, archivos elegidos/subidos, cambios de CSP o nuevas salas. El contador R2 volvió a 0 por el reinicio, sin demostrar una corrección de la conectividad histórica. Pendientes instalación/offline/móvil y beacon de Cloudflare por separado.
+
+---
+
 ## 2026-11-25 — Favicon disponible y meta móvil actualizada
 
 - Reproducidos `/favicon.ico` 404 y meta `apple-mobile-web-app-capable` en las cuatro páginas principales. Ahora incluyen favicon SVG explícito y `mobile-web-app-capable`; se conserva el resto de la configuración PWA.
