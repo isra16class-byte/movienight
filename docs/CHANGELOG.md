@@ -1,5 +1,15 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Contraseña de sala: no contar vacíos y mostrar intentos/bloqueo
+
+- **Autorizado y reproducido:** una contraseña omitida reducía el cupo de 3 a 2. El listener del navegador ocultaba el contador y pedía otra contraseña incluso tras el tercer fallo. Nueve de once regresiones iniciales fallaban antes del arreglo.
+- **Servidor:** los envíos omitidos, `null` y `''` se rechazan sin gastar/reiniciar intentos ni loguearse como fallo. Los espacios siguen contando. Se mantiene el bloqueo previo a verificar, incluso con la contraseña correcta, y el límite de 3 intentos/15 minutos por IP+sala e IPv6 /64.
+- **Interfaz y Socket.IO:** el primer argumento de `room-error` sigue siendo el texto; el segundo distingue contraseña requerida/incorrecta/bloqueada e incluye intentos/tiempo. El prompt muestra el mensaje completo. Al tercer fallo aparece un aviso de bloqueo y se vuelve al inicio sin pedir otra contraseña; se conserva la prioridad de cuenta requerida.
+- **Verificado:** suite Windows **200/200**, lint, sintaxis de `room.js` y `git diff --check`. Doce regresiones nuevas del handler/listener reales con dobles de servicios/UI. La migración SHA-256 → bcrypt sigue funcionando y se persiste. Con Socket.IO real en loopback: cinco vacíos conservan 3 intentos, vacío entre fallos conserva 2, fallos reales dejan 2/1/0 con 15 minutos, correcta bloqueada y otra sala accesible. Ese diagnóstico no leyó `.env` y usó BD/correo simulados, Redis/R2 deshabilitados.
+- **Pendiente:** revisión del PR, integración, despliegue y navegador real. No verificados app móvil, servicios reales, espera real de 15 minutos ni concurrencia. Ningún cambio en ajustes, salas ni contenedores del dominio de pruebas. Evidencias ignoradas; sin secretos en el commit.
+
+---
+
 ## 2026-11-25 — Integración desplegada y verificada en Chrome
 
 - PR #3, #2 y #4 fusionados; desplegado `70f8139` solo en `app`. Hashes del servidor y cliente coinciden con el código probado. Redis y Postgres conservan IDs, inicio y contador de reinicios; salud interna 200 con Redis/Postgres/R2 sanos. Se usaron contextos limpios de Git, sin secretos ni evidencias.

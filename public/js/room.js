@@ -315,8 +315,14 @@ socket.on('room-error', async (msg, meta) => {
   // sigue recibiendo solo el string). También cubre una sesión que venció con la sala abierta: al
   // reconectar, join-room la rechaza y se vuelve a pasar por el login.
   if (meta && meta.code === 'ACCOUNT_REQUIRED') { await goToLoginForRoom(); return; }
-  if (msg && msg.includes('Contraseña')) {
-    const pw = await mnPrompt({ title: 'Contraseña incorrecta', placeholder: 'Intenta de nuevo', type: 'password', okLabel: 'Reintentar', cancelLabel: 'Volver al inicio' });
+  if (meta && meta.code === 'ROOM_PASSWORD_LOCKED') {
+    await mnAlert(msg, 'Intentos bloqueados');
+    location.href = '/';
+    return;
+  }
+  const passwordError = meta && ['ROOM_PASSWORD_REQUIRED', 'ROOM_PASSWORD_INCORRECT'].includes(meta.code);
+  if (passwordError || (msg && msg.includes('Contraseña'))) {
+    const pw = await mnPrompt({ title: 'Contraseña de la sala', message: msg, placeholder: 'Probá de nuevo', type: 'password', okLabel: 'Reintentar', cancelLabel: 'Volver al inicio' });
     if (pw === null) { location.href = '/'; return; }
     roomPassword = pw;
     socket.emit('join-room', { roomId, username, hostToken, userId: myUserId, password: roomPassword });
