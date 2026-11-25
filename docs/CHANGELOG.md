@@ -1,5 +1,14 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Diagnóstico de los 6 errores R2, sin cambios de configuración
+
+- **Histórico confirmado:** timeout de conexión al arrancar (IPv4 agotado e IPv6 sin ruta) y último error DNS `ENOTFOUND` unos 77 segundos después. No existe un historial individual de los seis eventos en las métricas.
+- **Comprobación real:** contador estable en 6 más de 30 minutos desde el último error, salud 200, cinco `HeadBucket` autenticados correctos, seis resoluciones DNS correctas y ocho conexiones TLS verificadas correctas (cuatro automáticas, cuatro IPv4). IPv6 forzado reproduce `ENETUNREACH`.
+- **Conclusión acotada:** apunta a fallos transitorios de red/DNS, sin fallo persistente reproducido ahora. No se atribuyen los seis a una sola causa ni se garantiza disponibilidad futura. Sin reinicios, cambios de credenciales/app/red/datos ni elección/subida de archivos.
+- Informe, medidas y límites en `docs/DIAGNOSTICO-R2.md`; memoria y seguimiento actualizados. Solo documentación.
+
+---
+
 ## 2026-11-25 — El helper del prompt de sala conserva el mensaje
 
 - **Fallo observado en Edge tras desplegar #6:** el título del prompt se actualizaba, pero el contador no aparecía. El listener enviaba `message`, que `mnPrompt` descartaba antes de llegar al diálogo.

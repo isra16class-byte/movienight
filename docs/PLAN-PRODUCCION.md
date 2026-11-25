@@ -786,6 +786,8 @@ instancia alcanza por ahora. Queda documentada para cuando haga falta retomarla)
 
 ## Fase 4 — Observabilidad ✅ (completa el 2026-09-07)
 
+- [x] Diagnóstico de los 6 errores R2 (2026-11-25): timeout de arranque y último fallo DNS confirmados; contador estable más de 30 min, salud 200 y comprobaciones actuales de R2/DNS/TLS correctas por IPv4. IPv6 sin ruta. Inferencia de incidente transitorio, sin atribución individual de los seis eventos ni cambios/reinicios; detalles y límites en `DIAGNOSTICO-R2.md`.
+
 - [x] Logs estructurados (JSON) en vez de `console.log` ✅ (casilla marcada el 2026-11-22 tras verificar el código: `lib/logger.js` usa `pino`, y en `server.js` ya no queda ninguna llamada a `console.log`, solo un comentario) — más fácil de indexar en
       cualquier servicio de logs (Datadog, Better Stack, CloudWatch, etc. según
       el hosting elegido).
