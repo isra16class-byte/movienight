@@ -1,5 +1,14 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Los guardianes del cliente aceptan fuentes LF y CRLF
+
+- **Problema reproducido:** los cuatro casos de `test/clientGuards.test.js` fallaban en el checkout Windows porque el helper esperaba `\n}\n` y los archivos tenían `\r\n`. Git confirmó `w/crlf` y `core.autocrlf=true`.
+- **Arreglo:** la lectura de los tests normaliza CRLF a LF antes de analizar el código. Las aserciones existentes se mantienen. No cambia la aplicación ni la configuración de finales de línea de Git; `.gitignore` excluye las evidencias locales.
+- **Verificado:** cuatro fallos antes del cambio; después `npm test` **180/180**, `npm run lint` y `git diff --check` pasan. Los mismos cuatro guardianes pasan con LF y CRLF forzados en memoria. No se añadieron tests que solo repitan el reemplazo de texto.
+- **Límite:** rama y commit separados del arreglo de login del PR #2; sus cuatro tests adicionales no están incluidos en este conteo. No se verificó la combinación fusionada, Linux nativo, navegador ni despliegue. Estos guardianes revisan la forma del código del cliente, no su ejecución en navegador.
+
+---
+
 ## 2026-11-22 — Limpieza de documentación (sin cambios de código)
 
 - **Qué:** los docs se contradecían tras las últimas fases. Solo se tocó documentación, ningún `.js` ni test.

@@ -3,7 +3,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const read = (f) => fs.readFileSync(path.join(__dirname, '..', 'public', 'js', f), 'utf8');
+// Git puede entregar CRLF en Windows: normalizar solo la lectura de los tests mantiene
+// estable la búsqueda del cierre de función, sin tocar los archivos de la aplicación.
+const read = (f) => fs.readFileSync(path.join(__dirname, '..', 'public', 'js', f), 'utf8').replace(/\r\n/g, '\n');
 
 // Estos tests miran la FORMA del código del cliente (no se ejecuta en Node): vigilan dos mejoras que son
 // fáciles de perder en un refactor. El comportamiento real se verificó con un DOM simulado contra el
