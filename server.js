@@ -226,19 +226,11 @@ app.use(helmet({
       // Si alguien agrega un style="..." o un <style> inline, esta CSP lo va a bloquear: es intencional.
       // Lo correcto es una clase en public/style.css; y para un valor dinámico, setProperty desde JS
       // (la API del DOM está permitida; un atributo style escrito en un string de HTML, no).
-      // https://fonts.googleapis.com además, porque las 4 páginas cargan ahí la hoja de estilos de
-      // Google Fonts (<link rel="stylesheet" href="https://fonts.googleapis.com/css2?...">) — sin
-      // esto, la CSP bloqueaba esa hoja entera y con ella las 3 tipografías reales del proyecto
-      // (Monoton/Space Grotesk/VT323), cayendo todo a la fuente por default del navegador. Hallazgo
-      // real probando en un navegador de verdad (no se veía con curl/headers solos, hacía falta la
-      // consola del navegador) — ver docs/CHANGELOG.md.
-      styleSrc: ["'self'", 'https://fonts.googleapis.com'],
+      // Las siete páginas usan /fonts/fonts.css y WOFF2 del propio servidor.
+      styleSrc: ["'self'"],
       // 'data:' hace falta porque style.css usa un SVG de ruido como fondo vía data URL.
       imgSrc: ["'self'", 'data:'],
-      // https://fonts.gstatic.com: ahí es donde vive el archivo real de cada fuente (.woff2) que la
-      // hoja de estilos de Google Fonts (permitida arriba en styleSrc) termina pidiendo — sin esto,
-      // la hoja de estilos cargaría pero las fuentes en sí seguirían bloqueadas.
-      fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+      fontSrc: ["'self'"],
       // 'self' + (si hay R2) el endpoint de subida prefirmada y el bucket público — el navegador
       // hace fetch()/XHR directo contra esos hosts (ver public/index.html y public/library.html,
       // putDirectToR2()).

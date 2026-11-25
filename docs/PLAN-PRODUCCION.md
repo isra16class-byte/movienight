@@ -281,6 +281,8 @@ secundario.
 
 - [x] Fuentes locales (2026-11-25): siete HTML con Fontsource 5.3.0, WOFF2/CSS/licencias versionados y CSP de estilos/fuentes solo `'self'`. SW v2 precarga el shell y no guarda errores ni datos dinámicos. Suite **222/222**, lint, check de artefactos, HTTP local y Edge real con servidor temporal detenido correctos. Pendientes integración/despliegue/dominio y móvil/PWA; detalle en `FUENTES-LOCALES.md`.
 
+- [x] CSP de fuentes: se incluye el ajuste de `server.js` omitido en el staging del PR #14, con guardián que ejecuta Helmet real y comprueba fuentes/estilos locales, R2 e inline. Pendiente aceptación de la cabecera desplegada junto con el tema de fuentes anterior.
+
 ### 2.3 Identidad del host — reemplazada por Fase 2bis (cuentas reales)
 - ~~Endurecer el `hostToken` actual (expiración, JWT, cookie httpOnly)~~ — con
   la decisión de Fase 0 de agregar **cuentas reales**, no tiene sentido

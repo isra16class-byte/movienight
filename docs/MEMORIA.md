@@ -162,6 +162,8 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Integración de fuentes: completar CSP (2026-11-25).** El PR #14 integró artefactos, HTML y SW, pero por una omisión del staging no incluyó `server.js`. Se incluye ahora la CSP local ya comprobada y una regresión con Helmet real que conserva los orígenes R2 y prohíbe inline. La comprobación de despliegue debe leer la cabecera real, además de las fuentes/HTML. Pendiente cierre de aceptación del dominio; detalle en `FUENTES-LOCALES.md`.
+
 **Fuentes locales preparadas (2026-11-25).** Siete HTML usan `/fonts/fonts.css`; Monoton/VT323 400 y Space Grotesk 400/500/600/700 se conservan. Paquetes Fontsource 5.3.0 fijados, 17 WOFF2 con hash y licencias OFL versionados, regeneración/check reproducible y paso de CI. `style-src`/`font-src` quedan en `'self'`, sin relajar las demás directivas. Detalle y límites en `FUENTES-LOCALES.md`.
 
 - **Caché:** SW v2 precarga fuentes y JS del shell; lista cerrada de estáticos, solo respuestas correctas sin redirección, errores no pisan copias válidas. Activa tras precarga completa y limpia solo versiones de su shell. Antes fallaban 5/6 casos iniciales; después 7 regresiones correctas. Suite **222/222**, lint, check de artefactos y diff correctos.
