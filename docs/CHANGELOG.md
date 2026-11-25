@@ -1,5 +1,16 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — El helper del prompt de sala conserva el mensaje
+
+- **Fallo observado en Edge tras desplegar #6:** el título del prompt se actualizaba, pero el contador no aparecía. El listener enviaba `message`, que `mnPrompt` descartaba antes de llegar al diálogo.
+- **Cambio:** aceptar y reenviar `message` en el helper. La regresión de UI ejecuta también ese helper real y observa las opciones finales del diálogo: tres de cinco tests fallaban antes, ahora pasan. Suite **200/200**, lint, sintaxis y `git diff --check` correctos.
+- **Entorno:** #6 fusionado y desplegado solo en `app`, con servidor/cliente verificados por hash y Redis/Postgres intactos. A/Chrome admin y B/Edge anónimo confirmado en `/auth/me`. Dos salas protegidas se prepararon por API con cinta existente, sin elegir/subir archivo; la biblioteca no permite introducir contraseña. La sala preliminar se cerró desde el panel.
+- **Aceptación real final:** Edge anónimo conserva 3 intentos tras cinco vacíos y entra con la correcta; los fallos reales dejan 2/1/bloqueo de 15 minutos, un vacío intercalado conserva 2, la correcta sigue bloqueada y otra sala permite entrar desde la misma IP. El bloqueo no abre otro campo y OK vuelve al inicio. Tabla detallada en `docs/PRUEBAS-CONTRASENA-SALA.md`.
+- **Cierre:** todas las salas de prueba cerradas desde el panel, 0 salas/conexiones/subidas, cinco interruptores por defecto, A admin y B anónimo confirmado en `/auth/me`. Consola sin errores/avisos reportados. Código desplegado comprobado por hash; Redis/Postgres sin cambios de proceso ni reinicios.
+- **Límites/infraestructura:** sin prueba móvil, concurrencia o espera real de 15 minutos. Panel con 6 errores R2 acumulados; log de timeout `ETIMEDOUT` de arranque, salud final 200 con Redis/Postgres/R2 sanos. No se diagnosticó cada evento ni se modificó R2.
+
+---
+
 ## 2026-11-25 — Contraseña de sala: no contar vacíos y mostrar intentos/bloqueo
 
 - **Autorizado y reproducido:** una contraseña omitida reducía el cupo de 3 a 2. El listener del navegador ocultaba el contador y pedía otra contraseña incluso tras el tercer fallo. Nueve de once regresiones iniciales fallaban antes del arreglo.
