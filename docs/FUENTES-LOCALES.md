@@ -51,6 +51,16 @@ con el prefijo de MovieNight, antes de reclamar los clientes.
 Pendientes en esta etapa: integrar/desplegar y comprobar el dominio con Chrome
 y Edge, actualización desde un SW ya instalado, móvil e instalación PWA.
 
+## Comprobación de la integración
+
+El PR #14 incluyó los artefactos/HTML/SW, pero `server.js` quedó por error fuera
+del staging. La CSP integrada conservaba los orígenes de Google aunque el árbol
+de trabajo usado en la comprobación local ya los había retirado. Se completa
+el cambio en el servidor y se añade una regresión que ejecuta Helmet real con
+la configuración de `server.js`: estilos/fuentes solo locales, sin inline y
+con los permisos R2 conservados. La cabecera de la imagen desplegada se
+comprobará antes de cerrar la aceptación; el cambio de CSP estrecha permisos.
+
 ## Referencias
 
 - [Instalación de Fontsource](https://fontsource.org/docs/getting-started/install).

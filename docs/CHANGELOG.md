@@ -1,5 +1,11 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Completar la CSP de fuentes en el servidor
+
+- Se incluye `server.js`, omitido por error en el staging del PR #14: `style-src`/`font-src` solo `'self'`. Regresión adicional con Helmet real para verificar esa política, mantener permisos R2 y no introducir inline. Pendiente aceptación final del dominio; no cambia las familias ni los artefactos del PR #14.
+
+---
+
 ## 2026-11-25 — Fuentes locales y respaldo de shell actualizado
 
 - Siete páginas cambian Google Fonts por CSS/WOFF2 locales: mismas familias/pesos, todos sus subconjuntos y licencias OFL. Fontsource 5.3.0 fijado en devDependencies; artefactos con hash versionados, script reproducible y check en CI. Producción/Docker no necesitan generar archivos ni instalar fuentes en runtime.
