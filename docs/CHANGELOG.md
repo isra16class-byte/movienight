@@ -1,5 +1,17 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Auditoría de login, contraseña de sala y recuperación (sin cambiar seguridad)
+
+- **Alcance:** investigación pedida tras corregir el intento vacío de biblioteca. Informe en `AUDITORIA-LIMITADORES.md` y guion reproducible `node scripts/audit-limiters.js`; `.gitignore` excluye `acceptance-evidence/`.
+- **Reproducido:** login descarta campos vacíos, pero el tercer fallo devuelve 429 para cuentas existentes y 401 para inexistentes. La sala cuenta `password` ausente, `''` o `null`: tres de esos eventos bloquean 15 minutos incluso la clave correcta posterior. La web pregunta antes de conectar, así que abrir la sala no reproduce el consumo automático de biblioteca. Recuperación descarta emails vacíos y solo genera tres resets/correos por hora para cada IP+email; el cuarto responde igual sin generar otro.
+- **Observación de alcance:** otra IPv4 consigue otro cupo para el mismo email en login y recuperación, contra lo afirmado por sus comentarios. No es una prueba de rotar dentro de un /64 IPv6. No se cambió la clave, el cupo, la ventana ni ninguna respuesta del servidor. Los comportamientos son anteriores a los interruptores (`git blame`, septiembre de 2026).
+- **Guion de diagnóstico:** ejecuta el servidor en un puerto efímero de loopback, con bcrypt/Express/Socket.IO reales; añade únicamente exportaciones al módulo compilado para observarlo. Entorno limpio, directorio temporal sin `.env`, sesiones en memoria, Postgres y correo simulados, Redis/R2 deshabilitados. Claves aleatorias solo en memoria. Sus aserciones reproducen el estado actual; salida 0 no significa auditoría sin hallazgos.
+- **Verificado:** guion HTTP/Socket.IO, ventana de recuperación con reloj controlado, `git diff --check`, lint. `npm test`: **176/180** en Windows por cuatro fallos previos de `clientGuards.test.js` (busca cierre LF en archivos CRLF); los mismos cuatro pasan normalizando solo las lecturas en memoria. No se aplicó un arreglo de tests de otro tema. Por lectura y VM con diálogo simulado, el cliente de salas pierde el mensaje de conteo/bloqueo; pendiente UX separado.
+- **NO verificado:** navegador real, dominio de pruebas, Postgres/Redis/Resend reales, espera real de bloqueo, concurrencia, recuperación completa ni escalado. No se marcaron pruebas manuales como hechas.
+- **Pendiente de autorización:** unificar el tercer fallo de login; decidir si omitir contraseña de sala debe gastar intentos. La acumulación sin ventana y los límites globales por cuenta siguen siendo decisiones de diseño separadas.
+
+---
+
 ## 2026-11-22 — Limpieza de documentación (sin cambios de código)
 
 - **Qué:** los docs se contradecían tras las últimas fases. Solo se tocó documentación, ningún `.js` ni test.

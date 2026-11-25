@@ -207,6 +207,14 @@ secundario.
       directo (sin rate limiting de por medio).
 
 ### 2.2 Rate limiting ✅ (resuelta el 2026-09-05)
+
+Seguimiento de auditoría (2026-11-25; ver `AUDITORIA-LIMITADORES.md`):
+
+- [x] Investigar login, contraseña de sala y recuperación por peticiones vacías. Reproducido con HTTP/Socket.IO reales y servicios simulados en local; no en navegador ni contra servicios reales. Sin cambios en las reglas de seguridad.
+- [ ] Decidir y corregir la diferencia 401/429 del tercer fallo de login que permite distinguir cuentas.
+- [ ] Decidir si `join-room` debe rechazar la contraseña ausente/vacía sin gastar intentos (hoy tres eventos vacíos bloquean 15 minutos).
+- [ ] Revisar por separado el mensaje de intentos/bloqueo de la sala y los comentarios de login/recuperación sobre cambiar de IP. No asumir protección global por email: la clave actual es IP+email.
+
 - [x] `join-room` (intentos de contraseña de sala): mismo criterio que ya
       usaba `requireUploadAuth` (3 intentos, bloqueo de 15 min), extraído a un
       helper genérico reusable (`makeAttemptLimiter()`) para no duplicar la
