@@ -1,6 +1,6 @@
 # Presencia, reconexión y espectadores fantasma — 2026-11-25
 
-Se reprodujeron fallos de registro de entrada y de avisos de presencia con el servidor y Socket.IO reales, en loopback. También se reprodujeron con `server.js` anterior a los cinco interruptores. Se preparó un arreglo y se repitieron las mismas secuencias correctamente. Pendientes revisión del PR, despliegue y navegador real.
+Se reprodujeron fallos de registro de entrada y de avisos de presencia con el servidor y Socket.IO reales, en loopback. También se reprodujeron con `server.js` anterior a los cinco interruptores. El arreglo del PR #12 fue integrado y desplegado; la aceptación en Chrome/Edge está registrada al final. Los límites del diagnóstico local siguen indicados por separado.
 
 ## Reproducciones y resultado del arreglo
 
@@ -46,4 +46,27 @@ Se mantienen los chequeos de cuenta/contraseña y las reglas de propietario/host
 - Antes del arreglo: 8 de las 9 regresiones iniciales fallaban; la reconexión ordenada pasaba.
 - Después: 10 regresiones de presencia correctas, suite completa **215/215**, lint y `git diff --check` correctos. Los handlers, el helper de presencia y las reglas de host/acceso son reales; transporte/avatar/reloj/persistencia son dobles en los tests.
 - El diagnóstico adicional repitió las secuencias con HTTP/Socket.IO reales y la espera real de gracia, con los resultados de la tabla.
-- No verificados: navegador real, app móvil, Redis/R2/Postgres reales, red remota inestable ni adaptador distribuido. No se ha desplegado este arreglo. Se reprodujeron contador y registros internos fantasma; no se afirma haber reproducido una fila visual fantasma en un navegador/móvil.
+- Límites de esta primera etapa local: sin navegador, app móvil, Redis/R2/Postgres reales, red remota inestable ni adaptador distribuido. Se reprodujeron contador y registros internos fantasma; no se afirma haber reproducido una fila visual fantasma antes del arreglo en navegador/móvil. La aceptación posterior cubre lo indicado a continuación.
+
+## Despliegue y aceptación en navegador
+
+PR #12 integrado en `f473dd9fe7bcf2655ce67600bb581c4fe4787d69` y desplegado el 2026-11-25. Una sola recreación de `app`, construida desde una exportación limpia de ese commit, sin `.env`, evidencias ni videos locales en el contexto. `server.js` del contenedor coincide con el commit por SHA-256 normalizando LF/CRLF. Redis/Postgres conservaron exactamente sus IDs, fechas de inicio y contadores de reinicios. Salud interna y pública 200, con Redis/Postgres/R2 habilitados y sanos.
+
+A = Chrome con admin; B = Edge normal anónimo, confirmado con `/auth/me` al inicio y al final (`{"loggedIn":false}`). Sin cambios de sesión ni de interruptores. Sala `6cc3b8`, creada desde la cinta de prueba ya existente `metrics-test.mp4`; no se eligieron ni subieron archivos.
+
+| Prueba | Resultado | Observado | Esperado | Errores de consola |
+|---|---|---|---|---|
+| Entrada A + B | PASS | Contador 2; una fila por conexión; A con control, B invitado | Dos participantes y un host | Ninguno registrado por la API consultada |
+| Recarga B 1 | PASS | Vuelve a contador 2; conserva nombre | Sin nuevo aviso ni espectador sobrante | Ninguno registrado |
+| Recarga B 2 | PASS | Vuelve a contador 2; conserva nombre | Igual que la anterior | Ninguno registrado |
+| Recarga B 3 | PASS | Contador 2; A conserva un solo «Presencia B se unió a la sala 🎬» y ninguna salida | Sin avisos duplicados | Ninguno registrado |
+| Conexiones solapadas de B | PASS | Otra pestaña del mismo Edge entra como «Presencia B»: contador 3 y dos filas B mientras ambas conexiones están abiertas. Se navega fuera de la pestaña anterior: contador 2, una fila B. A los 29,195 s sigue un solo aviso de entrada y ninguna salida falsa | Contar sockets separados, agrupar avisos por identidad y no anunciar salida mientras siga presente | Ninguno registrado |
+| Recarga A y control | PASS | A vuelve con control; B queda como invitado; contador 2. Chat registra el traspaso temporal durante el corte. El historial recuperado contiene un aviso de entrada por identidad | El dueño recupera el control y no se duplica la presencia | Ninguno registrado |
+| Salir de B | PASS | «Salir» + «Sí»: contador 1 y solo A en lista. A los 15,488 s aparece una vez «Presencia B salió de la sala» | Retirar la conexión de lista/contador y anunciar la salida tras la gracia de 15 s | Ninguno registrado |
+| Salir de A y limpieza | PASS | Panel: 0 conexiones y sala con 0 viewers. Sala cerrada desde su botón individual; después 0 salas/conexiones/subidas y cinco interruptores por defecto | Sin contadores fantasma ni salas de prueba abiertas | Ninguno registrado |
+| Doble emisión/concurrencia en el mismo socket, avatar pendiente y callbacks obsoletos | NO PROBADO en navegador | Cubiertos por tests; parte de ellos también por Socket.IO real local en la tabla inicial | No admitir sockets muertos ni duplicar registro/host | No corresponde |
+| Tercer participante independiente, móvil, archivo real y red remota inestable | NO PROBADO | Sin contexto C, archivos ni dispositivo móvil; la pestaña solapada comparte B y no representa un tercer participante independiente | Verificación manual por separado | No corresponde |
+
+Las consultas de consola de A/B no devolvieron errores ni avisos; esto describe lo capturado por esa API durante la comprobación, no una garantía de ausencia en todo entorno. El contenido multimedia cargó duración 0:08; reproducción/sincronización audiovisual completa no fue objeto de esta aceptación.
+
+Estado final: A conserva admin en `/admin.html`, B queda en el inicio sin sesión y la pestaña temporal de B fue cerrada. `HOST_AUTO_TRANSFER=Sí`, `ALLOW_ANONYMOUS_ROOMS=Sí`, `ALLOW_REGISTRATION=Sí`, `ALLOW_LIBRARY_PASSWORD=Sí`, `REQUIRE_ACCOUNT_TO_JOIN=No`. Los servicios reales estuvieron activos en estas pruebas; no se repitió un reinicio con la sala ocupada ni se provocaron fallos de R2/Postgres/Redis.
