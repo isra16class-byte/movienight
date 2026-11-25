@@ -1,5 +1,15 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Integración desplegada y verificada en Chrome
+
+- PR #3, #2 y #4 fusionados; desplegado `70f8139` solo en `app`. Hashes del servidor y cliente coinciden con el código probado. Redis y Postgres conservan IDs, inicio y contador de reinicios; salud interna 200 con Redis/Postgres/R2 sanos. Se usaron contextos limpios de Git, sin secretos ni evidencias.
+- **Validación automática:** Windows **188/188**, lint y `git diff --check` correctos.
+- **Navegador real:** cierre y login admin correctos, con identidad comprobada en `/auth/me`; correo ficticio rechazado con el mensaje genérico dos veces y bloqueado 15 minutos en el tercer/cuarto intento. El aviso de error del inicio funciona tras el arreglo. El admin pudo iniciar sesión mientras el correo ficticio estaba bloqueado.
+- **Cierre:** panel con los cinco interruptores por defecto, admin conectado y 0 salas/conexiones/subidas/errores R2. La API de consola no devolvió errores ni avisos. Solo queda el bloqueo temporal del correo ficticio.
+- **No probado:** Edge (no disponible), tercer fallo en vivo de cuenta real, vencimiento real de 15 minutos, concurrencia, igualdad de tiempos o envío de recuperación real. Los tests simulados no se presentan como navegador ni como BD/Redis reales.
+
+---
+
 ## 2026-11-25 — El inicio muestra los errores de login en lugar de un falso fallo de conexión
 
 - **Reproducido en Chrome real:** el rechazo de credenciales de prueba disparó «No se pudo conectar con el servidor. Intenta de nuevo.». El servidor sí registró el intento; faltaba `mnConfirm` en `index.js` y la excepción caía en el `catch` de red.
