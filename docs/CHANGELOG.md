@@ -1,5 +1,14 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Fuentes locales y respaldo de shell actualizado
+
+- Siete páginas cambian Google Fonts por CSS/WOFF2 locales: mismas familias/pesos, todos sus subconjuntos y licencias OFL. Fontsource 5.3.0 fijado en devDependencies; artefactos con hash versionados, script reproducible y check en CI. Producción/Docker no necesitan generar archivos ni instalar fuentes en runtime.
+- CSP: `style-src` y `font-src` solo `'self'`. SW v2 precarga fuentes/JS, limita la caché al shell estático, no guarda errores/redirecciones y conserva la respuesta de red aunque falle la escritura. Activación tras precarga correcta y limpieza acotada a sus versiones.
+- Verificación: 5/6 casos iniciales fallaban antes; 7 regresiones pasan después. Suite **222/222**, lint, check de artefactos y diff correctos. HTTP local de siete páginas/CSP y 17 WOFF2 (185.280 bytes), más Edge real con aspecto/fuentes correctos y shell/JS disponibles tras detener solo el servidor temporal. Detalles en `FUENTES-LOCALES.md`.
+- Pendiente integrar/desplegar y probar dominio/SW instalado/móvil/PWA. Sin cambios en ajustes, salas, contenedores o archivos de video de la app de pruebas durante esta preparación.
+
+---
+
 ## 2026-11-25 — Presencia desplegada y comprobada en Chrome/Edge
 
 - PR #12 integrado (`f473dd9`); una recreación de `app` desde exportación limpia. Servidor comparado con el commit por SHA-256 normalizado; Redis/Postgres mantienen IDs, inicio y reinicios. Salud interna/pública correcta con servicios reales.

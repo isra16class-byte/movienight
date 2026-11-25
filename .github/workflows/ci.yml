@@ -26,6 +26,8 @@ jobs:
 
       - run: npm ci
 
+      - run: npm run fonts:build -- --check
+
       - run: npm run lint
 
       - run: npm test
