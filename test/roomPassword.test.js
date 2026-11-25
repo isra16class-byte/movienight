@@ -32,29 +32,35 @@ async function fixture({ requireAccount = false } = {}) {
   };
   const events = [];
   let handler;
+  let connection = 0;
   const socket = {
-    id: 'qa-socket', request: { session: {} },
+    id: 'qa-socket', connected: true, disconnected: false, request: { session: {} },
     on: (_event, fn) => { handler = fn; }, emit: (...args) => events.push(args),
     join() {}, to: () => ({ emit() {} }),
   };
-  vm.runInNewContext('let currentRoom = null;\n' + handlerSource, {
-    socket, rooms, accessPolicy, rateLimitKeyFromIp, roomJoinAuthLimiter: limiter,
-    safeSocketHandler: (_name, fn) => fn,
-    settings: { getSetting: (key) => key === 'REQUIRE_ACCOUNT_TO_JOIN' && requireAccount },
-    socketClientIp: () => state.ip,
-    verifyPassword: async (...args) => { state.verified++; return verifyPassword(...args); }, hashPassword,
-    logger: { warn: () => { state.failures++; } },
-    roomStore: { saveRoom: () => { state.saved++; } },
-    getSocketAvatarId: async () => null,
-    pushChatHistory: (room, message) => room.chatHistory.push(message),
-    videoDisplayName: (file) => file,
-    io: { to: () => ({ emit() {} }) },
-    assignHostOnJoin: () => { state.assigned++; }, broadcastViewerList() {}, clearTimeout,
-  });
+  // Cada petición representa una conexión nueva; el contador por IP+sala y la sesión se comparten.
+  // Una conexión ya admitida no se reutiliza artificialmente para entrar después en otra sala/IP.
+  function connectAttempt() {
+    vm.runInNewContext('let currentRoom = null;\n' + handlerSource, {
+      socket: { ...socket, id: 'qa-socket-' + ++connection }, rooms, accessPolicy, rateLimitKeyFromIp, roomJoinAuthLimiter: limiter,
+      safeSocketHandler: (_name, fn) => fn,
+      settings: { getSetting: (key) => key === 'REQUIRE_ACCOUNT_TO_JOIN' && requireAccount },
+      socketClientIp: () => state.ip,
+      verifyPassword: async (...args) => { state.verified++; return verifyPassword(...args); }, hashPassword,
+      logger: { warn: () => { state.failures++; } },
+      roomStore: { saveRoom: () => { state.saved++; } },
+      getSocketAvatarId: async () => null,
+      pushChatHistory: (room, message) => room.chatHistory.push(message),
+      videoDisplayName: (file) => file,
+      io: { to: () => ({ emit() {} }) },
+      assignHostOnJoin: () => { state.assigned++; }, broadcastViewerList() {}, roomHasConnectedUser: () => false, clearTimeout,
+    });
+  }
   return {
     state, rooms, socket, limiter,
     async join(fields = {}) {
       events.length = 0;
+      connectAttempt();
       await handler({ roomId: 'abc123', username: 'QA', userId: 'qa-user', ...fields });
       const result = events.find(([name]) => ['room-error', 'room-data'].includes(name));
       assert.ok(result, 'el handler debe responder');

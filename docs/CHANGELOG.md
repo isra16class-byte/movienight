@@ -1,5 +1,15 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Presencia: admisión única y avisos de reconexión coherentes
+
+- Reproducidos con Socket.IO real: entrada repetida deja contador 1 con 0 sockets; desconectar durante la entrada deja espectador/nombre sin socket; solapamiento duplica entrada y anuncia salida con usuario dentro; cambiar de sala sin desconectar deja la primera mal contada. La reconexión ordenada funciona. Mismos resultados con `server.js` anterior al primer interruptor; historial y límites en `AUDITORIA-PRESENCIA.md`.
+- Se revalida socket/sala tras los awaits y cada conexión se admite una sola vez en una única sala. El contador deriva del registro de sockets; repetir entrada devuelve datos sin reanunciar o reasignar host. Para otra sala se exige desconectar primero.
+- Los avisos usan la identidad estable existente, manteniendo las conexiones separadas. Salida solo cuando no queda otro socket de esa identidad y pasan los mismos 15 segundos. Callbacks viejos o de una sala cerrada no emiten ni guardan; el silencio se mantiene mientras siga presente.
+- **Verificado:** 8/9 regresiones iniciales fallan antes; 10 regresiones de presencia pasan después. Suite **215/215**, lint y `git diff --check`. Repetición real local de Socket.IO y gracia de 15,3 s; servicios simulados/deshabilitados, sin `.env`. Aserciones de contraseña conservadas con conexiones nuevas por intento.
+- **Pendiente:** revisión/integración/despliegue y navegador real. Sin app móvil, servicios reales, red remota inestable o adaptador distribuido; no se afirma reproducir una fila visual fantasma ni conocer la secuencia original de cada reporte.
+
+---
+
 ## 2026-11-25 — Desplegados y comprobados logs R2, favicon y meta móvil
 
 - PR #8, #9 y #10 fusionados; código `382903a` desplegado con una sola recreación de `app` desde exportación limpia. Redis/Postgres mantienen IDs, inicio y reinicios. Salud 200 con las tres dependencias sanas; 0 salas/conexiones/subidas y cinco interruptores por defecto.

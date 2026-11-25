@@ -162,6 +162,13 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Presencia/reconexión: diagnóstico y arreglo preparado (2026-11-25).** Reproducidos contador fantasma y avisos duplicados con Socket.IO real local; también con `server.js` anterior a los interruptores (`dc13a97`, padre de `35bc9d1`). Detalle, tabla antes/después y límites en `docs/AUDITORIA-PRESENCIA.md`.
+
+- **Causas confirmadas:** admisiones repetidas/concurrentes del mismo socket, admisión que termina después de desconectarse y reconexión nueva que llega antes de cerrar la anterior. Se encontró además que cambiar de sala sin desconectar dejaba la primera mal contada. La reconexión ordenada sí funcionaba. Los bloques vienen de agosto/octubre, antes de los interruptores del 27 de octubre.
+- **Arreglo:** admisión única tras revalidar socket/sala; contador desde sockets registrados; repetición devuelve datos sin otro aviso ni reasignar host. Cada conexión se liga a una sola sala: debe desconectar antes de cambiar. Avisos agrupados por el `userId` estable existente, conservando pestañas/sockets separados en contador/lista. Salida solo tras irse el último y vencer los mismos 15 s; callbacks obsoletos o de salas cerradas no emiten/guardan.
+- **Verificado:** antes fallaban 8/9 regresiones iniciales; después 10 de presencia y suite **215/215**, lint y `git diff --check`. Mismos casos repetidos con Socket.IO real en loopback y espera real de 15,3 s. Validación de avatar retenida de forma controlada; sin `.env`, con servicios simulados o deshabilitados. Los tests de contraseña conservan sus aserciones y comparten el limitador entre conexiones nuevas.
+- **Pendiente:** revisión/integración/despliegue y navegador real. Sin prueba de app móvil, servicios reales, red remota inestable ni adaptación distribuida; no se identifica retroactivamente la secuencia de cada reporte original. Ningún cambio en los contenedores, salas o interruptores del dominio de pruebas.
+
 **Cierre de logs R2 y favicon/meta (2026-11-25).** PR #8 (informe), #9 (logs) y #10 (favicon/meta) fusionados en `plan-produccion`. Código de `382903a` desplegado con una sola recreación de `app`, desde una exportación limpia de Git; sin evidencias, videos locales ni `.env` en la imagen. Esta entrada reemplaza los pendientes de despliegue/verificación de las dos siguientes.
 
 - **Verificado:** suite Windows **205/205** y lint correctos. Las cinco regresiones R2 también pasan dentro de la imagen desplegada con el SDK/firma/subida simulados y Pino real; no se provocó una falla contra el bucket real. Nueve archivos de servidor/logs/HTML/favicon comparados con el commit: contenido textual idéntico normalizando LF/CRLF; ICO idéntico byte a byte.

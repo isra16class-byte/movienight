@@ -2149,6 +2149,16 @@ function setHost(room, roomId, socket) {
 
 const RECONNECT_GRACE_MS = 15000;
 
+function roomHasConnectedUser(roomId, userId) {
+  const members = io.sockets.adapter.rooms.get(roomId);
+  if (!members) return false;
+  for (const id of members) {
+    const member = io.sockets.sockets.get(id);
+    if (member && !member.disconnected && member.userId === userId) return true;
+  }
+  return false;
+}
+
 // Envuelve un handler de evento de socket en try/catch (Fase 1.2 del plan de producción). Antes de
 // esto, un error dentro de cualquier handler (ej. un mensaje malformado que rompe alguna asunción del
 // código) se propagaba como excepción no capturada y tiraba abajo el proceso entero — con él, TODAS
@@ -2243,14 +2253,29 @@ io.on('connection', (socket) => {
     // para que el resto de este handler siga siendo síncrono, como siempre.
     const avatarId = await getSocketAvatarId(socket);
 
+    // Contraseña/avatar pueden esperar: el socket o la sala pueden haber desaparecido entretanto.
+    // Desde acá hasta terminar la admisión no hay awaits, así que dos entradas concurrentes no
+    // pueden registrar dos veces el mismo socket ni dejarlo asociado a dos salas.
+    if (socket.disconnected) return;
+    if (rooms[roomId] !== room) { socket.emit('room-error', 'La sala no existe.'); return; }
+    if (currentRoom !== null) {
+      if (currentRoom !== roomId) {
+        socket.emit('room-error', 'Salí de la sala actual antes de entrar en otra.');
+      } else {
+        socket.emit('room-data', { videoFile: room.videoFile, subtitleFile: room.subtitleFile, position: room.videoPosition });
+      }
+      return;
+    }
+    const joiningUserId = userId || socket.id;
+    const alreadyPresent = roomHasConnectedUser(roomId, joiningUserId);
     currentRoom = roomId;
     socket.username = (username || 'Anónimo').slice(0, 40);
-    socket.userId = userId || socket.id;
+    socket.userId = joiningUserId;
     socket.avatarId = avatarId;
     socket.join(roomId);
 
     room.userNames.set(socket.id, socket.username);
-    room.viewers++;
+    room.viewers = room.userNames.size;
     // Deja de estar "vacía" en cuanto se une el primer viewer (paso 7 del panel de administración,
     // ver el comentario en makeRoom() sobre emptySince) — a partir de acá room.viewers pasa a ser >0.
     if (room.viewers === 1) room.emptySince = null;
@@ -2279,7 +2304,8 @@ io.on('connection', (socket) => {
     if (recent) {
       clearTimeout(recent.timer);
       room.recentDisconnects.delete(socket.userId);
-    } else {
+    }
+    if (!recent && !alreadyPresent) {
       const joinedMsg = { system: true, avatarId: null, text: `${socket.username} se unió a la sala 🎬` };
       pushChatHistory(room, joinedMsg);
       socket.to(roomId).emit('chat-message', joinedMsg);
@@ -2435,38 +2461,47 @@ io.on('connection', (socket) => {
   }));
 
   socket.on('disconnect', safeSocketHandler('disconnect', () => {
-    const room = rooms[currentRoom];
-    if (!room) return;
+    const roomId = currentRoom;
+    currentRoom = null;
+    const room = rooms[roomId];
+    if (!room || !room.userNames.has(socket.id)) return;
 
-    room.viewers = Math.max(0, room.viewers - 1);
+    room.userNames.delete(socket.id);
+    room.viewers = room.userNames.size;
     // Estampa desde cuándo quedó vacía (paso 7 del panel de administración, ver makeRoom()) — el
     // guard `=== null` evita que un segundo 'disconnect' con la sala ya en 0 (no debería pasar en la
     // práctica, cada socket se desconecta una sola vez, pero por las dudas) le pise el timestamp real.
     if (room.viewers === 0 && room.emptySince === null) room.emptySince = Date.now();
-    room.userNames.delete(socket.id);
     room.bufferingSockets.delete(socket.id);
-    io.to(currentRoom).emit('viewer-count', room.viewers);
-    broadcastViewerList(currentRoom);
+    io.to(roomId).emit('viewer-count', room.viewers);
+    broadcastViewerList(roomId);
 
     // Da un margen antes de anunciar la salida, para no floodear el chat con reconexiones cortas (wifi inestable)
     const userId = socket.userId;
     const username = socket.username || 'Alguien';
-    const timer = setTimeout(() => {
-      // Este callback corre en un tick aparte (setTimeout), fuera del try/catch de safeSocketHandler
-      // que envuelve el resto del handler de 'disconnect' — un error acá se escaparía como excepción
-      // no capturada igual, así que se le agrega su propio try/catch para no perder solo esta sala.
-      try {
-        room.recentDisconnects.delete(userId);
-        room.mutedUserIds.delete(userId); // ya pasó el margen de gracia, se limpia el estado de silencio
-        const leftMsg = { system: true, avatarId: null, text: `${username} salió de la sala` };
-        pushChatHistory(room, leftMsg);
-        io.to(currentRoom).emit('chat-message', leftMsg);
-        roomStore.saveRoom(currentRoom, room); // fire-and-forget: refleja el mutedUserIds actualizado
-      } catch (err) {
-        logger.error({ err, roomId: currentRoom }, 'Error en el timer de "salió de la sala"');
-      }
-    }, RECONNECT_GRACE_MS);
-    room.recentDisconnects.set(userId, { timer, username });
+    const previous = room.recentDisconnects.get(userId);
+    if (previous) clearTimeout(previous.timer);
+    room.recentDisconnects.delete(userId);
+    // Varias pestañas/reconexiones pueden compartir userId: salir de una no significa irse de la sala.
+    if (!roomHasConnectedUser(roomId, userId)) {
+      const pending = { timer: null, username };
+      pending.timer = setTimeout(() => {
+        // Corre fuera de safeSocketHandler: su propio try/catch contiene errores del callback.
+        try {
+          if (rooms[roomId] !== room || room.recentDisconnects.get(userId) !== pending) return;
+          room.recentDisconnects.delete(userId);
+          if (roomHasConnectedUser(roomId, userId)) return;
+          room.mutedUserIds.delete(userId); // ya pasó el margen de gracia, se limpia el estado de silencio
+          const leftMsg = { system: true, avatarId: null, text: `${username} salió de la sala` };
+          pushChatHistory(room, leftMsg);
+          io.to(roomId).emit('chat-message', leftMsg);
+          roomStore.saveRoom(roomId, room); // fire-and-forget: refleja el mutedUserIds actualizado
+        } catch (err) {
+          logger.error({ err, roomId }, 'Error en el timer de "salió de la sala"');
+        }
+      }, RECONNECT_GRACE_MS);
+      room.recentDisconnects.set(userId, pending);
+    }
 
     // Traspaso automático: si el que se fue era el host actual de la sala (por hostSocketId, no por
     // su flag isHost local — que puede haber quedado desactualizado), el siguiente en la sala toma el control
@@ -2475,23 +2510,23 @@ io.on('connection', (socket) => {
     // manual (make-host) no depende de este interruptor.
     if (room.hostSocketId === socket.id) {
       room.hostSocketId = null;
-      const stillConnected = io.sockets.adapter.rooms.get(currentRoom);
+      const stillConnected = io.sockets.adapter.rooms.get(roomId);
       if (!settings.getSetting('HOST_AUTO_TRANSFER')) {
         if (stillConnected && stillConnected.size > 0) {
           const noTransferMsg = { system: true, avatarId: null, text: `🎛 ${username} se desconectó: la sala queda sin control remoto hasta que vuelva el host` };
           pushChatHistory(room, noTransferMsg);
-          io.to(currentRoom).emit('chat-message', noTransferMsg);
-          roomStore.saveRoom(currentRoom, room); // fire-and-forget: guarda el aviso en el chatHistory
+          io.to(roomId).emit('chat-message', noTransferMsg);
+          roomStore.saveRoom(roomId, room); // fire-and-forget: guarda el aviso en el chatHistory
         }
       } else if (stillConnected && stillConnected.size > 0) {
         const next = io.sockets.sockets.get([...stillConnected][0]);
         if (next) {
-          setHost(room, currentRoom, next);
+          setHost(room, roomId, next);
           const autoTransferMsg = { system: true, avatarId: null, text: `🎛 ${next.username || 'Alguien'} ahora tiene el control remoto (el host anterior se desconectó)` };
           pushChatHistory(room, autoTransferMsg);
-          io.to(currentRoom).emit('chat-message', autoTransferMsg);
-          broadcastViewerList(currentRoom);
-          roomStore.saveRoom(currentRoom, room); // fire-and-forget: guarda el mensaje del traspaso automático
+          io.to(roomId).emit('chat-message', autoTransferMsg);
+          broadcastViewerList(roomId);
+          roomStore.saveRoom(roomId, room); // fire-and-forget: guarda el mensaje del traspaso automático
         }
       }
     }

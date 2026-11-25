@@ -832,6 +832,8 @@ instancia alcanza por ahora. Queda documentada para cuando haga falta retomarla)
 
 ## Fase 5 — Calidad de código y proceso
 
+- [x] Presencia y reconexión (2026-11-25): diagnóstico histórico anterior a interruptores y arreglo de admisión única/avisos solapados. Diez regresiones, suite **215/215**, lint y Socket.IO real local correctos; pendiente revisión, despliegue y navegador/móvil. Tabla y límites en `AUDITORIA-PRESENCIA.md`.
+
 - [x] Compatibilidad LF/CRLF de `test/clientGuards.test.js` (2026-11-25): normalizar solo las lecturas de los tests. Reproducidos cuatro fallos previos; suite Windows 180/180 y lint pasan en la rama independiente. Guardianes comprobados con ambas variantes en memoria; combinado con el PR #2: **184/184**. No equivale a ejecución de navegador.
 
 - [x] Tests, al menos para lo más crítico y menos obvio a simple vista ✅ (casilla marcada el 2026-11-22 tras verificar `test/`: `hostAuth.test.js` cubre `setHost`, `rateLimiter.test.js` y `passwordAuth.test.js` cubren contraseñas y limitador, `uploadReference.test.js` cubre el modo disco/R2; hoy son 180 tests):
