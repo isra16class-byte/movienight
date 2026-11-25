@@ -1,5 +1,14 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Logs seguros por operación R2
+
+- Evento `r2_operation_failed` para las nueve operaciones que ya registraban errores: operación, código permitido y hora, más estado HTTP/reintentos/códigos de red cuando existen. Se conservan el error original, el contador y las respuestas; éxito y objeto inexistente siguen sin contarse como fallo.
+- Campos permitidos en `r2Failure.js`; sin mensajes, stack, URLs, bucket, keys o credenciales. El logger reconoce por identidad el mismo error R2 si una ruta lo vuelve a registrar, y mantiene la serialización habitual para otros errores. El aviso de arranque orienta al diagnóstico sin asumir claves incorrectas.
+- **Verificado:** regresión ausente antes del cambio; cinco tests nuevos sobre módulo R2 real con SDK/firma/subida simulados y Pino real en subproceso. Suite **205/205**, lint y `git diff --check` correctos. No se accede a la red ni se lee `.env` en esos tests.
+- **Pendiente:** integración, despliegue y comprobación en la imagen real; sin provocar fallos en R2 ni modificar conectividad/credenciales/reintentos.
+
+---
+
 ## 2026-11-25 — Diagnóstico de los 6 errores R2, sin cambios de configuración
 
 - **Histórico confirmado:** timeout de conexión al arrancar (IPv4 agotado e IPv6 sin ruta) y último error DNS `ENOTFOUND` unos 77 segundos después. No existe un historial individual de los seis eventos en las métricas.

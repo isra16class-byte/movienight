@@ -162,6 +162,13 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Logs de operaciones R2 (2026-11-25).** Informe del PR #8 fusionado. Se implementó un evento seguro `r2_operation_failed` para las nueve operaciones R2 que ya contaban fallos, manteniendo contador, reintentos, respuestas y el error original.
+
+- Cada evento incluye operación, código reconocido y hora de Pino; cuando existen, estado HTTP, intentos, demora y códigos/familia de red anidados. No copia mensaje/stack, endpoints, bucket, key, URL firmada ni credenciales. Los valores arbitrarios se omiten y los códigos desconocidos quedan `UNKNOWN`.
+- `lib/r2Failure.js` conserva los campos permitidos por identidad del error en un `WeakMap`; el logger también los usa si una ruta vuelve a registrar ese mismo error. Los errores ajenos a R2 mantienen su serialización habitual. El aviso de arranque ya no atribuye automáticamente el fallo a las claves.
+- **Verificado:** cinco regresiones con las nueve operaciones y SDK/firma/subida simulados, sin red ni `.env`; comprueban error original, un solo incremento/evento, éxitos/404, anidados y privacidad. La prueba de falta de evento falló antes. El logger Pino real se ejecuta en un subproceso y confirma hora, ausencia del marcador privado y protección del error reenviado. Suite **205/205**, lint y `git diff --check` correctos.
+- **Pendiente:** integración/despliegue y comprobación de la imagen real. No se provocó ningún fallo contra el bucket real ni se cambiaron la red, las credenciales o los reintentos. La observación histórica de R2 sigue en `DIAGNOSTICO-R2.md`.
+
 **Diagnóstico de los 6 errores R2 (2026-11-25).** Investigación de solo lectura completada; detalle en `docs/DIAGNOSTICO-R2.md`. No se encontró un fallo actual persistente que justifique modificar la configuración.
 
 - **Confirmado:** un `AggregateError` de arranque con timeouts IPv4 y `ENETUNREACH` IPv6; el último error registrado fue DNS (`ENOTFOUND`) unos 77 segundos después de arrancar. El contador sigue en 6 más de 30 minutos después del último error; es acumulativo y solo guarda el último, no un historial de seis eventos.
