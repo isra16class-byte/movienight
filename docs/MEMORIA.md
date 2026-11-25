@@ -162,6 +162,22 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Integración de los PR #3 y #2 (2026-11-25).** La persona autorizó fusionar ambos en `plan-produccion` y actualizar únicamente la app del servidor de pruebas.
+
+- El PR #3 ya está fusionado. Se incorporó su base al PR #2 mediante merge, conservando ambas entradas de documentación y sin reescribir el historial.
+- **Verificado en la combinación:** `npm test` **184/184** en Windows; los cuatro tests de login y los cuatro guardianes LF/CRLF pasan juntos.
+- **Pendiente de esta ejecución:** fusionar el PR #2, desplegar solo `app` y verificar el login en el dominio real. Redis y Postgres no deben reiniciarse. El panel previo muestra 0 salas, 0 conexiones y los cinco interruptores por defecto.
+- Edge no está disponible en la conexión de navegador actual; Chrome conserva la sesión del admin. No se presenta la ejecución de Node como una prueba de navegador.
+
+**Login: tercer fallo uniforme, autorizado por la persona (2026-11-25).** Código corregido en una rama/PR aparte de la auditoría; pendiente de revisión y despliegue. No se modificaron los otros limitadores.
+
+- **Qué se reprodujo antes:** el tercer fallo respondía 429 si el email existía y 401 si no, revelando esa diferencia. El nuevo test del handler real falló exactamente en el intento 3 antes de cambiarlo.
+- **Qué cambió:** `server.js` usa un solo camino para registrar/rechazar credenciales inválidas, exista o no el usuario. Ambos devuelven 401, 401, 429 y luego 429 con el mismo cuerpo. Se conservan tres intentos, bloqueo de 15 minutos, IP+email (IPv6 /64), descarte de campos vacíos, limpieza del contador con éxito y sesiones.
+- **Verificado:** cuatro tests nuevos (`test/loginRateLimit.test.js`) ejecutan el handler real con limitador/bcrypt reales y BD/sesión simuladas. Cubren igualdad de estado/cuerpo, vacíos, bloqueo incluso con la clave correcta, éxito, vencimiento con reloj controlado y aislamiento por cuenta y /64. Además, el servidor compilado con Postgres/correo simulados devolvió la secuencia uniforme por HTTP local; Redis/R2 deshabilitados, sin leer `.env`. Lint y `git diff --check` pasan.
+- **Suite completa en este Windows:** 180/184 pasan; los cuatro fallos restantes son previos, en `clientGuards.test.js`, por buscar cierres LF en fuentes CRLF. No se corrigió ese otro tema ni se afirma que la suite esté verde.
+- **NO verificado:** navegador, dominio de pruebas, Postgres/Redis reales, espera real de 15 minutos ni concurrencia. La corrección elimina la señal por estado/cuerpo; no se midieron ni igualaron tiempos de respuesta.
+- **Siguiente:** revisar/aplicar este PR. Después decidir por separado el vacío de contraseña de sala, el mensaje de conteo/bloqueo y los tests CRLF. Los límites por IP+email y la acumulación de fallos sin ventana siguen sin cambiar.
+
 **Tests de Windows: compatibilidad LF/CRLF corregida (2026-11-25).** Rama/PR separado del arreglo de login, basado directamente en `plan-produccion`.
 
 - **Reproducido antes:** los cuatro tests de `test/clientGuards.test.js` fallaban buscando el cierre de las funciones. `git ls-files --eol` confirmó fuentes CRLF en Windows (`core.autocrlf=true`), mientras el helper buscaba `\n}\n`.

@@ -1,5 +1,24 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Integración de login y guardianes LF/CRLF
+
+- PR #3 fusionado en `plan-produccion`; su base se incorpora al PR #2 con merge normal. Los conflictos de MEMORIA y CHANGELOG se resuelven conservando las dos entradas.
+- `npm test`: **184/184** en Windows con ambos cambios juntos. Despliegue y verificación en navegador todavía pendientes de esta ejecución.
+- Antes del despliegue, el panel real muestra 0 salas, 0 conexiones y los cinco interruptores por defecto. Edge no está disponible para controlarlo; se mantiene la sesión del admin en Chrome.
+
+---
+
+## 2026-11-25 — Login: misma respuesta al tercer fallo exista o no la cuenta
+
+- **Problema reproducido:** `/auth/login` devolvía 401, 401, **429** para una cuenta existente y 401, 401, **401** para una inexistente; la respuesta del tercer fallo permitía distinguirlas. La persona autorizó unificarla tras la auditoría.
+- **Arreglo:** `server.js` calcula la validez de las credenciales y usa un único camino de fallo. Se igualan estado HTTP y cuerpo: 401 en los dos primeros, 429 en el tercero y mientras dura el bloqueo. Se conservan el mensaje genérico, tres intentos/15 minutos, clave IP+email con IPv6 /64, validación de campos, éxito y sesiones. No se cambian sala, biblioteca ni recuperación.
+- **Regresión:** `test/loginRateLimit.test.js` ejecuta el handler real de `server.js` en VM, sin arrancar servicios ni leer `.env`. BD y callbacks de sesión simuladas; bcrypt y limitador reales. La prueba de igualdad falló antes del arreglo y las cuatro nuevas pasan después. También cubren que el éxito y el vencimiento reinician el cupo, los vacíos no cuentan ni reinician y se mantiene el aislamiento por cuenta y /64.
+- **Verificado:** HTTP local contra el servidor compilado, con Postgres/correo simulados y Redis/R2 deshabilitados: ambos tipos de email devuelven 401, 401, 429, 429. Lint, `node --test test/loginRateLimit.test.js` y `git diff --check` pasan. Suite completa Windows: **180/184**; cuatro fallos previos de `clientGuards.test.js` por CRLF, ya identificados en la auditoría. No se ocultan ni se arreglan en este tema.
+- **NO verificado:** navegador real, dominio de pruebas, BD/Redis reales, espera real de 15 minutos, concurrencia o igualdad de tiempos. No se presenta el cambio como una solución a todas las posibles señales de enumeración.
+- **Higiene:** `acceptance-evidence/` queda ignorado y fuera del commit. Las claves de las pruebas se generan al ejecutar; no se guardan secretos. Un commit para este arreglo, separado del PR de auditoría.
+
+---
+
 ## 2026-11-25 — Los guardianes del cliente aceptan fuentes LF y CRLF
 
 - **Problema reproducido:** los cuatro casos de `test/clientGuards.test.js` fallaban en el checkout Windows porque el helper esperaba `\n}\n` y los archivos tenían `\r\n`. Git confirmó `w/crlf` y `core.autocrlf=true`.

@@ -707,13 +707,9 @@ app.post('/auth/login', requireDbEnabled, async (req, res) => {
     // Mismo mensaje genérico tanto si el email no existe como si la contraseña es incorrecta —
     // distinguir "ese email no existe" de "esa contraseña está mal" le regala a un atacante una forma
     // barata de enumerar qué emails tienen cuenta registrada, probando uno por uno.
-    if (!user) {
-      logger.warn({ ip: clientIp(req) }, 'Intento fallido de login');
-      loginAuthLimiter.recordFailure(limiterKey);
-      return res.status(401).json({ error: 'Email o contraseña incorrectos.' });
-    }
-
-    const { valid } = await verifyPassword(password, user.password_hash);
+    // Un solo camino de fallo mantiene iguales también el estado HTTP y el cuerpo del tercer
+    // intento: responder 401 si no existe y 429 si existe permitiría distinguir cuentas.
+    const valid = user ? (await verifyPassword(password, user.password_hash)).valid : false;
     if (!valid) {
       logger.warn({ ip: clientIp(req) }, 'Intento fallido de login');
       const { locked } = loginAuthLimiter.recordFailure(limiterKey);
