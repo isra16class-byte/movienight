@@ -2201,7 +2201,9 @@ io.on('connection', (socket) => {
     if (room.passwordHash) {
       const lockedMinutes = roomJoinAuthLimiter.lockedMinutes(attemptKey);
       if (lockedMinutes !== null) {
-        socket.emit('room-error', `Demasiados intentos fallidos. Esperá ${lockedMinutes} min y volvé a intentar.`);
+        socket.emit('room-error', `Demasiados intentos fallidos. Esperá ${lockedMinutes} min y volvé a intentar.`, {
+          code: 'ROOM_PASSWORD_LOCKED', attemptsLeft: 0, lockedMinutes,
+        });
         return;
       }
 
@@ -2210,11 +2212,24 @@ io.on('connection', (socket) => {
       // viejo, así que se re-hashea con bcrypt y se persiste, sin que quien se conecta note nada.
       const { valid, needsRehash } = await verifyPassword(password || '', room.passwordHash);
       if (!valid) {
+        // Igual que en biblioteca: omitir la contraseña no adivina nada. Se rechaza sin gastar ni
+        // reiniciar intentos y sin loguearlo como fallo; el bloqueo vigente se comprueba antes.
+        if (!accessPolicy.isPasswordAttempt(password)) {
+          const attemptsLeft = roomJoinAuthLimiter.attemptsLeft(attemptKey);
+          socket.emit('room-error', `Contraseña de sala requerida. Te quedan ${attemptsLeft} intento(s).`, {
+            code: 'ROOM_PASSWORD_REQUIRED', attemptsLeft,
+          });
+          return;
+        }
         logger.warn({ ip: socketClientIp(socket) }, 'Intento fallido de contraseña de sala');
         const { locked, attemptsLeft } = roomJoinAuthLimiter.recordFailure(attemptKey);
+        const waitMinutes = locked ? roomJoinAuthLimiter.lockedMinutes(attemptKey) : null;
         socket.emit('room-error', locked
-          ? 'Contraseña incorrecta. Se bloquearon los intentos por 15 minutos.'
-          : `Contraseña incorrecta. Te quedan ${attemptsLeft} intento(s).`);
+          ? `Contraseña incorrecta. Se bloquearon los intentos por ${waitMinutes} minutos.`
+          : `Contraseña incorrecta. Te quedan ${attemptsLeft} intento(s).`, {
+          code: locked ? 'ROOM_PASSWORD_LOCKED' : 'ROOM_PASSWORD_INCORRECT', attemptsLeft,
+          ...(locked ? { lockedMinutes: waitMinutes } : {}),
+        });
         return;
       }
       roomJoinAuthLimiter.recordSuccess(attemptKey);
