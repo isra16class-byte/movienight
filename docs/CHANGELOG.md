@@ -1,5 +1,13 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Favicon disponible y meta móvil actualizada
+
+- Reproducidos `/favicon.ico` 404 y meta `apple-mobile-web-app-capable` en las cuatro páginas principales. Ahora incluyen favicon SVG explícito y `mobile-web-app-capable`; se conserva el resto de la configuración PWA.
+- ICO de respaldo construido con el PNG de 192 px ya existente, sin cambiar sus bytes/píxeles. No cambia el diseño, manifest, service worker ni CSP; el beacon de Cloudflare sigue pendiente por separado.
+- **Verificado:** HTTP local con Express real: favicon 200 `image/x-icon`, estructura ICO/PNG correcta, SVG/manifest disponibles y cuatro HTML con meta/icono nuevos. Suite **205/205**, lint y `git diff --check` correctos. Pendiente despliegue/navegador real; sin prueba de instalación/offline móvil.
+
+---
+
 ## 2026-11-25 — Logs seguros por operación R2
 
 - Evento `r2_operation_failed` para las nueve operaciones que ya registraban errores: operación, código permitido y hora, más estado HTTP/reintentos/códigos de red cuando existen. Se conservan el error original, el contador y las respuestas; éxito y objeto inexistente siguen sin contarse como fallo.

@@ -275,6 +275,7 @@ secundario.
       Quedó una sola copia en `public/js/escape-html.js`, cargada por las 4 páginas que la usan; `test/escapeHtml.test.js` falla si reaparece una copia local o una página la usa sin cargarla.
 - [x] CSP sin `'unsafe-inline'` en `styleSrc` (hecho 2026-10-25, 2 pasos más el cambio final, probado por la persona en las 7 páginas): paso 1 hecho y probado por la persona (2026-10-25): los 58 `style="..."` estáticos pasaron a clases en `public/style.css`; paso 2 hecho y probado por la persona (2026-10-25): los 4
       `style="color:${usernameColor(...)}"` de `room.js` pasaron a `style.setProperty('--user-color', ...)`, y ya no queda ningún `style="..."` en `public/`. Después se quitó `'unsafe-inline'` de `styleSrc` en `server.js` y se probaron las 7 páginas. **Con esto la CSP ya no lleva `'unsafe-inline'` en `scriptSrc` ni en `styleSrc`.** Detalle en `docs/MEMORIA.md`.
+- [x] Favicon y meta móvil (2026-11-25): icono SVG explícito en las cuatro páginas e ICO de respaldo con PNG existente; reemplazar la meta obsoleta por `mobile-web-app-capable`. Reproducido 404 antes; HTTP local correcto, suite **205/205** y lint. Pendiente despliegue/navegador real e instalación móvil.
 - [ ] (Aparte, no es de la serie CSP) La CSP bloquea `https://static.cloudflareinsights.com/beacon.min.js`, el script de analíticas que inyecta Cloudflare; error de consola en las 4 páginas del dominio
       real, no rompe nada. Resolver permitiéndolo en `server.js` (`scriptSrc`/`connectSrc`) o desactivando la inyección en el panel de Cloudflare. Sin resolver.
 
