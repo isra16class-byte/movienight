@@ -1,5 +1,27 @@
 # Recuperación y aviso de autoplay en Edge — 2026-11-25
 
+## Ajuste de posición al reanudar — 2026-11-26
+
+La primera aceptación del aviso desplegado (`0ca4b3e`, sala `5266da`) detectó
+un desfase inicial: muestra consecutiva A 19,642553 s/B 16,448045 s, ambos
+reproduciendo tras pulsar el botón. El aviso y la pausa del host funcionaron,
+pero la corrección suave habitual tardaba en recuperar unos 3 s. La sala se
+cerró desde el panel antes de preparar el ajuste, conservando valores por defecto.
+
+Ahora el reintento del invitado usa la última posición/pausa recibida del host
+y el tiempo transcurrido en un reloj monotónico. El primer heartbeat después de
+confirmar reproducción ajusta una vez la estimación; después se conserva la
+corrección de deriva habitual. El tiempo queda limitado al final del video,
+sin cambiar el reloj ni las emisiones del host. Pausa, fin o nueva cinta
+invalidan la recuperación pendiente.
+
+Una regresión nueva fallaba antes (30 frente a 32,5 s esperados). Después pasan
+las quince regresiones de recuperación y la suite **246/246**, lint y sintaxis.
+Copilot revisó el diff seleccionado sin herramientas y no encontró bloqueos;
+no ejecutó ni verificó independientemente las pruebas. Falta desplegar este
+ajuste y repetir la aceptación del dominio. La estimación no elimina la latencia
+de red ni promete coincidencia exacta al milisegundo.
+
 ## Mejora preparada, pendiente de despliegue
 
 Después de la prueba del dominio descrita debajo, se añadió un aviso centrado

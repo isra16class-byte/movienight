@@ -194,12 +194,20 @@ let wantsPlayback = false;
 let playbackRevision = 0;
 let playbackBlocked = false;
 let pendingPlayback = null;
+let remotePlaybackPosition = null;
+let resumeCatchUpPending = false;
+
+function rememberPlaybackPosition(time, paused) {
+  if (Number.isFinite(time)) remotePlaybackPosition = { time, paused, receivedAt: performance.now() };
+}
 
 function resetPlaybackRecovery() {
   wantsPlayback = false;
   playbackRevision++;
   pendingPlayback = null;
   playbackBlocked = false;
+  remotePlaybackPosition = null;
+  resumeCatchUpPending = false;
   playbackNotice.hidden = true;
 }
 
@@ -235,6 +243,7 @@ function setPlaybackIntent(shouldPlay, fromGesture = false) {
     pendingPlayback = null;
   }
   if (!shouldPlay) {
+    resumeCatchUpPending = false;
     playbackBlocked = false;
     playbackNotice.hidden = true;
     player.pause();
@@ -243,7 +252,21 @@ function setPlaybackIntent(shouldPlay, fromGesture = false) {
   }
 }
 
-resumePlaybackBtn.addEventListener('click', () => { tryPlayback(true); });
+resumePlaybackBtn.addEventListener('click', () => {
+  if (!wantsPlayback) return;
+  if (!isHost && remotePlaybackPosition && !remotePlaybackPosition.paused) {
+    const elapsed = Math.max(0, performance.now() - remotePlaybackPosition.receivedAt) / 1000;
+    let target = Math.max(0, remotePlaybackPosition.time + elapsed);
+    if (Number.isFinite(player.duration) && player.duration > 0) target = Math.min(target, Math.max(0, player.duration - 0.001));
+    ignoreSync = true;
+    player.currentTime = target;
+    lastKnownTime = target;
+    player.playbackRate = 1;
+    resumeCatchUpPending = true;
+    setTimeout(() => ignoreSync = false, 300);
+  }
+  tryPlayback(true);
+});
 player.addEventListener('ended', resetPlaybackRecovery);
 // --- Fin de recuperación de reproducción ---
 
@@ -417,6 +440,7 @@ socket.on('room-data', ({ videoFile, subtitleFile, position }) => {
     resetPlaybackRecovery();
     player.src = videoFile;
     if (position) {
+      rememberPlaybackPosition(position.time, position.paused);
       pendingInitialPosition = position;
       const expectedSource = player.src;
       const applyInitialPosition = () => {
@@ -433,6 +457,7 @@ socket.on('room-data', ({ videoFile, subtitleFile, position }) => {
       player.addEventListener('loadedmetadata', applyInitialPosition, { once: true });
     }
   } else if (initialPositionListener && position) {
+    rememberPlaybackPosition(position.time, position.paused);
     pendingInitialPosition = position;
   }
   updateSubtitleTrack(subtitleFile);
@@ -542,6 +567,10 @@ player.addEventListener('pause', () => { if (isHost && !ignoreSync) socket.emit(
 player.addEventListener('seeked', () => { if (isHost && !ignoreSync) socket.emit('sync', { type: 'seek', time: player.currentTime }); });
 
 socket.on('sync', (data) => {
+  const paused = data.type === 'heartbeat' ? data.paused
+    : data.type === 'pause' ? true : data.type === 'play' ? false
+    : remotePlaybackPosition?.paused ?? !wantsPlayback;
+  rememberPlaybackPosition(data.time, paused);
   // Una orden más reciente gana a la posición que llegó al entrar a la sala.
   // Seek actualiza el tiempo, conservando el estado hasta un play/pause/heartbeat.
   if (data.type === 'seek' && pendingInitialPosition) {
@@ -553,8 +582,11 @@ socket.on('sync', (data) => {
     const drift = data.time - player.currentTime;
     const absDrift = Math.abs(drift);
 
-    if (absDrift > 4) {
-      // Desvío grande: no queda otra que saltar.
+    const catchUp = resumeCatchUpPending && !isHost && !player.paused && !pendingPlayback;
+    if (catchUp) resumeCatchUpPending = false;
+    if (absDrift > 4 || (catchUp && absDrift > 0.1)) {
+      // Desvío grande o confirmación puntual tras reanudar: saltar evita tardar
+      // decenas de segundos en alcanzar al host con la corrección suave.
       ignoreSync = true;
       player.currentTime = data.time;
       player.playbackRate = 1;

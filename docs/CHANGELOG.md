@@ -1,5 +1,12 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-26 — Alcanzar al host al reanudar después del bloqueo
+
+- La primera aceptación del aviso desplegado detectó unos 3 s de retraso tras reanudar, pese a recuperar reproducción. El botón del invitado ahora alcanza la posición estimada con el último estado recibido y reloj monotónico; el primer heartbeat posterior confirma la posición una vez. Después se conserva la corrección habitual. Sin emisiones nuevas ni cambios al reloj/roles del host.
+- Una regresión fallaba antes; quince regresiones y suite **246/246**, lint/sintaxis correctos. Revisión limitada de Copilot sin bloqueos. Pendientes segundo despliegue solo de app y aceptación del ajuste. Sala inicial `5266da` cerrada; registro en el mismo PR #19.
+
+---
+
 ## 2026-11-25 — Aviso y botón para recuperar reproducción bloqueada
 
 - Sala con aviso accesible y «Reanudar video»: reintento local dentro del gesto, conservando el estado recibido del host. Todos los caminos de `play()` capturan rechazos; heartbeat no los repite mientras se espera interacción. Pausa, cambio de cinta y fin limpian el aviso, con protección ante promesas tardías. Sin cambios en roles, CSP, dependencias o backend.

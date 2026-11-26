@@ -15,7 +15,7 @@ assert.ok(start >= 0 && end > start && syncStart >= 0 && syncEnd > syncStart && 
 
 // Código real; DOM, media y sockets simulados. No equivale a probar autoplay en navegador.
 function fixture({ host = false } = {}) {
-  const state = { plays: 0, emitted: [], behavior: () => Promise.resolve() };
+  const state = { plays: 0, emitted: [], now: 0, behavior: () => Promise.resolve() };
   const events = new Map();
   const handlers = {};
   const elements = {
@@ -49,6 +49,7 @@ function fixture({ host = false } = {}) {
   }
   const context = vm.createContext({
     player, isHost: host, ignoreSync: false, lastKnownTime: 0,
+    performance: { now: () => state.now },
     document: { getElementById: id => elements[id] },
     socket: { on: (event, handler) => { handlers[event] = handler; }, emit: (...args) => state.emitted.push(args) },
     setTimeout: () => 0, updateSubtitleTrack: () => {}, playPauseBtn: {},
@@ -244,6 +245,48 @@ test('autoplay: seek antes de metadata conserva el estado inicial y usa el tiemp
   assert.equal(f.player.currentTime, 60);
   assert.equal(f.player.paused, false);
   assert.equal(f.state.plays, 1);
+});
+
+test('autoplay: reanudar invitado alcanza la última posición del host más el tiempo transcurrido', async () => {
+  const f = fixture();
+  f.state.behavior = () => Promise.reject(blocked());
+  f.sync({ type: 'play', time: 20 });
+  await settle();
+  f.state.now = 1000;
+  f.sync({ type: 'heartbeat', time: 30, paused: false });
+  f.state.now = 3500;
+  f.state.behavior = () => Promise.resolve();
+  f.state.resume();
+  await settle();
+  assert.equal(f.player.currentTime, 32.5);
+  assert.equal(f.player.playbackRate, 1);
+  f.player.currentTime = 33;
+  f.sync({ type: 'heartbeat', time: 36, paused: false });
+  assert.equal(f.player.currentTime, 36, 'el primer heartbeat confirma la posición sin una corrección lenta');
+  assert.deepEqual(f.state.emitted, []);
+});
+
+test('autoplay: alcanzar la posición no permite al invitado superar la duración ni cambiar el reloj del host', async () => {
+  const f = fixture();
+  f.player.duration = 90;
+  f.state.behavior = () => Promise.reject(blocked());
+  f.sync({ type: 'play', time: 89 });
+  await settle();
+  f.state.now = 5000;
+  f.state.behavior = () => Promise.resolve();
+  f.state.resume();
+  await settle();
+  assert.ok(f.player.currentTime < 90 && f.player.currentTime >= 89);
+  const host = fixture({ host: true });
+  host.state.behavior = () => Promise.reject(blocked());
+  host.hostClick();
+  await settle();
+  host.player.currentTime = 10;
+  host.state.now = 5000;
+  host.state.behavior = () => Promise.resolve();
+  host.state.resume();
+  await settle();
+  assert.equal(host.player.currentTime, 10);
 });
 
 test('autoplay: todos los caminos de play usan la captura y el botón tiene nombre accesible', () => {
