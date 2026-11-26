@@ -184,6 +184,92 @@ let ignoreSync = false;
 let myId = null;
 let lastKnownTime = 0;
 
+// --- Recuperación de reproducción bloqueada por el navegador ---
+// No emite sync ni cambia roles: el invitado solo habilita su reproducción local.
+// La revisión invalida promesas viejas si llega una pausa o cambia la cinta.
+const playbackNotice = document.getElementById('playbackNotice');
+const playbackNoticeText = document.getElementById('playbackNoticeText');
+const resumePlaybackBtn = document.getElementById('resumePlaybackBtn');
+let wantsPlayback = false;
+let playbackRevision = 0;
+let playbackBlocked = false;
+let pendingPlayback = null;
+let remotePlaybackPosition = null;
+let resumeCatchUpPending = false;
+
+function rememberPlaybackPosition(time, paused) {
+  if (Number.isFinite(time)) remotePlaybackPosition = { time, paused, receivedAt: performance.now() };
+}
+
+function resetPlaybackRecovery() {
+  wantsPlayback = false;
+  playbackRevision++;
+  pendingPlayback = null;
+  playbackBlocked = false;
+  remotePlaybackPosition = null;
+  resumeCatchUpPending = false;
+  playbackNotice.hidden = true;
+}
+
+async function tryPlayback(fromGesture = false) {
+  if (!wantsPlayback || (playbackBlocked && !fromGesture) || pendingPlayback) return;
+  const attempt = { revision: playbackRevision };
+  pendingPlayback = attempt;
+  try {
+    // Antes del primer await: conserva la interacción real del click.
+    await player.play();
+    if (attempt.revision !== playbackRevision) {
+      if (!wantsPlayback) player.pause();
+      return;
+    }
+    playbackBlocked = false;
+    playbackNotice.hidden = true;
+  } catch (err) {
+    if (attempt.revision !== playbackRevision || !wantsPlayback || err?.name === 'AbortError') return;
+    playbackBlocked = true;
+    playbackNoticeText.textContent = err?.name === 'NotAllowedError'
+      ? 'Tu navegador pausó la reproducción. Tocá «Reanudar video» para seguir.'
+      : 'No se pudo reproducir el video. Tocá «Reanudar video» para reintentar.';
+    playbackNotice.hidden = false;
+  } finally {
+    if (pendingPlayback === attempt) pendingPlayback = null;
+  }
+}
+
+function setPlaybackIntent(shouldPlay, fromGesture = false) {
+  if (wantsPlayback !== shouldPlay) {
+    wantsPlayback = shouldPlay;
+    playbackRevision++;
+    pendingPlayback = null;
+  }
+  if (!shouldPlay) {
+    resumeCatchUpPending = false;
+    playbackBlocked = false;
+    playbackNotice.hidden = true;
+    player.pause();
+  } else if (player.paused) {
+    tryPlayback(fromGesture);
+  }
+}
+
+resumePlaybackBtn.addEventListener('click', () => {
+  if (!wantsPlayback) return;
+  if (!isHost && remotePlaybackPosition && !remotePlaybackPosition.paused) {
+    const elapsed = Math.max(0, performance.now() - remotePlaybackPosition.receivedAt) / 1000;
+    let target = Math.max(0, remotePlaybackPosition.time + elapsed);
+    if (Number.isFinite(player.duration) && player.duration > 0) target = Math.min(target, Math.max(0, player.duration - 0.001));
+    ignoreSync = true;
+    player.currentTime = target;
+    lastKnownTime = target;
+    player.playbackRate = 1;
+    resumeCatchUpPending = true;
+    setTimeout(() => ignoreSync = false, 300);
+  }
+  tryPlayback(true);
+});
+player.addEventListener('ended', resetPlaybackRecovery);
+// --- Fin de recuperación de reproducción ---
+
 document.getElementById('roomCodeText').textContent = roomId;
 document.getElementById('copyBtn').onclick = () => {
   navigator.clipboard.writeText(location.href);
@@ -340,19 +426,39 @@ socket.on('room-error', async (msg, meta) => {
 // caso el <video> nunca se destruyó y ya sigue reproduciendo desde el minuto correcto por su cuenta;
 // forzar un seek ahí de nuevo solo metería un salto innecesario. Por eso el seek a `position` vive
 // adentro del mismo `if`, no en un listener aparte.
+// --- Posición inicial de la cinta ---
+let initialPositionListener = null;
+let pendingInitialPosition = null;
+function clearInitialPosition() {
+  if (initialPositionListener) player.removeEventListener('loadedmetadata', initialPositionListener);
+  initialPositionListener = null;
+  pendingInitialPosition = null;
+}
 socket.on('room-data', ({ videoFile, subtitleFile, position }) => {
   if (player.src.indexOf(videoFile) === -1) {
+    clearInitialPosition();
+    resetPlaybackRecovery();
     player.src = videoFile;
     if (position) {
+      rememberPlaybackPosition(position.time, position.paused);
+      pendingInitialPosition = position;
+      const expectedSource = player.src;
       const applyInitialPosition = () => {
+        if (initialPositionListener !== applyInitialPosition || player.src !== expectedSource) return;
+        const latestPosition = pendingInitialPosition;
+        clearInitialPosition();
         ignoreSync = true;
-        player.currentTime = position.time;
-        if (!position.paused) player.play().catch(() => {});
-        lastKnownTime = position.time;
+        player.currentTime = latestPosition.time;
+        setPlaybackIntent(!latestPosition.paused);
+        lastKnownTime = latestPosition.time;
         setTimeout(() => ignoreSync = false, 300);
       };
+      initialPositionListener = applyInitialPosition;
       player.addEventListener('loadedmetadata', applyInitialPosition, { once: true });
     }
+  } else if (initialPositionListener && position) {
+    rememberPlaybackPosition(position.time, position.paused);
+    pendingInitialPosition = position;
   }
   updateSubtitleTrack(subtitleFile);
 });
@@ -461,12 +567,26 @@ player.addEventListener('pause', () => { if (isHost && !ignoreSync) socket.emit(
 player.addEventListener('seeked', () => { if (isHost && !ignoreSync) socket.emit('sync', { type: 'seek', time: player.currentTime }); });
 
 socket.on('sync', (data) => {
+  const paused = data.type === 'heartbeat' ? data.paused
+    : data.type === 'pause' ? true : data.type === 'play' ? false
+    : remotePlaybackPosition?.paused ?? !wantsPlayback;
+  rememberPlaybackPosition(data.time, paused);
+  // Una orden más reciente gana a la posición que llegó al entrar a la sala.
+  // Seek actualiza el tiempo, conservando el estado hasta un play/pause/heartbeat.
+  if (data.type === 'seek' && pendingInitialPosition) {
+    pendingInitialPosition = { ...pendingInitialPosition, time: data.time };
+  } else {
+    clearInitialPosition();
+  }
   if (data.type === 'heartbeat') {
     const drift = data.time - player.currentTime;
     const absDrift = Math.abs(drift);
 
-    if (absDrift > 4) {
-      // Desvío grande: no queda otra que saltar.
+    const catchUp = resumeCatchUpPending && !isHost && !player.paused && !pendingPlayback;
+    if (catchUp) resumeCatchUpPending = false;
+    if (absDrift > 4 || (catchUp && absDrift > 0.1)) {
+      // Desvío grande o confirmación puntual tras reanudar: saltar evita tardar
+      // decenas de segundos en alcanzar al host con la corrección suave.
       ignoreSync = true;
       player.currentTime = data.time;
       player.playbackRate = 1;
@@ -479,16 +599,17 @@ socket.on('sync', (data) => {
       player.playbackRate = 1;
     }
 
-    if (data.paused && !player.paused) { ignoreSync = true; player.pause(); setTimeout(() => ignoreSync = false, 300); }
-    if (!data.paused && player.paused) { ignoreSync = true; player.play(); setTimeout(() => ignoreSync = false, 300); }
+    ignoreSync = true;
+    setPlaybackIntent(!data.paused);
+    setTimeout(() => ignoreSync = false, 300);
     lastKnownTime = data.time;
     return;
   }
   ignoreSync = true;
   player.playbackRate = 1;
   if (Math.abs(player.currentTime - data.time) > 1) player.currentTime = data.time;
-  if (data.type === 'play') player.play();
-  if (data.type === 'pause') player.pause();
+  if (data.type === 'play') setPlaybackIntent(true);
+  if (data.type === 'pause') setPlaybackIntent(false);
   lastKnownTime = data.time;
   setTimeout(() => ignoreSync = false, 300);
 });
@@ -546,7 +667,7 @@ function formatTime(sec) {
 // teclado nativos que el navegador todavía dispara aunque controls esté en false, etc.).
 player.addEventListener('play', () => { playPauseIcon.textContent = '❚❚'; });
 player.addEventListener('pause', () => { playPauseIcon.textContent = '▶'; });
-playPauseBtn.onclick = () => { if (player.paused) player.play(); else player.pause(); };
+playPauseBtn.onclick = () => { setPlaybackIntent(player.paused, true); };
 
 // Arrastre de la barra de progreso: mientras se arrastra (mouse o dedo) solo se mueve el visual
 // (seekFill/seekThumb) y el tiempo mostrado, sin tocar player.currentTime todavía — recién al

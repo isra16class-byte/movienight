@@ -1,5 +1,36 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-26 — Autoplay desplegado y aceptado en el dominio
+
+- Código final `2bceabc` desplegado; dos recreaciones solo de app en el tema. Al retomar se recuperó el entorno detenido (Docker/túnel, error 1033) conservando contenedores/volúmenes. Redis/Postgres sin cambios durante la actualización final respecto al estado recuperado; app healthy, seis archivos contrastados y HTML/CSS/JS/salud públicos correctos. Inyección del beacon separada del contraste, sin relajar CSP.
+- Chrome/admin + Edge/anónimo: aviso y botón correctos, reanudación con muestras de desfase de unos 0,2–0,7 s, pausa del host durante bloqueo respetada y segundo reintento correcto. Sin errores/avisos registrados en API de consola; sin prometer un límite global de latencia. Sala `e1e3f1` cerrada, panel 0 salas/conexiones/subidas/errores R2, defaults y sesiones correctos.
+- Tabla y límites en `ACEPTACION-AUTOPLAY.md`; cierre en el mismo PR #19. Móvil/fullscreen/archivos y carreras provocadas en dominio NO PROBADOS; estas últimas cubiertas por tests simulados.
+
+---
+
+## 2026-11-26 — Alcanzar al host al reanudar después del bloqueo
+
+- La primera aceptación del aviso desplegado detectó unos 3 s de retraso tras reanudar, pese a recuperar reproducción. El botón del invitado ahora alcanza la posición estimada con el último estado recibido y reloj monotónico; el primer heartbeat posterior confirma la posición una vez. Después se conserva la corrección habitual. Sin emisiones nuevas ni cambios al reloj/roles del host.
+- Una regresión fallaba antes; quince regresiones y suite **246/246**, lint/sintaxis correctos. Revisión limitada de Copilot sin bloqueos. Pendientes segundo despliegue solo de app y aceptación del ajuste. Sala inicial `5266da` cerrada; registro en el mismo PR #19.
+
+---
+
+## 2026-11-25 — Aviso y botón para recuperar reproducción bloqueada
+
+- Sala con aviso accesible y «Reanudar video»: reintento local dentro del gesto, conservando el estado recibido del host. Todos los caminos de `play()` capturan rechazos; heartbeat no los repite mientras se espera interacción. Pausa, cambio de cinta y fin limpian el aviso, con protección ante promesas tardías. Sin cambios en roles, CSP, dependencias o backend.
+- Trece regresiones nuevas; suite 244/244, lint/fuentes y sintaxis correctos. Chrome/Edge reales con fixture local/Socket.IO y video sintético: aviso, reintento y pausa del host durante bloqueo correctos, 0 sync del invitado, consola sin errores/avisos registrados. También se invalidan callbacks de metadatos antiguos; fuente/posición/órdenes recientes prevalecen. Observación de Copilot resuelta/cubierta y prueba final de aviso/botón en Edge correcta. Procesos y pestañas propios cerrados; dominio conserva panel limpio, defaults y sesiones.
+- Pendientes revisión/integración/despliegue y aceptación del dominio; móvil/fullscreen NO PROBADOS. Informe en `ACEPTACION-AUTOPLAY.md`; implementación en el mismo PR #19 de la aceptación previa.
+
+---
+
+## 2026-11-25 — Aceptación de recuperación de autoplay en Edge
+
+- Probado en dominio con Chrome/admin host y Edge/anónimo: recarga durante reproducción bloquea autoplay; pulsar «Sala» permite recuperar con las sincronizaciones posteriores. Pausa y reproducción del host siguen funcionando. Sin cambios de aplicación; tabla por prueba y límites en `ACEPTACION-AUTOPLAY.md`.
+- Dos `NotAllowedError` previos a la interacción en Edge; sin errores/avisos en Chrome. Pendiente mejora de aviso de interacción y captura de rechazos de `play()` en `sync`, sin pérdida persistente de reproducción demostrada.
+- Sala `777271` cerrada desde panel; 0 salas/conexiones/subidas/errores R2, cinco valores por defecto, A admin y B anónimo confirmado. Sin archivos elegidos/subidos, contexto C ni reinicios.
+
+---
+
 ## 2026-11-25 — Errores JSON desplegados y comprobados en el dominio
 
 - Código `58bffce` desplegado desde exportación limpia con una recreación solo de app; Redis/Postgres conservados y app healthy. `server.js`, manifiesto y lockfile coinciden por SHA-256 con el commit. Imagen anterior etiquetada para rollback.
