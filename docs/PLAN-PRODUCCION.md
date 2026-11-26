@@ -836,6 +836,10 @@ instancia alcanza por ahora. Queda documentada para cuando haga falta retomarla)
 
 ## Fase 5 — Calidad de código y proceso
 
+- [x] Auditoría de dependencias (2026-11-25): cinco paquetes de producción y nueve con desarrollo, versiones contrastadas con runtime y fuentes oficiales; segunda revisión limitada de Copilot. Propuesta de lockfile dentro de rangos directos existentes, auditorías en 0 y copia aislada con instalación limpia/tests **223/223**/lint/check de fuentes correctos. Informe en `AUDITORIA-DEPENDENCIAS.md`.
+- [ ] Integrar y desplegar la propuesta de dependencias después de comprobar HTTP/Socket.IO y aceptación en navegador; actualizar solo app, conservar Redis/Postgres y cerrar el registro en el mismo PR del tema.
+- [ ] Revisar por separado la migración de Multer 1.x a 2.x y sus storages/subidas/cancelaciones/errores; las pruebas con archivos reservadas para la persona siguen pendientes.
+
 - [x] Presencia y reconexión (2026-11-25): diagnóstico histórico anterior a interruptores y arreglo de admisión única/avisos solapados. PR #12 integrado y desplegado solo en app (`f473dd9`); diez regresiones, suite **215/215**, lint y Socket.IO real local correctos. Chrome/Edge: tres recargas sin avisos duplicados, solapamiento de B sin falsa salida tras 29 s, dueño recupera control al recargar y salida explícita limpia lista/contador con aviso tras 15 s. Panel final 0 salas/conexiones/subidas y cinco valores por defecto. Pendientes móvil, tercer participante independiente, archivos y fallos de red provocados; carreras internas verificadas automáticamente. Tabla y límites en `AUDITORIA-PRESENCIA.md`.
 
 - [x] Compatibilidad LF/CRLF de `test/clientGuards.test.js` (2026-11-25): normalizar solo las lecturas de los tests. Reproducidos cuatro fallos previos; suite Windows 180/180 y lint pasan en la rama independiente. Guardianes comprobados con ambas variantes en memoria; combinado con el PR #2: **184/184**. No equivale a ejecución de navegador.
