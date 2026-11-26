@@ -1,5 +1,13 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Aviso y botón para recuperar reproducción bloqueada
+
+- Sala con aviso accesible y «Reanudar video»: reintento local dentro del gesto, conservando el estado recibido del host. Todos los caminos de `play()` capturan rechazos; heartbeat no los repite mientras se espera interacción. Pausa, cambio de cinta y fin limpian el aviso, con protección ante promesas tardías. Sin cambios en roles, CSP, dependencias o backend.
+- Trece regresiones nuevas; suite 244/244, lint/fuentes y sintaxis correctos. Chrome/Edge reales con fixture local/Socket.IO y video sintético: aviso, reintento y pausa del host durante bloqueo correctos, 0 sync del invitado, consola sin errores/avisos registrados. También se invalidan callbacks de metadatos antiguos; fuente/posición/órdenes recientes prevalecen. Observación de Copilot resuelta/cubierta y prueba final de aviso/botón en Edge correcta. Procesos y pestañas propios cerrados; dominio conserva panel limpio, defaults y sesiones.
+- Pendientes revisión/integración/despliegue y aceptación del dominio; móvil/fullscreen NO PROBADOS. Informe en `ACEPTACION-AUTOPLAY.md`; implementación en el mismo PR #19 de la aceptación previa.
+
+---
+
 ## 2026-11-25 — Aceptación de recuperación de autoplay en Edge
 
 - Probado en dominio con Chrome/admin host y Edge/anónimo: recarga durante reproducción bloquea autoplay; pulsar «Sala» permite recuperar con las sincronizaciones posteriores. Pausa y reproducción del host siguen funcionando. Sin cambios de aplicación; tabla por prueba y límites en `ACEPTACION-AUTOPLAY.md`.

@@ -28,6 +28,10 @@
           <div class="fs-emoji-panel" id="fsEmojiPanel"></div>
         </div>
         <video id="player" playsinline webkit-playsinline disablepictureinpicture></video>
+        <div class="playback-notice" id="playbackNotice" hidden>
+          <p id="playbackNoticeText" role="status" aria-live="polite"></p>
+          <button type="button" id="resumePlaybackBtn">▶ Reanudar video</button>
+        </div>
         <div class="danmaku-layer" id="danmakuLayer" aria-hidden="true"></div>
         <div class="host-controls hidden-by-default" id="hostControlsWrap">
           <button id="playPauseBtn" class="play-pause-btn" title="Reproducir / Pausar">
