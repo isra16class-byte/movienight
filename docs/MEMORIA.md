@@ -162,6 +162,10 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Pruebas móviles y compatibilidad Android (2026-11-26).** Se contrastó Android con la referencia web `9309a07`. En un Infinix GT 20 Pro con Android 16 se observó ingreso a una sala, reproducción de una cinta existente, entrada a pantalla completa y vuelta a la misma sala con el rol y la reproducción conservados. La persona informó que sus pruebas móviles y de subtítulos salieron bien, sin detallar el navegador ni cada paso. La aceptación de autoplay del PR #19 corresponde a escritorio y la subida de `.srt` en la web está registrada en el PR #20. El corte de Wi-Fi para observar la reconexión quedó pendiente por decisión de la persona.
+
+- **Invitaciones desde Android.** El encabezado copia la URL web de la sala. El enlace compartido abre `/room/<código>` en la web y se puede pegar en el campo «Código o enlace» de Android. El Infinix copió la URL exacta y volvió a entrar a esa sala con el enlace pegado. La entrega de esta función se registra en el [commit Android `787f1ea`](https://github.com/isra16class-byte/movienight-android/commit/787f1eae59906e18b9d12a41e07c516521eb8d0c).
+
 **Multer 2.5.0 migrado y desplegado (2026-11-26).** `879ad2d` actualiza video en disco y R2 por streaming y subtítulos en memoria. Los campos multipart se mantienen planos. Las cancelaciones cierran el stream, limpian un objeto que R2 confirme tarde y descuentan la métrica una vez. Los PUT prefirmados siguen su flujo habitual. Copilot CLI revisó fragmentos y su hallazgo al cancelar mientras se espera la cabecera quedó cubierto. Suite **255/255**, lint, fuentes y auditoría de producción correctos.
 
 - **Despliegue:** una recreación solo de app, Redis/Postgres con los mismos IDs, imágenes, inicio y reinicios. App healthy con Node 22 y Multer 2.5.0. Cuatro archivos coinciden por SHA-256 y el inicio, `/health` y `/auth/me` anónimo responden 200 por HTTPS. Cero salas, conexiones, subidas y errores de R2 al terminar el despliegue. Imagen previa etiquetada `movienight-app:before-multer-879ad2d`.

@@ -1,5 +1,13 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-26 — Registro de pruebas móviles e invitaciones desde Android
+
+- Compatibilidad observada con `9309a07` en un Infinix GT 20 Pro con Android 16. Se comprobó la entrada a una sala, la reproducción y la vuelta desde pantalla completa a la misma sala. La persona informó que sus pruebas móviles y de subtítulos salieron bien.
+- El encabezado de Android copia el enlace web de la sala. Se verificaron el contenido exacto del portapapeles y el ingreso al pegar el enlace en Android. Abrir el enlace desde WhatsApp lleva a la sala web.
+- La comprobación de reconexión con un corte de Wi-Fi quedó pendiente. Esta entrada documenta el resultado de la prueba móvil y complementa las aceptaciones de escritorio (PR #19) y de subtítulos web (PR #20).
+
+---
+
 ## 2026-11-26 — Migración de Multer a 2.5.0
 
 - Multer 2.5.0 para video en disco, streaming de video por Node a R2 y subtítulos en memoria. Campos multipart planos explícitos. Los límites de 8 GiB y 5 MiB ahora aceptan el tamaño exacto, y la respuesta de subtítulos indica su propio límite.
