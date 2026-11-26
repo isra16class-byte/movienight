@@ -1,5 +1,13 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-26 — Autoplay desplegado y aceptado en el dominio
+
+- Código final `2bceabc` desplegado; dos recreaciones solo de app en el tema. Al retomar se recuperó el entorno detenido (Docker/túnel, error 1033) conservando contenedores/volúmenes. Redis/Postgres sin cambios durante la actualización final respecto al estado recuperado; app healthy, seis archivos contrastados y HTML/CSS/JS/salud públicos correctos. Inyección del beacon separada del contraste, sin relajar CSP.
+- Chrome/admin + Edge/anónimo: aviso y botón correctos, reanudación con muestras de desfase de unos 0,2–0,7 s, pausa del host durante bloqueo respetada y segundo reintento correcto. Sin errores/avisos registrados en API de consola; sin prometer un límite global de latencia. Sala `e1e3f1` cerrada, panel 0 salas/conexiones/subidas/errores R2, defaults y sesiones correctos.
+- Tabla y límites en `ACEPTACION-AUTOPLAY.md`; cierre en el mismo PR #19. Móvil/fullscreen/archivos y carreras provocadas en dominio NO PROBADOS; estas últimas cubiertas por tests simulados.
+
+---
+
 ## 2026-11-26 — Alcanzar al host al reanudar después del bloqueo
 
 - La primera aceptación del aviso desplegado detectó unos 3 s de retraso tras reanudar, pese a recuperar reproducción. El botón del invitado ahora alcanza la posición estimada con el último estado recibido y reloj monotónico; el primer heartbeat posterior confirma la posición una vez. Después se conserva la corrección habitual. Sin emisiones nuevas ni cambios al reloj/roles del host.

@@ -1,6 +1,43 @@
 # Recuperación y aviso de autoplay en Edge — 2026-11-25
 
-## Ajuste de posición al reanudar — 2026-11-26
+## Aceptación final del dominio — 2026-11-26
+
+Código final desplegado `2bceabc`, con cierre en el mismo PR #19. Hubo dos
+recreaciones de app durante el tema: aviso inicial `0ca4b3e` y corrección del
+desfase `2bceabc`. Al retomar el 26, Docker y el túnel estaban detenidos y el
+dominio devolvía 1033; se recuperaron los contenedores existentes y el túnel,
+conservando IDs/volúmenes y la sesión admin. La actualización posterior de app
+no cambió IDs, imágenes, fechas de inicio ni reinicios de Redis/Postgres frente
+a esa nueva línea de base. App healthy, sin reinicios adicionales en aceptación.
+
+Seis archivos de runtime coinciden por SHA-256 con `2bceabc`. Por HTTPS:
+HTML/CSS/JS 200, `no-store` y CSP sin inline; JS/CSS coinciden por bytes.
+Para contrastar el HTML se excluyó únicamente el beacon y salto de línea que
+inyecta Cloudflare. No se modificó su configuración ni la CSP. Salud pública 200.
+Imagen previa conservada como `movienight-app:before-autoplay-0ca4b3e`.
+
+A = Chrome/admin/host; B = Edge normal/anónimo. Sala final `e1e3f1`, con la
+cinta existente `prueba-4a.mp4` (90 s), sin selección/subida de archivos.
+Las muestras siguientes son lecturas consecutivas del DOM, no simultáneas:
+no establecen una garantía de latencia ni sincronización exacta para otras redes.
+
+| Prueba final | PASS/FAIL/NO PROBADO | Observado | Esperado | Errores de consola |
+|---|---|---|---|---|
+| Sesiones y entrada | PASS | A conservó admin, B anónimo en `/auth/me`; dos participantes, control remoto solo en A. | Contextos aislados y roles conservados. | Sin errores/avisos registrados en la consulta de esta aceptación. |
+| Recarga y aviso | PASS | B pausado, aviso y botón visibles. Muestra A 9,116354 s/B 6,155751 s antes de reanudar. | Explicar el bloqueo sin rechazos sin capturar. | Sin errores/avisos registrados. |
+| Reanudar alcanzando al host | PASS | Botón oculta aviso y reproduce: A 10,689341 s/B 10,495776 s. Muestra posterior A 18,189428 s/B 17,534197 s. | Recuperar reproducción y reducir el retraso inicial de unos 3 s. | Sin errores/avisos registrados. |
+| Pausa durante un nuevo bloqueo | PASS | Otra recarga muestra aviso; pausa de A lo oculta y ambos quedan pausados en 38,944233 s. | La última pausa del host prevalece. | Sin errores/avisos registrados. |
+| Segundo play/reintento | PASS | Aviso vuelve a aparecer; botón vuelve a reanudar. A 40,462867 s/B 39,871746 s. | Recuperación reutilizable sin entregar controles al invitado. | Sin errores/avisos registrados. |
+| Limpieza y estado final | PASS | Sala cerrada desde admin; 0 salas/conexiones/subidas/errores R2, nadie bloqueado y cinco valores por defecto. B anónimo confirmado y devuelto al inicio. | Entorno limpio con sesión admin conservada. | Chrome/Edge sin errores/avisos registrados desde este despliegue en API consultada. |
+| Carreras de promesas/metadatos en dominio | NO PROBADO | Cubiertas por regresiones simuladas, sin provocarlas artificialmente en el dominio. | Mantener la distinción entre test y aceptación real. | No aplica. |
+| Móvil/fullscreen y subida de archivos | NO PROBADO | Sin móvil, fullscreen, archivos nuevos ni contexto C. | Comprobaciones separadas reservadas. | No aplica. |
+
+Las muestras de diferencia tras reanudar fueron aproximadamente 0,2–0,7 s;
+no se afirma que ese rango sea un límite global. La API de consola no captura
+necesariamente todos los errores de red. La recuperación/arranque del entorno
+no se presenta como una ausencia de reinicios previa al despliegue final.
+
+## Preparación del ajuste de posición — 2026-11-26
 
 La primera aceptación del aviso desplegado (`0ca4b3e`, sala `5266da`) detectó
 un desfase inicial: muestra consecutiva A 19,642553 s/B 16,448045 s, ambos
@@ -18,11 +55,11 @@ invalidan la recuperación pendiente.
 Una regresión nueva fallaba antes (30 frente a 32,5 s esperados). Después pasan
 las quince regresiones de recuperación y la suite **246/246**, lint y sintaxis.
 Copilot revisó el diff seleccionado sin herramientas y no encontró bloqueos;
-no ejecutó ni verificó independientemente las pruebas. Falta desplegar este
-ajuste y repetir la aceptación del dominio. La estimación no elimina la latencia
+no ejecutó ni verificó independientemente las pruebas. El despliegue y la
+aceptación posterior figuran arriba. La estimación no elimina la latencia
 de red ni promete coincidencia exacta al milisegundo.
 
-## Mejora preparada, pendiente de despliegue
+## Implementación y pruebas locales previas
 
 Después de la prueba del dominio descrita debajo, se añadió un aviso centrado
 con botón accesible «▶ Reanudar video». El mensaje pide interactuar cuando el
