@@ -48,7 +48,8 @@ function formatDate(ms) {
 // y se cancela al abrir un modal nuevo.
 let mnModalHideTimer = null;
 function mnDialog({ title, message = '', showInput = false, inputType = 'text', placeholder = '',
-                     defaultValue = '', okLabel = 'Aceptar', cancelLabel = 'Cancelar', showCancel = true }) {
+                     defaultValue = '', maxLength, autocomplete = 'off',
+                     okLabel = 'Aceptar', cancelLabel = 'Cancelar', showCancel = true }) {
   return new Promise((resolve) => {
     const overlay = document.getElementById('mnModalOverlay');
     const titleEl = document.getElementById('mnModalTitle');
@@ -64,6 +65,9 @@ function mnDialog({ title, message = '', showInput = false, inputType = 'text', 
     input.hidden = !showInput;
     input.type = inputType;
     input.placeholder = placeholder;
+    input.autocomplete = autocomplete;
+    if (maxLength === undefined) input.removeAttribute('maxlength');
+    else input.maxLength = maxLength;
     input.value = defaultValue;
     errorEl.hidden = true;
     okBtn.textContent = okLabel;
@@ -73,14 +77,16 @@ function mnDialog({ title, message = '', showInput = false, inputType = 'text', 
     if (mnModalHideTimer) { clearTimeout(mnModalHideTimer); mnModalHideTimer = null; }
     overlay.hidden = false;
     requestAnimationFrame(() => overlay.classList.add('is-visible'));
-    setTimeout(() => (showInput ? input : okBtn).focus(), 30);
+    const focusTimer = setTimeout(() => (showInput ? input : okBtn).focus(), 30);
 
     function close(result) {
+      clearTimeout(focusTimer);
       overlay.classList.remove('is-visible');
       mnModalHideTimer = setTimeout(() => { overlay.hidden = true; mnModalHideTimer = null; }, 150);
       okBtn.removeEventListener('click', onOk);
       cancelBtn.removeEventListener('click', onCancel);
       input.removeEventListener('keydown', onKeydown);
+      if (inputType === 'password') input.value = '';
       resolve(result);
     }
     function onOk() { close(showInput ? input.value : true); }
@@ -101,8 +107,10 @@ function mnAlert(message, title = 'MovieNight') {
 function mnConfirm(message, title = '¿Estás seguro?') {
   return mnDialog({ title, message, okLabel: 'Sí', cancelLabel: 'Cancelar' });
 }
-function mnPrompt({ title, message = '', placeholder = '', type = 'text', okLabel = 'Aceptar', cancelLabel = 'Cancelar', showCancel = true }) {
-  return mnDialog({ title, message, showInput: true, inputType: type, placeholder, okLabel, cancelLabel, showCancel });
+function mnPrompt({ title, message = '', placeholder = '', type = 'text', maxLength, autocomplete,
+                    okLabel = 'Aceptar', cancelLabel = 'Cancelar', showCancel = true }) {
+  return mnDialog({ title, message, showInput: true, inputType: type, placeholder, maxLength, autocomplete,
+                    okLabel, cancelLabel, showCancel });
 }
 
 // --- Contraseña de biblioteca guardada SOLO en sessionStorage (por pestaña) ---------------------
@@ -356,13 +364,19 @@ async function useTape(filename, li) {
       window.location = `/room/${fromRoom}`;
       return;
     }
-    // Fase 2bis, "quién puede crear salas" (2026-09-06): /create-room-from-upload ahora exige la
-    // misma LIBRARY_PASSWORD que /create-room — mnLibraryFetch ya sabe pedirla/reintentar ante un
-    // 401, igual que hace para listar/borrar la biblioteca.
+    const password = await mnPrompt({ title: 'Crear sala', placeholder: 'Contraseña de la sala (opcional)',
+      type: 'password', maxLength: 60, autocomplete: 'new-password', okLabel: 'Crear sala' });
+    if (password === null) {
+      btn.disabled = false;
+      btn.textContent = useLabel;
+      btn.focus();
+      return;
+    }
+    // La clave de biblioteca va en la cabecera que añade mnLibraryFetch.
     const res = await mnLibraryFetch('/create-room-from-upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename })
+      body: JSON.stringify({ filename, password: password.trim() })
     });
     const data = await res.json();
     if (data.error) { await mnAlert('Error: ' + data.error); btn.disabled = false; btn.textContent = useLabel; return; }
