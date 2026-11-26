@@ -1,5 +1,14 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Respuestas propias para errores de lectura JSON
+
+- Reproducido el 502/texto de subida ante errores del parser en `/auth/login`. El callback del parser delimita su origen antes de sesión/rutas: JSON o gzip inválido 400, exceso de tamaño 413, codificación no soportada 415 y fallo interno 500. Sin cambiar opciones del parser, límite de 100 KB, autenticación o limitadores.
+- Respuestas de texto fijo, sin exponer cuerpo, mensajes ni headers recibidos. Los errores del cliente no llegan al logger/Sentry de subidas; un fallo interno se registra/reporta con un error nuevo y genérico. Las respuestas de Multer, validación de video y storage se conservan.
+- Ocho regresiones HTTP locales con Express/Multer reales: cinco de las siete iniciales fallaban antes; todas pasan después. Incluyen delegación con headers ya enviados sin segundo envío ni error original, y la función real de reporte con solo error genérico/etiquetas. Copilot revisó fragmentos seleccionados sin herramientas; no se usó el SDK externo real de Sentry. Sin `.env`, BD/R2 reales ni selección de archivos. Pendientes revisión/integración/despliegue y aceptación del dominio; contenedores y ajustes sin cambios.
+- Validación final: suite **231/231**, lint, check de fuentes y diff correctos; revisión final limitada de Copilot sin bloqueos.
+
+---
+
 ## 2026-11-25 — Dependencias desplegadas y aceptación registrada
 
 - Código/lockfile `1270353` desplegados desde Git limpio con una recreación solo de app. Redis/Postgres conservan IDs, inicio y reinicios; salud interna/pública correcta y 29 archivos coinciden con el commit. Versiones corregidas comprobadas dentro del contenedor; instalación de producción con 0 vulnerabilidades.
