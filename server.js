@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
-const { Transform } = require('stream');
+const { Readable } = require('node:stream');
 const { Server } = require('socket.io');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const session = require('express-session');
@@ -1303,127 +1303,91 @@ const storage = multer.diskStorage({
     cb(null, crypto.randomBytes(4).toString('hex') + '__' + safeBase + ext);
   }
 });
-// --- Cloudflare R2 — Fase 2: subida de video en streaming (sin tocar disco) --------------------
-// Motor de storage de Multer alternativo al de disco local de arriba. Multer llama a _handleFile
-// con `file.stream`, el stream crudo de esa parte del multipart mientras todavía está llegando por
-// HTTP — en vez de escribirlo a disco (como hace el motor `storage` de arriba), lo empalmamos
-// directo a `r2.uploadStream`, que lo sube a R2 en partes (multipart) a medida que llega. El archivo
-// nunca toca el disco del host ni se carga entero en memoria en ningún punto del camino.
-// El `Transform` intermedio (`counter`, ver comentario dentro de `_handleFile`) solo cuenta bytes
-// (para poder devolver `size`, igual que hace el motor de disco); no altera los datos que pasan por
-// él, solo los deja pasar tal cual mientras cuenta.
+// El motor R2 valida la cabecera y después entrega el archivo por streaming.
 const r2VideoStorage = {
-  // Fase 2.5 del plan de producción: antes de este cambio, el stream se empalmaba directo a
-  // `r2.uploadStream` sin mirar su contenido — cualquier binario (o texto) con `Content-Type:
-  // video/mp4` falsificado se subía entero a R2 igual. Ahora se juntan los primeros
-  // `fileValidation.SNIFF_BYTES` del archivo ANTES de completar la subida, se valida por magic bytes,
-  // y solo si pasa esa validación se deja seguir el resto del stream hacia R2 — un archivo inválido
-  // nunca llega a ocupar espacio en el bucket.
   _handleFile(req, file, cb) {
     const key = r2.makeObjectKey(file.originalname);
-    let bytes = 0;
-    // Fase 2.5 — bug real encontrado probando esto en un entorno con R2 real (no se detectaba en el
-    // harness con mock, que no reproduce el timing real de los streams): antes acá había un
-    // `PassThrough` con un `counter.on('data', ...)` externo para contar bytes. Adjuntar un listener
-    // 'data' a un Readable lo pone en modo *flowing* de inmediato — así que los chunks que se
-    // escriben más abajo (línea "para el chunk ya juntado, counter.write(chunk)") se drenaban ahí
-    // mismo, consumidos por ese listener, ANTES de que `r2.uploadStream` llegara a engancharse como
-    // consumidor real. Resultado: el conteo de `bytes` daba el tamaño correcto (por eso la respuesta
-    // era 200 con un `size` válido), pero el objeto subido a R2 quedaba con 0 bytes reales — el
-    // consumidor de verdad nunca vio los datos, ya drenados y descartados por el contador.
-    // Fix: contar los bytes DENTRO de un `Transform` propio (en su método de escritura), sin ningún
-    // listener 'data' externo — así el lado de lectura queda en modo pausado hasta que
-    // `r2.uploadStream` lo consuma de verdad, sin perder nada en el medio.
-    const counter = new Transform({
-      transform(chunk, encoding, callback) {
-        bytes += chunk.length;
-        callback(null, chunk);
-      }
-    });
+    const source = file.stream;
+    const cancellation = new AbortController();
+    const { signal } = cancellation;
+    let body;
 
-    const chunks = [];
-    let sniffLength = 0;
-    // Sincrónico a propósito (a diferencia de `settled` más abajo, que se fija recién cuando
-    // `validate()` termina): evita que 'end' dispare una segunda validación si ya se disparó una
-    // desde 'data' — sin este chequeo, un archivo justo del tamaño del umbral de sniff podía terminar
-    // ('end') en el mismo tick en que se alcanzaba el umbral, corriendo `validate()` dos veces.
-    let validationStarted = false;
-    let settled = false; // true una vez que ya se llamó a cb — evita llamarlo dos veces
-    function callback(err, result) {
-      if (settled) return;
-      settled = true;
-      cb(err, result);
+    function cancel(err) {
+      if (signal.aborted) return;
+      cancellation.abort(err);
+      body?.destroy(err);
+      source.destroy();
     }
 
-    const onData = (chunk) => {
-      chunks.push(chunk);
-      sniffLength += chunk.length;
-      if (!validationStarted && sniffLength >= fileValidation.SNIFF_BYTES) {
-        validationStarted = true;
-        file.stream.pause();
-        file.stream.removeListener('data', onData);
-        validate(false);
+    const onDisconnect = () => cancel(new Error('Subida cancelada por el cliente'));
+    const onLimit = () => cancel(new multer.MulterError('LIMIT_FILE_SIZE', file.fieldname));
+    req.once('aborted', onDisconnect);
+    req.res.once('close', onDisconnect);
+    source.once('error', cancel);
+    source.once('limit', onLimit);
+
+    function releaseListeners() {
+      req.removeListener('aborted', onDisconnect);
+      req.res.removeListener('close', onDisconnect);
+      source.removeListener('error', cancel);
+      source.removeListener('limit', onLimit);
+    }
+
+    async function storeVideo() {
+      if (req.aborted || req.res.destroyed) onDisconnect();
+      signal.throwIfAborted();
+      const iterator = source[Symbol.asyncIterator]();
+      const headerChunks = [];
+      let size = 0;
+      while (size < fileValidation.SNIFF_BYTES) {
+        const { done, value } = await iterator.next();
+        if (done) break;
+        headerChunks.push(value);
+        size += value.length;
       }
-    };
-
-    const onEnd = () => {
-      // Bug real encontrado probando esto: un video más chico que SNIFF_BYTES (4100 bytes) termina de
-      // llegar ('end') antes de que 'data' alcance ese umbral — sin este chequeo de `validationStarted`
-      // se intentaba validar igual, pero como el archivo entero (chico) YA está juntado en `chunks`,
-      // hay que validar con eso, sin esperar bytes que nunca van a llegar.
-      if (validationStarted) return;
-      validationStarted = true;
-      file.stream.removeListener('data', onData);
-      validate(true);
-    };
-
-    const onError = (err) => {
-      file.stream.removeListener('data', onData);
-      file.stream.removeListener('end', onEnd);
-      callback(err);
-    };
-
-    file.stream.on('data', onData);
-    file.stream.on('end', onEnd);
-    file.stream.on('error', onError);
-
-    async function validate(streamAlreadyEnded) {
-      file.stream.removeListener('end', onEnd);
-      file.stream.removeListener('error', onError);
-      let result;
-      try {
-        result = await fileValidation.isValidVideoBuffer(Buffer.concat(chunks));
-      } catch (err) {
-        file.stream.destroy();
-        return callback(err);
-      }
+      signal.throwIfAborted();
+      const result = await fileValidation.isValidVideoBuffer(Buffer.concat(headerChunks, size));
+      signal.throwIfAborted();
       if (!result.valid) {
-        // Corta la conexión de una: no tiene sentido seguir recibiendo el resto de un archivo (puede
-        // ser varios GB) que ya se sabe que no va a pasar la validación.
-        file.stream.destroy();
-        const err = new Error(`El video no pasó la validación de contenido: ${result.reason}`);
+        const err = new Error('El video no pasó la validación de contenido: ' + result.reason);
         err.isVideoValidationError = true;
-        return callback(err);
+        throw err;
       }
-      // Válido: lo ya juntado para el sniff (chunks) más lo que siga llegando (si el stream no había
-      // terminado todavía) va a `counter` — el mismo Transform de siempre, que sigue contando bytes
-      // para el `size` final y alimenta a r2.uploadStream sin que ese lado note ningún cambio.
-      for (const chunk of chunks) counter.write(chunk);
-      if (streamAlreadyEnded) {
-        counter.end();
-      } else {
-        file.stream.on('error', (err) => counter.destroy(err));
-        file.stream.pipe(counter);
-        file.stream.resume();
+
+      async function* videoBytes() {
+        yield* headerChunks;
+        for (;;) {
+          const { done, value } = await iterator.next();
+          if (done) return;
+          size += value.length;
+          yield value;
+        }
       }
-      r2.uploadStream(key, counter, file.mimetype)
-        .then(() => callback(null, { key, size: bytes }))
-        .catch((err) => callback(err));
+
+      body = Readable.from(videoBytes(), { objectMode: false });
+      // Conserva el resultado del SDK para poder borrar una escritura que
+      // termine después de que el cliente se vaya.
+      await r2.uploadStream(key, body, file.mimetype, signal);
+      if (signal.aborted) {
+        await r2.deleteObject(key);
+        signal.throwIfAborted();
+      }
+      return { key, size };
     }
+
+    storeVideo().then(info => {
+      releaseListeners();
+      cb(null, info);
+    }, err => {
+      releaseListeners();
+      body?.destroy();
+      source.destroy();
+      // El iterador puede emitir cierre prematuro al destruir el stream de entrada.
+      cb(!body && signal.aborted ? signal.reason : err);
+    });
   },
-  // Multer llama esto para limpiar un archivo ya subido si algo más falla durante la misma request
-  // (ej. otro archivo del mismo form, o un límite excedido detectado después). `file.key` es el campo
-  // propio que devolvimos arriba en _handleFile (no es un campo estándar de Multer).
+
+  // Multer limpia un objeto ya completado cuando falla el resto del formulario.
   _removeFile(req, file, cb) {
     if (!file.key) return cb(null);
     r2.deleteObject(file.key).then(() => cb(null)).catch(cb);
@@ -1434,7 +1398,8 @@ const r2VideoStorage = {
 // loadDotEnv arriba): si R2 está configurado, TODAS las subidas de video van a R2, no hay mezcla por
 // request. Ver sección "Cloudflare R2 — Fase 2" en docs/historico/MEMORIA.md para el porqué de este modo dual.
 const videoStorage = r2.isR2Enabled() ? r2VideoStorage : storage;
-const upload = multer({ storage: videoStorage, limits: { fileSize: 8 * 1024 * 1024 * 1024 } });
+const flatMultipartFields = { fieldNestingDepth: 0, fieldArrayIndexLimit: 0 };
+const upload = multer({ storage: videoStorage, limits: { ...flatMultipartFields, fileSize: 8 * 1024 * 1024 * 1024 } });
 
 // --- Fase 4 del plan de producción: contar subidas de video en curso para /metrics --------------
 // Envuelve `upload.single('video')` para que `metrics.uploadsInProgress` refleje los dos modos que
@@ -1445,15 +1410,8 @@ const upload = multer({ storage: videoStorage, limits: { fileSize: 8 * 1024 * 10
 function trackVideoUpload(multerMiddleware) {
   return (req, res, next) => {
     metrics.uploadStarted();
-    // Si el cliente corta la conexión a mitad de la subida (cierra la pestaña, pierde la red, mata el
-    // proceso), Multer/Busboy no siempre llegan a invocar el callback de abajo — el stream se corta
-    // antes de que terminen de parsear el multipart, así que ni éxito ni error se disparan nunca y
-    // `uploadFinished()` no se llamaba jamás, dejando `uploads.inProgress` pegado para siempre.
-    // Bug real encontrado probando en un entorno real (ver docs/CHANGELOG.md): cortar un `curl` a mitad
-    // de una subida de 300MB dejaba el contador en 1 durante más de 30s después de terminado el proceso
-    // cliente, sin volver nunca a 0.
-    // `finishOnce` cubre los dos caminos (fin normal vía callback, o corte abrupto vía estos eventos) sin
-    // decrementar dos veces.
+    // Una desconexión y un callback tardío del storage pueden coincidir.
+    // Decrementa una vez aunque el storage aún esté limpiando la subida.
     let finished = false;
     const finishOnce = () => {
       if (finished) return;
@@ -1462,15 +1420,11 @@ function trackVideoUpload(multerMiddleware) {
       res.removeListener('close', finishOnce);
       metrics.uploadFinished();
     };
-    // 'aborted' es el evento específico de una request HTTP cortada a mitad de camino; 'close' es un
-    // respaldo (dispara siempre que se cierra la conexión, incluida una desconexión abrupta que en
-    // alguna versión/plataforma de Node no llegue a emitir 'aborted') — con la guarda de `finished` no
-    // importa cuál dispare primero ni si ambos disparan.
     req.on('aborted', finishOnce);
     res.on('close', finishOnce);
     multerMiddleware(req, res, (err) => {
       finishOnce();
-      next(err);
+      if (!req.aborted && !res.destroyed) next(err);
     });
   };
 }
@@ -1486,7 +1440,7 @@ function videoUrlForUploadedFile(file) {
 }
 
 // Subtítulos: se leen en memoria para poder convertir .srt -> .vtt antes de guardar
-const subtitleUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const subtitleUpload = multer({ storage: multer.memoryStorage(), limits: { ...flatMultipartFields, fileSize: 5 * 1024 * 1024 } });
 
 // --- Fase 2.5 del plan de producción: validación de video en modo disco local --------------------
 // A diferencia del modo R2 (ver `r2VideoStorage._handleFile` arriba, que valida DURANTE el streaming,
@@ -2078,10 +2032,15 @@ app.delete('/api/uploads/:filename', requireLibraryAuth, async (req, res) => {
 // rutas que usan `upload.single('video')` para poder atrapar sus errores (así funciona Express).
 app.use((err, req, res, next) => {
   if (!err) return next();
+  if (req.aborted || res.destroyed) return;
   if (res.headersSent) return next(err);
   if (err instanceof multer.MulterError) {
-    const msg = err.code === 'LIMIT_FILE_SIZE' ? 'El archivo supera el límite permitido (8GB).' : err.message;
-    return res.status(400).json({ error: msg });
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      const limit = err.field === 'subtitle' ? '5 MB' : '8GB';
+      return res.status(400).json({ error: 'El archivo supera el límite permitido (' + limit + ').' });
+    }
+    const message = err.code === 'LIMIT_UNEXPECTED_FILE' ? 'Unexpected field' : err.message;
+    return res.status(400).json({ error: message });
   }
   // Fase 2.5 del plan de producción: un archivo que no pasó la validación por magic bytes durante el
   // streaming a R2 (ver r2VideoStorage._handleFile) llega acá como cualquier otro error de subida —

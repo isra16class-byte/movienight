@@ -89,6 +89,19 @@ test('R2: éxitos y objeto inexistente no generan fallos de métricas ni logs', 
   }
 });
 
+test('R2: omite solo la cancelación que recibió el stream y registra cualquier otro fallo', async () => {
+  const cancellation = new AbortController();
+  const cancelled = new Error('Subida cancelada');
+  const backend = new Error('Error del backend');
+  cancellation.abort(cancelled);
+  for (const error of [cancelled, backend]) {
+    const { r2, state } = fixture(error);
+    await assert.rejects(r2.uploadStream(...operations.uploadStream, cancellation.signal), received => received === error);
+    assert.deepEqual(state.counted, error === cancelled ? [] : [backend]);
+    assert.equal(state.warnings.length, error === cancelled ? 0 : 1);
+  }
+});
+
 test('R2: los códigos de red anidados conservan la familia sin direcciones ni mensajes', async () => {
   const marker = crypto.randomBytes(24).toString('hex');
   const nested = Object.assign(new Error(marker), { code: 'ENETUNREACH', address: '2001:db8::1' });
