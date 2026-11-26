@@ -4,6 +4,8 @@
 
 - Multer 2.5.0 para video en disco, streaming de video por Node a R2 y subtítulos en memoria. Campos multipart planos explícitos. Los límites de 8 GiB y 5 MiB ahora aceptan el tamaño exacto, y la respuesta de subtítulos indica su propio límite.
 - La cancelación corta el stream hacia R2 y borra el objeto si el SDK confirma la escritura después de que se cierre la conexión. El contador baja una vez y las cancelaciones esperadas se distinguen de fallos de R2. Los PUT directos por URL prefirmada siguen su flujo habitual.
+- Nueve regresiones con datos sintéticos, suite **255/255**, lint, fuentes y auditoría de producción correctos. Copilot CLI revisó fragmentos sin herramientas. Se corrigió la pérdida de la causa al cancelar mientras el motor esperaba la cabecera.
+- Despliegue `879ad2d` desde una exportación limpia con una recreación de app. Redis/Postgres conservaron IDs, imágenes, inicio y reinicios. App healthy con Node 22 y Multer 2.5.0, cuatro archivos contrastados por SHA-256, inicio/salud/sesión anónima 200 por HTTPS y cero salas, conexiones, subidas o errores de R2. Imagen previa disponible como `movienight-app:before-multer-879ad2d`. Pruebas manuales de archivos y tercer participante pendientes.
 
 ---
 

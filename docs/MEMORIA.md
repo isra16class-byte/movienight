@@ -162,6 +162,10 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Multer 2.5.0 migrado y desplegado (2026-11-26).** `879ad2d` actualiza video en disco y R2 por streaming y subtítulos en memoria. Los campos multipart se mantienen planos. Las cancelaciones cierran el stream, limpian un objeto que R2 confirme tarde y descuentan la métrica una vez. Los PUT prefirmados siguen su flujo habitual. Copilot CLI revisó fragmentos y su hallazgo al cancelar mientras se espera la cabecera quedó cubierto. Suite **255/255**, lint, fuentes y auditoría de producción correctos.
+
+- **Despliegue:** una recreación solo de app, Redis/Postgres con los mismos IDs, imágenes, inicio y reinicios. App healthy con Node 22 y Multer 2.5.0. Cuatro archivos coinciden por SHA-256 y el inicio, `/health` y `/auth/me` anónimo responden 200 por HTTPS. Cero salas, conexiones, subidas y errores de R2. Imagen previa etiquetada `movienight-app:before-multer-879ad2d`. Pruebas manuales de archivos y tercer participante reservadas para la persona.
+
 **Autoplay y alcance al reanudar desplegados y aceptados (2026-11-26, PR #19).** Código final `2bceabc` desplegado desde Git limpio; dos recreaciones solo de app en este tema. Al retomar el entorno estaba detenido (Docker/túnel, error 1033): se recuperaron contenedores existentes y túnel, conservando volúmenes/IDs y sesión admin. Durante la actualización final, Redis/Postgres mantuvieron IDs, imágenes, inicio y reinicios respecto a la línea de base recuperada. App healthy; seis archivos contrastados por SHA-256 y artefactos públicos/salud correctos. El beacon inyectado por Cloudflare se separó del contraste de HTML, sin cambiar configuración/CSP.
 
 - **Aceptación real:** Chrome/admin host + Edge/anónimo, sala `e1e3f1` con cinta existente: aviso tras recarga, botón reanuda/oculta y muestras de desfase de unos 0,2–0,7 s frente a los ~3 s iniciales; pausa del host durante bloqueo oculta aviso y deja ambos en el mismo instante. Segundo reintento correcto, control solo en A y consola sin errores/avisos registrados en API consultada. Sin garantía global de latencia; tabla/límites en `ACEPTACION-AUTOPLAY.md`.
