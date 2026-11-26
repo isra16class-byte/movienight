@@ -1,5 +1,13 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Dependencias desplegadas y aceptación registrada
+
+- Código/lockfile `1270353` desplegados desde Git limpio con una recreación solo de app. Redis/Postgres conservan IDs, inicio y reinicios; salud interna/pública correcta y 29 archivos coinciden con el commit. Versiones corregidas comprobadas dentro del contenedor; instalación de producción con 0 vulnerabilidades.
+- HTTP/Socket.IO real local: JSON/gzip válidos, errores sin caída, upgrades y cinco casos de presencia correctos. El 502 previo para errores del parser queda como mejora separada; no se probaron cargas malformadas contra el dominio.
+- Chrome/admin + Edge/anónimo: sesión, biblioteca, login inválido, sala, roles, chat, reproducción inicial y reconexión/presencia correctos. Edge bloqueó autoplay tras recarga; recuperación manual NO PROBADA. Sala cerrada desde panel, 0 salas/conexiones/subidas y cinco interruptores por defecto. Tabla y consola exacta en `AUDITORIA-DEPENDENCIAS.md`; cierre en el mismo PR #17.
+
+---
+
 ## 2026-11-25 — Auditoría y propuesta de dependencias corregidas
 
 - Confirmadas cinco dependencias afectadas de producción y nueve incluyendo desarrollo; versiones contrastadas con runtime y avisos oficiales. Distinguida presencia de paquete de condiciones de explotación. Informe en `AUDITORIA-DEPENDENCIAS.md`, con segunda revisión limitada de Copilot y comprobaciones del coordinador.

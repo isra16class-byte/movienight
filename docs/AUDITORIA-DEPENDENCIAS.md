@@ -1,8 +1,9 @@
-# Auditoría de dependencias y propuesta — 2026-11-25
+# Auditoría y aceptación de dependencias — 2026-11-25
 
 Base: `4ed44ad`. La propuesta actualiza únicamente `package-lock.json`;
 `package.json`, código de aplicación, permisos, límites y configuración de IP
-no cambian. No está integrada ni desplegada en esta etapa.
+no cambian. Actualización desplegada desde `1270353`, con aceptación registrada
+en el mismo PR #17. Las secciones iniciales conservan el diagnóstico anterior.
 
 ## Resultado de la auditoría
 
@@ -60,8 +61,8 @@ paquetes de R2, las fuentes fijadas y el resto del código de aplicación.
   con ESLint actualizado y `fonts:build -- --check` correctos.
 - Tras aplicar la propuesta a la rama de revisión, se repitieron la instalación
   limpia, los **223/223 tests**, lint y check de fuentes en el checkout de trabajo.
-  El árbol local ya usa las versiones propuestas; el contenedor continúa con
-  las anteriores hasta un despliegue posterior.
+  El árbol local usa las versiones propuestas; el despliegue y sus versiones
+  efectivas se comprobaron después, como se detalla a continuación.
 - La auditoría de producción y la completa devuelven **0 avisos** con el
   catálogo consultado. Esto no equivale a ausencia de vulnerabilidades desconocidas.
 - Copilot CLI/Fusion hizo una segunda revisión del informe y fragmentos
@@ -72,9 +73,68 @@ paquetes de R2, las fuentes fijadas y el resto del código de aplicación.
 - Las evidencias de auditoría, propuesta, salida de Copilot y tests quedan
   ignoradas en `acceptance-evidence/`; no se incluyen en Git.
 
-Pendientes para aplicar: revisión del PR, comprobaciones HTTP/Socket.IO con el
-árbol actualizado, despliegue solo de `app` y aceptación en navegador. No se ha
-reproducido una caída real por estos avisos ni se probaron fallos contra R2/BD.
+No se ha reproducido una caída real por estos avisos ni se probaron fallos
+contra R2/BD. Las comprobaciones siguientes cubren compatibilidad y continuidad,
+sin presentarse como reproducción exhaustiva de los avisos.
+
+## HTTP y Socket.IO con el árbol actualizado
+
+Se ejecutó el servidor real en loopback/puerto efímero, sin `.env`, con BD/correo
+simulados y Redis/R2 desactivados. No se enviaron entradas malformadas al dominio.
+
+- HTML 200; login sintético válido por JSON y JSON comprimido con gzip: 200.
+- JSON inválido y gzip truncado: 502, seguidos de `/api/access-policy` 200.
+  El proceso siguió respondiendo. Ese 502 proviene del middleware genérico de
+  errores de subida que ya existía: también captura errores del parser en
+  `/auth/login` y muestra un texto de subida. Queda como mejora separada de
+  clasificación/respuesta de errores, sin cambiarse en este PR.
+- Upgrade sobre sesión polling EIO4 existente: EIO omitido y EIO3 dieron 400;
+  EIO4 dio 101. Son muestras de protocolo, sin afirmar cobertura total del aviso.
+- Las cinco comprobaciones de presencia con sockets reales pasaron: entrada
+  duplicada, desconexión durante entrada asíncrona, reconexión solapada, segunda
+  sala en el mismo socket y reconexión ordenada. El solapamiento se comprobó
+  también después de 15,3 s; sin participantes fantasma ni falsa salida.
+- Copilot revisó de nuevo los resultados seleccionados sin herramientas ni
+  acceso a archivos. No encontró un bloqueo nuevo; las verificaciones y sus
+  límites fueron comprobados por Codex.
+
+## Despliegue y aceptación en el dominio
+
+Una exportación limpia del commit `1270353` generó la imagen de producción:
+`npm ci --omit=dev` auditó 218 paquetes con 0 vulnerabilidades. Se recreó una
+sola vez únicamente `app` mediante `up -d --no-deps app`. Redis y Postgres
+conservaron sus IDs, imágenes, fechas de inicio y contadores de reinicios.
+Quedó la imagen anterior etiquetada `movienight-app:before-dependency-1270353`.
+
+Dentro del contenedor se verificaron Express 4.22.3, body-parser 1.20.9,
+engine.io 6.6.13, ip-address 10.7.6, proxy-addr 2.0.8 y qs 6.16.2. Los 29 archivos
+de runtime revisados coinciden con el commit por SHA-256 (texto normalizado para
+LF/CRLF y WOFF2 por bytes). Node v22.23.5; salud interna 200 y pública `ok`, con
+Redis/Postgres/R2 sanos. El cierre posterior solo cambia documentación.
+
+A = Chrome con sesión admin; B = Edge normal anónimo, confirmado en `/auth/me`
+antes/después del intento de login sintético y al terminar. Sala `45b5ea`, con
+la cinta de 8 s ya existente `metrics-test.mp4`; sin elegir/subir archivos.
+
+| Prueba | PASS/FAIL/NO PROBADO | Observado | Esperado | Errores de consola |
+|---|---|---|---|---|
+| Sesión y biblioteca | PASS | A conservó sesión y listó las cinco cintas tras recrear app; B `loggedIn:false`. | Sesión válida y acceso normal. | Ninguno registrado en A. |
+| Login inválido de B | PASS | Un intento con datos ficticios mostró «No se pudo iniciar sesión» y «Email o contraseña incorrectos. ¿Olvidaste tu contraseña?». Se canceló; B siguió anónimo. | Aviso de credenciales sin falso error de conexión. | Ninguno registrado para este paso. |
+| Entrada y roles | PASS | Contador 2, lista Deps A/Deps B; control remoto solo en A. | Dos participantes, un host. | Ninguno registrado para este paso. |
+| Chat | PASS | Mensaje de B recibido en A. | Entrega entre ambos contextos. | Ninguno registrado para este paso. |
+| Reproducción inicial | PASS | Ambos reprodujeron: lectura A 3,778833 s y B 3,781245 s. | Sincronización del video existente. | Ninguno registrado para este paso. |
+| Reconexión de B y presencia | PASS | Tras recargar B: contador/lista 2, A conservó host y el chat de A mantuvo un único aviso de entrada, sin falsa salida. | Sin duplicados ni cambio de host. | Edge registró el bloqueo de autoplay indicado debajo. |
+| Autoplay tras recarga de B | NO PROBADO | Edge rechazó una llamada automática a `play()` por falta de interacción en el documento nuevo. | Reanudar cuando el navegador lo permita; recuperación manual no comprobada. | `NotAllowedError: play() failed because the user didn't interact with the document first.` |
+| Salida explícita | PASS | A quedó con contador 1 y solo Deps A; un único «Deps B salió de la sala» tras el margen normal. | Retirar invitado y anunciar una vez. | Sin otro error registrado. |
+| Limpieza y valores finales | PASS | Sala cerrada desde admin; 0 salas/conexiones/subidas/errores R2, nadie bloqueado. Cinco interruptores Sí/Sí/Sí/Sí/No. | Panel limpio y valores por defecto. | Chrome: 0 errores/avisos en API consultada. Edge: el único error de autoplay anterior. |
+| Tercer participante, móvil y selección de archivo | NO PROBADO | No se usó C ni se eligieron archivos. | Comprobación manual reservada para la persona. | No aplica. |
+
+La consola se consultó mediante la API disponible; no equivale a capturar todos
+los errores de red del navegador. El bloqueo de autoplay se documenta como límite
+de esta comprobación, sin atribuirlo a la actualización de dependencias.
+
+Antes del commit de cierre documental se repitieron tests **223/223**, lint,
+`fonts:build -- --check` y `git diff --check`: correctos.
 
 ## Fuera de esta actualización
 
