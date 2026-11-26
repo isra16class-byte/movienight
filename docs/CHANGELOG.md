@@ -1,5 +1,12 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-26 — Migración de Multer a 2.5.0
+
+- Multer 2.5.0 para video en disco, streaming de video por Node a R2 y subtítulos en memoria. Campos multipart planos explícitos. Los límites de 8 GiB y 5 MiB ahora aceptan el tamaño exacto, y la respuesta de subtítulos indica su propio límite.
+- La cancelación corta el stream hacia R2 y borra el objeto si el SDK confirma la escritura después de que se cierre la conexión. El contador baja una vez y las cancelaciones esperadas se distinguen de fallos de R2. Los PUT directos por URL prefirmada siguen su flujo habitual.
+
+---
+
 ## 2026-11-26 — Autoplay desplegado y aceptado en el dominio
 
 - Código final `2bceabc` desplegado; dos recreaciones solo de app en el tema. Al retomar se recuperó el entorno detenido (Docker/túnel, error 1033) conservando contenedores/volúmenes. Redis/Postgres sin cambios durante la actualización final respecto al estado recuperado; app healthy, seis archivos contrastados y HTML/CSS/JS/salud públicos correctos. Inyección del beacon separada del contraste, sin relajar CSP.

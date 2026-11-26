@@ -50,6 +50,7 @@ async function fixture(t) {
   });
   app.post('/upload/:kind', (req, _res, next) => {
     if (req.params.kind === 'size') return next(new multer.MulterError('LIMIT_FILE_SIZE'));
+    if (req.params.kind === 'subtitle-size') return next(new multer.MulterError('LIMIT_FILE_SIZE', 'subtitle'));
     if (req.params.kind === 'field') return next(new multer.MulterError('LIMIT_UNEXPECTED_FILE'));
     if (req.params.kind === 'validation') {
       return next(Object.assign(new Error('El archivo no es un video válido.'), { isVideoValidationError: true }));
@@ -194,6 +195,7 @@ test('Headers enviados: delega un error saneado sin escribir otra respuesta ni l
 test('Multer, validación de video y fallos posteriores de storage conservan sus respuestas', async t => {
   const { request, state } = await fixture(t);
   assertJsonError(await request('{}', {}, '/upload/size'), 400, 'El archivo supera el límite permitido (8GB).');
+  assertJsonError(await request('{}', {}, '/upload/subtitle-size'), 400, 'El archivo supera el límite permitido (5 MB).');
   assertJsonError(await request('{}', {}, '/upload/field'), 400, 'Unexpected field');
   assertJsonError(await request('{}', {}, '/upload/validation'), 400, 'El archivo no es un video válido.');
   assertJsonError(await request('{}', {}, '/upload/storage'), 502, 'No se pudo guardar el video.');
