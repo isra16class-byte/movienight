@@ -1,5 +1,13 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Errores JSON desplegados y comprobados en el dominio
+
+- Código `58bffce` desplegado desde exportación limpia con una recreación solo de app; Redis/Postgres conservados y app healthy. `server.js`, manifiesto y lockfile coinciden por SHA-256 con el commit. Imagen anterior etiquetada para rollback.
+- HTTP interno y HTTPS del dominio: respuestas 400/413/415 y mensajes de JSON adecuados; gzip válido sin credenciales conserva la validación del login. API/salud 200 después. Chrome conserva admin/biblioteca; Edge muestra el aviso normal ante login ficticio y sigue anónimo. Panel final 0 salas/conexiones/subidas/errores R2, cinco valores por defecto y nadie bloqueado; consola sin errores/avisos nuevos en API consultada.
+- Tabla y límites en `ERRORES-JSON.md`. Sin selección de archivos ni salas nuevas; fallos internos/headers enviados y errores de storage verificados localmente, sin provocarlos en servicios reales. Cierre documental en el mismo PR #18.
+
+---
+
 ## 2026-11-25 — Respuestas propias para errores de lectura JSON
 
 - Reproducido el 502/texto de subida ante errores del parser en `/auth/login`. El callback del parser delimita su origen antes de sesión/rutas: JSON o gzip inválido 400, exceso de tamaño 413, codificación no soportada 415 y fallo interno 500. Sin cambiar opciones del parser, límite de 100 KB, autenticación o limitadores.
