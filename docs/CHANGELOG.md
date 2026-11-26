@@ -1,5 +1,13 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Aceptación de recuperación de autoplay en Edge
+
+- Probado en dominio con Chrome/admin host y Edge/anónimo: recarga durante reproducción bloquea autoplay; pulsar «Sala» permite recuperar con las sincronizaciones posteriores. Pausa y reproducción del host siguen funcionando. Sin cambios de aplicación; tabla por prueba y límites en `ACEPTACION-AUTOPLAY.md`.
+- Dos `NotAllowedError` previos a la interacción en Edge; sin errores/avisos en Chrome. Pendiente mejora de aviso de interacción y captura de rechazos de `play()` en `sync`, sin pérdida persistente de reproducción demostrada.
+- Sala `777271` cerrada desde panel; 0 salas/conexiones/subidas/errores R2, cinco valores por defecto, A admin y B anónimo confirmado. Sin archivos elegidos/subidos, contexto C ni reinicios.
+
+---
+
 ## 2026-11-25 — Errores JSON desplegados y comprobados en el dominio
 
 - Código `58bffce` desplegado desde exportación limpia con una recreación solo de app; Redis/Postgres conservados y app healthy. `server.js`, manifiesto y lockfile coinciden por SHA-256 con el commit. Imagen anterior etiquetada para rollback.

@@ -162,6 +162,11 @@ mover la barra de progreso — cualquier intento se revierte.
 
 ## Por dónde seguir
 
+**Recuperación de autoplay comprobada en Edge (2026-11-25).** Sala `777271` con cinta existente de 90 s, Chrome/admin host y Edge/anónimo. Recargar B reproduciendo provocó bloqueo real; tras pulsar «Sala» y recibir sincronizaciones, B volvió a reproducir. Pausa/reproducción posteriores desde A correctas, dos participantes y control remoto solo en A. PASS funcional; tabla y límites en `ACEPTACION-AUTOPLAY.md`.
+
+- **Observaciones:** Edge registró dos `NotAllowedError` antes de la interacción; Chrome ninguno. No hay aviso/botón específico de recuperación; los caminos de `sync`/heartbeat no capturan el rechazo de `play()`. Mejorar esos mensajes/manejo de promesas queda separado; no se comprobó una pérdida persistente de reproducción/sincronización. Lecturas de tiempo consecutivas, sin prometer precisión o latencia máxima.
+- **Cierre:** sala cerrada desde panel, 0 salas/conexiones/subidas/errores R2 y cinco valores por defecto; A admin, B anónimo confirmado en `/auth/me` y de vuelta al inicio. Solo documentación: sin cambios de aplicación, archivos elegidos/subidos, permisos del navegador ni reinicios. Siguen pendientes Multer 2.x, móvil y pruebas manuales reservadas.
+
 **Errores JSON desplegados y aceptados (2026-11-25, PR #18).** Código `58bffce` desplegado desde Git limpio con una sola recreación de app; Redis/Postgres conservaron IDs, imágenes, inicio y reinicios. App healthy y tres archivos de código/manifiestos contrastados por SHA-256. Cierre en el mismo PR, solo documental. Esta entrada cierra los pendientes de integración/despliegue/aceptación de la siguiente.
 
 - **Verificado en la app real:** HTTP interno y HTTPS del dominio: JSON/gzip inválido 400, exceso de tamaño 413, charset/compresión no soportados 415; gzip válido sin credenciales llega al error normal del login. API/salud 200 tras los errores. Chrome conserva admin y biblioteca con cinco cintas; Edge muestra el aviso correcto ante un único login ficticio y sigue anónimo en `/auth/me`. Panel final 0 salas/conexiones/subidas/errores R2, nadie bloqueado y cinco valores por defecto; API de consola sin errores/avisos nuevos. Tabla y límites en `ERRORES-JSON.md`.
