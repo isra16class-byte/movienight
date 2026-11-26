@@ -1,5 +1,21 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-25 — Dependencias desplegadas y aceptación registrada
+
+- Código/lockfile `1270353` desplegados desde Git limpio con una recreación solo de app. Redis/Postgres conservan IDs, inicio y reinicios; salud interna/pública correcta y 29 archivos coinciden con el commit. Versiones corregidas comprobadas dentro del contenedor; instalación de producción con 0 vulnerabilidades.
+- HTTP/Socket.IO real local: JSON/gzip válidos, errores sin caída, upgrades y cinco casos de presencia correctos. El 502 previo para errores del parser queda como mejora separada; no se probaron cargas malformadas contra el dominio.
+- Chrome/admin + Edge/anónimo: sesión, biblioteca, login inválido, sala, roles, chat, reproducción inicial y reconexión/presencia correctos. Edge bloqueó autoplay tras recarga; recuperación manual NO PROBADA. Sala cerrada desde panel, 0 salas/conexiones/subidas y cinco interruptores por defecto. Tabla y consola exacta en `AUDITORIA-DEPENDENCIAS.md`; cierre en el mismo PR #17.
+
+---
+
+## 2026-11-25 — Auditoría y propuesta de dependencias corregidas
+
+- Confirmadas cinco dependencias afectadas de producción y nueve incluyendo desarrollo; versiones contrastadas con runtime y avisos oficiales. Distinguida presencia de paquete de condiciones de explotación. Informe en `AUDITORIA-DEPENDENCIAS.md`, con segunda revisión limitada de Copilot y comprobaciones del coordinador.
+- Propuesta solo de lockfile: Express 4.22.3, ESLint 10.15.0 y transitivas corregidas, dentro de rangos directos existentes. Sin force/overrides ni cambios de políticas/IP/límites; Multer 2.x queda separado.
+- En exportación temporal sin `.env`/servicios reales: instalación limpia, auditoría completa/producción en 0, tests 223/223, lint y check de fuentes correctos. Pendientes integración, HTTP/Socket.IO, despliegue y navegador. Servidor de pruebas sin cambios en esta etapa; evidencias fuera de Git.
+
+---
+
 ## 2026-11-25 — Fuentes y CSP locales desplegadas y aceptadas
 
 - PR #14/#15 integrados; código `9d61e49` desplegado mediante dos recreaciones solo de app. Redis/Postgres conservados; salud interna/pública correcta y 27 archivos de runtime coinciden con el commit. Los paquetes de fuentes no se instalan en runtime.
