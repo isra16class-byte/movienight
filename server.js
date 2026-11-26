@@ -278,7 +278,33 @@ app.use(express.static(path.join(__dirname, 'public'), {
     if (/\.(html|css|js)$/i.test(filePath)) res.setHeader('Cache-Control', 'no-store');
   }
 }));
-app.use(express.json());
+// --- Lectura de JSON de la API -----------------------------------------------------------------
+// El callback delimita los errores del parser: no deben caer en el manejador de
+// subidas ni registrar err.body (podría contener credenciales). Conserva las
+// opciones por defecto de express.json(), incluido el límite de 100 KB.
+const parseJsonBody = express.json();
+app.use((req, res, next) => {
+  parseJsonBody(req, res, (err) => {
+    if (!err) return next();
+    if (res.headersSent) {
+      return next(new Error('No se pudo leer el cuerpo JSON de la solicitud.'));
+    }
+    const messages = {
+      400: 'El cuerpo JSON de la solicitud no es válido.',
+      413: 'El cuerpo JSON supera el tamaño permitido.',
+      415: 'La codificación del cuerpo JSON no está soportada.',
+    };
+    const status = [400, 413, 415].includes(err.status) ? err.status : 500;
+    const message = messages[status] || 'No se pudo leer el cuerpo JSON de la solicitud.';
+    if (status === 500) {
+      // No reenviar el error original: el parser puede adjuntarle el cuerpo.
+      const safeError = new Error(message);
+      logger.error({ err: safeError }, message);
+      reportHttpError(safeError, req, 'json parser');
+    }
+    return res.status(status).json({ error: message });
+  });
+});
 
 // --- Sesiones de usuario (Fase 2bis del plan de producción, "Sesiones") --------------------------
 // Reemplaza, para quien tiene cuenta, la idea de "confiar en lo que mande el cliente" (el esquema de
@@ -2052,6 +2078,7 @@ app.delete('/api/uploads/:filename', requireLibraryAuth, async (req, res) => {
 // rutas que usan `upload.single('video')` para poder atrapar sus errores (así funciona Express).
 app.use((err, req, res, next) => {
   if (!err) return next();
+  if (res.headersSent) return next(err);
   if (err instanceof multer.MulterError) {
     const msg = err.code === 'LIMIT_FILE_SIZE' ? 'El archivo supera el límite permitido (8GB).' : err.message;
     return res.status(400).json({ error: msg });
