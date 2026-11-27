@@ -1,5 +1,14 @@
 # 📝 Changelog (activo) — MovieNight
 
+## 2026-11-26 — Contraseña de sala al usar una cinta de la biblioteca
+
+- Al crear una sala desde la biblioteca, el botón «USAR» muestra un campo de contraseña opcional. Confirmar el campo vacío crea una sala abierta. Cancelar devuelve el foco al botón y evita la petición. El flujo para cambiar la cinta de una sala existente continúa directo.
+- El endpoint existente recibe la contraseña de sala, separada de la clave de biblioteca. Cinco regresiones con navegador simulado, suite **260/260**, lint, sintaxis y fuentes correctos. Copilot CLI revisó el diff.
+- PR #21 abierto contra `plan-produccion`. `6bb57a3` desplegado desde una exportación limpia con una recreación solo de app. Redis y Postgres conservaron IDs, imágenes, inicio y reinicios. La biblioteca y `/health` respondieron 200 por HTTPS y el JavaScript público coincidió por SHA-256 con el commit. La sala anterior sigue registrada y las métricas indican cero conexiones, subidas y errores de R2. Imagen previa `movienight-app:before-clave-sala-6bb57a3`.
+- Aceptación manual en el dominio: la persona confirmó que pudo usar la contraseña al crear una sala desde la biblioteca.
+
+---
+
 ## 2026-11-26 — Registro de pruebas móviles e invitaciones desde Android
 
 - Compatibilidad observada con `9309a07` en un Infinix GT 20 Pro con Android 16. Se comprobó la entrada a una sala, la reproducción y la vuelta desde pantalla completa a la misma sala. La persona informó que sus pruebas móviles y de subtítulos salieron bien.
