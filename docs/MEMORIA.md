@@ -164,7 +164,8 @@ mover la barra de progreso — cualquier intento se revierte.
 
 **Contraseña de sala desde la biblioteca (2026-11-26, PR #21).** «USAR» pide una contraseña opcional al crear una sala con una cinta guardada. Confirmar vacía crea una sala abierta y Cancelar evita la petición. La contraseña de sala se envía en el cuerpo y la de biblioteca conserva su cabecera. La ruta de cambio de cinta en una sala existente sigue su flujo habitual. Cinco regresiones, suite **260/260**, lint, sintaxis y fuentes correctos.
 
-- **Despliegue:** `6bb57a3` con una recreación solo de app. Redis y Postgres conservaron sus contenedores y tiempos de inicio. Biblioteca y `/health` 200 por HTTPS, JavaScript público idéntico al del commit y una sala existente recuperada, con cero conexiones, subidas y errores de R2. Pendientes aceptación interactiva en el dominio y fusión del PR.
+- **Despliegue:** `6bb57a3` con una recreación solo de app. Redis y Postgres conservaron sus contenedores y tiempos de inicio. Biblioteca y `/health` 200 por HTTPS, JavaScript público idéntico al del commit y una sala existente recuperada, con cero conexiones, subidas y errores de R2.
+- **Aceptación manual:** la persona confirmó que pudo usar la contraseña al crear una sala desde la biblioteca en el dominio. Pendiente la fusión del PR #21.
 
 **Pruebas móviles y compatibilidad Android (2026-11-26).** Se contrastó Android con la referencia web `9309a07`. En un Infinix GT 20 Pro con Android 16 se observó ingreso a una sala, reproducción de una cinta existente, entrada a pantalla completa y vuelta a la misma sala con el rol y la reproducción conservados. La persona informó que sus pruebas móviles y de subtítulos salieron bien, sin detallar el navegador ni cada paso. La aceptación de autoplay del PR #19 corresponde a escritorio y la subida de `.srt` en la web está registrada en el PR #20. El corte de Wi-Fi para observar la reconexión quedó pendiente por decisión de la persona.
 
